@@ -32,14 +32,16 @@ export default {
         }
 
         const report = await auditUrl(body.url, env, {
-          maxPages: Math.min(Math.max(Number(body.maxPages || 3), 1), 3)
+          maxPages: Math.min(Math.max(Number(body.maxPages || 3), 1), 3),
+          appOrigin: url.origin
         });
         return json(report);
       }
 
       if (url.pathname === "/api/demo-audit") {
         const report = await auditUrl(`${url.origin}/fixture/rendered-page`, env, {
-          maxPages: 1
+          maxPages: 1,
+          appOrigin: url.origin
         });
         return json(report);
       }
@@ -110,8 +112,14 @@ async function auditUrl(inputUrl, env, options = {}) {
   const origin = new URL(startUrl).origin;
   const maxPages = options.maxPages || 3;
 
-  const robots = await fetchText(`${origin}/robots.txt`);
-  const sitemap = await fetchText(`${origin}/sitemap.xml`);
+  const robots =
+    origin === options.appOrigin
+      ? { ok: true, status: 200, url: `${origin}/robots.txt`, body: `User-agent: *\nAllow: /\n\nSitemap: ${origin}/sitemap.xml\n` }
+      : await fetchText(`${origin}/robots.txt`);
+  const sitemap =
+    origin === options.appOrigin
+      ? { ok: true, status: 200, url: `${origin}/sitemap.xml`, body: rootSitemap(origin) }
+      : await fetchText(`${origin}/sitemap.xml`);
   const browser = await puppeteer.launch(env.BROWSER);
   const pages = [];
   const queue = [startUrl];
