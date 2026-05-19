@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="SEO Fix Kit repair report">
+  <rect width="1200" height="630" fill="#f5f4ef"/>
+  <path d="M0 0h1200v630H0z" fill="#f5f4ef"/>
+  <path d="M0 0h1200v630H0z" fill="none" stroke="#dfd9cb" stroke-width="2"/>
+  <rect x="72" y="72" width="326" height="486" rx="20" fill="#fffdfa" stroke="#dfd9cb" stroke-width="2"/>
+  <rect x="118" y="118" width="64" height="64" rx="12" fill="#171714"/>
+  <rect x="141" y="118" width="18" height="64" fill="#0c6b4f"/>
+  <text x="150" y="157" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="800" fill="#fff">SFK</text>
+  <text x="118" y="242" font-family="Inter, Arial, sans-serif" font-size="72" font-weight="850" letter-spacing="0" fill="#171714">SEO fixes</text>
+  <text x="118" y="320" font-family="Inter, Arial, sans-serif" font-size="72" font-weight="850" letter-spacing="0" fill="#171714">with receipts.</text>
+  <text x="118" y="388" font-family="Inter, Arial, sans-serif" font-size="28" fill="#6f6b61">Audit it. Prove it. Fix it.</text>
+  <rect x="118" y="454" width="176" height="58" rx="12" fill="#0c6b4f"/>
+  <text x="206" y="491" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="22" font-weight="760" fill="#fff">Run audit</text>
+  <rect x="458" y="72" width="670" height="486" rx="20" fill="#fffdfa" stroke="#dfd9cb" stroke-width="2"/>
+  <rect x="510" y="124" width="188" height="96" rx="12" fill="#171714"/>
+  <text x="604" y="181" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="46" font-weight="850" fill="#fff">93</text>
+  <text x="604" y="206" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" fill="#d8f2e7">score</text>
+  <rect x="730" y="124" width="150" height="96" rx="12" fill="#d8f2e7" stroke="#b8ddcf"/>
+  <text x="805" y="162" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" fill="#2d2b25">Proof</text>
+  <text x="805" y="196" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="850" fill="#0c6b4f">8</text>
+  <rect x="910" y="124" width="150" height="96" rx="12" fill="#fff5dc" stroke="#e2cf96"/>
+  <text x="985" y="162" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" fill="#2d2b25">Fixes</text>
+  <text x="985" y="196" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="850" fill="#9f6500">3</text>
+  <rect x="510" y="270" width="550" height="68" rx="12" fill="#ffffff" stroke="#dfd9cb"/>
+  <circle cx="546" cy="304" r="10" fill="#0e6c4f"/>
+  <text x="574" y="312" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="760" fill="#171714">Rendered DOM checked</text>
+  <rect x="510" y="362" width="550" height="68" rx="12" fill="#ffffff" stroke="#dfd9cb"/>
+  <circle cx="546" cy="396" r="10" fill="#9f6500"/>
+  <text x="574" y="404" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="760" fill="#171714">Social image fix generated</text>
+  <rect x="510" y="454" width="550" height="68" rx="12" fill="#ffffff" stroke="#dfd9cb"/>
+  <circle cx="546" cy="488" r="10" fill="#455f91"/>
+  <text x="574" y="496" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="760" fill="#171714">Schema starter pack ready</text>
+</svg>

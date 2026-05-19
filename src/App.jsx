@@ -163,6 +163,12 @@ export default function App() {
           <span>Fix pack</span>
         </section>
 
+        <nav className="resource-links" aria-label="Site resources">
+          <a href="/llms.txt">AI guide</a>
+          <a href="/sitemap.xml">Sitemap</a>
+          <a href="/robots.txt">Robots</a>
+        </nav>
+
         {loading && <LoadingCard />}
         {error && <div className="error-card">{error}</div>}
         {report && <SummaryPanel report={report} firstPage={firstPage} />}

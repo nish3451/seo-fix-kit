@@ -255,6 +255,22 @@ a {
   width: 7px;
 }
 
+.resource-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.resource-links a {
+  background: rgba(255, 253, 250, 0.74);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  min-height: 36px;
+  padding: 8px 10px;
+}
+
 .loading-card,
 .error-card,
 .summary-panel {
