@@ -4,6 +4,10 @@
   "main": "worker/index.js",
   "workers_dev": true,
   "preview_urls": true,
+  "routes": [
+    { "pattern": "seofixkit.com", "custom_domain": true },
+    { "pattern": "www.seofixkit.com", "custom_domain": true }
+  ],
   "compatibility_date": "2026-05-19",
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
