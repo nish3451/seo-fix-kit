@@ -593,6 +593,14 @@ async function fetchText(url) {
 function isHtmlResponse(fetchResult, url) {
   const contentType = (fetchResult.contentType || "").toLowerCase();
   if (contentType.includes("text/html") || contentType.includes("application/xhtml+xml")) return true;
+  if (
+    isLikelyHtmlUrl(url) &&
+    (contentType.includes("application/octet-stream") ||
+      contentType.includes("binary/octet-stream") ||
+      contentType.includes("text/plain"))
+  ) {
+    return true;
+  }
   if (contentType) return false;
   return isLikelyHtmlUrl(url);
 }
