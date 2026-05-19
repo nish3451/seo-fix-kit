@@ -2,6 +2,8 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "proof-seo",
   "main": "worker/index.js",
+  "workers_dev": true,
+  "preview_urls": true,
   "compatibility_date": "2026-05-19",
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
@@ -18,4 +20,3 @@
     "binding": "BROWSER"
   }
 }
-

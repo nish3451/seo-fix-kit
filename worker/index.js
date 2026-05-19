@@ -63,6 +63,18 @@ export default {
         );
       }
 
+      if (url.pathname === "/robots.txt") {
+        return new Response(`User-agent: *\nAllow: /\n\nSitemap: ${url.origin}/sitemap.xml\n`, {
+          headers: { "content-type": "text/plain; charset=utf-8" }
+        });
+      }
+
+      if (url.pathname === "/sitemap.xml") {
+        return new Response(rootSitemap(url.origin), {
+          headers: { "content-type": "application/xml; charset=utf-8" }
+        });
+      }
+
       if (url.pathname === "/llms.txt") {
         return new Response(llmsText(url.origin), {
           headers: { "content-type": "text/plain; charset=utf-8" }
@@ -760,3 +772,9 @@ Start at ${origin}/.
 `;
 }
 
+function rootSitemap(origin) {
+  const urls = ["/", "/llms.txt"];
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls
+    .map((path) => `<url><loc>${origin}${path}</loc></url>`)
+    .join("")}</urlset>`;
+}
