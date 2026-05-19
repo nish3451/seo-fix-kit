@@ -9,17 +9,28 @@ const severityRank = {
   good: 3
 };
 
+const filterLabels = {
+  all: "All",
+  critical: "Critical",
+  warning: "Warnings",
+  notice: "Notes",
+  good: "Passed"
+};
+
 export default function App() {
   const [url, setUrl] = useState(sampleUrl);
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [selectedSeverity, setSelectedSeverity] = useState("all");
+  const [copiedKey, setCopiedKey] = useState("");
 
   async function runAudit(event) {
     event?.preventDefault();
     setLoading(true);
     setError("");
+    setCopiedKey("");
+
     try {
       const response = await fetch("/api/audit", {
         method: "POST",
@@ -41,6 +52,8 @@ export default function App() {
   async function runDemoAudit() {
     setLoading(true);
     setError("");
+    setCopiedKey("");
+
     try {
       const response = await fetch("/api/demo-audit");
       const payload = await response.json();
@@ -56,6 +69,24 @@ export default function App() {
     }
   }
 
+  async function copySnippet(key, value) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(value);
+        } catch {
+          fallbackCopy(value);
+        }
+      } else {
+        fallbackCopy(value);
+      }
+      setCopiedKey(key);
+      window.setTimeout(() => setCopiedKey(""), 1500);
+    } catch {
+      setCopiedKey("");
+    }
+  }
+
   const findings = useMemo(() => {
     if (!report?.findings) return [];
     return [...report.findings]
@@ -67,15 +98,20 @@ export default function App() {
   }, [report, selectedSeverity]);
 
   const firstPage = report?.pages?.[0];
+  const hostname = report ? new URL(report.url).hostname : "";
 
   return (
     <main className="app-shell">
-      <section className="left-rail">
+      <aside className="left-rail">
         <div className="brand">
-          <span className="brand-mark">P</span>
+          <span className="brand-mark" aria-hidden="true">
+            <span>S</span>
+            <span>F</span>
+            <span>K</span>
+          </span>
           <div>
-            <p>Proof SEO</p>
-            <span>Verified repair reports</span>
+            <p>SEO Fix Kit</p>
+            <span>Audit it. Prove it. Fix it.</span>
           </div>
         </div>
 
@@ -90,52 +126,47 @@ export default function App() {
               type="url"
             />
             <button disabled={loading} type="submit">
-              {loading ? "Auditing" : "Audit"}
+              {loading ? "Checking" : "Run audit"}
             </button>
           </div>
-          <button
-            className="text-button"
-            disabled={loading}
-            onClick={() => setUrl(sampleUrl)}
-            type="button"
-          >
-            Use AI Converter sample
-          </button>
-          <button
-            className="text-button"
-            disabled={loading}
-            onClick={runDemoAudit}
-            type="button"
-          >
-            Run false-positive demo
-          </button>
+          <div className="quick-actions">
+            <button
+              className="text-button"
+              disabled={loading}
+              onClick={() => setUrl(sampleUrl)}
+              type="button"
+            >
+              Use sample
+            </button>
+            <button
+              className="text-button"
+              disabled={loading}
+              onClick={runDemoAudit}
+              type="button"
+            >
+              Show false-positive trap
+            </button>
+          </div>
         </form>
 
-        <div className="promise-block">
-          <h1>Find the issue. Prove it. Generate the fix.</h1>
+        <section className="promise-block">
+          <h1>SEO fixes with receipts.</h1>
           <p>
-            This scanner renders the page before judging it, then separates real
-            SEO repairs from crawler false positives.
+            A repair report that renders the page, shows the evidence, and gives
+            you copy-paste fixes.
           </p>
-        </div>
+        </section>
 
-        {loading && (
-          <div className="loading-card">
-            <div className="spinner" />
-            <div>
-              <strong>Rendering pages</strong>
-              <p>
-                Checking static HTML, browser-rendered DOM, links, schema, and
-                fixable metadata.
-              </p>
-            </div>
-          </div>
-        )}
+        <section className="receipt-strip" aria-label="Audit path">
+          <span>Scan</span>
+          <span>Proof</span>
+          <span>Fix pack</span>
+        </section>
 
+        {loading && <LoadingCard />}
         {error && <div className="error-card">{error}</div>}
-
         {report && <SummaryPanel report={report} firstPage={firstPage} />}
-      </section>
+      </aside>
 
       <section className="results-area">
         {!report && !loading && (
@@ -144,30 +175,53 @@ export default function App() {
 
         {report && (
           <>
-            <div className="results-header">
-              <div>
-                <p className="eyebrow">Audit report</p>
-                <h2>{new URL(report.url).hostname}</h2>
-                <span>
+            <header className="results-header">
+              <div className="report-title">
+                <span>Repair report</span>
+                <h2>{hostname}</h2>
+                <p>
                   {report.summary.pagesScanned} pages scanned in{" "}
                   {Math.round(report.durationMs / 100) / 10}s
-                </span>
+                </p>
               </div>
               <div className="score-card">
-                <span>{report.score}</span>
-                <p>repair score</p>
+                <strong>{report.score}</strong>
+                <span>score</span>
               </div>
-            </div>
+            </header>
+
+            <section className="signal-bar" aria-label="Report summary">
+              <Signal
+                label="Critical"
+                tone="critical"
+                value={report.summary.critical}
+              />
+              <Signal
+                label="Warnings"
+                tone="warning"
+                value={report.summary.warnings}
+              />
+              <Signal
+                label="False positives avoided"
+                tone="good"
+                value={report.summary.guardedFalsePositives}
+              />
+              <Signal
+                label="Fixes ready"
+                tone="neutral"
+                value={report.fixPack.length}
+              />
+            </section>
 
             <div className="filter-row" aria-label="Filter findings">
-              {["all", "critical", "warning", "notice", "good"].map((item) => (
+              {Object.keys(filterLabels).map((item) => (
                 <button
                   className={selectedSeverity === item ? "active" : ""}
                   key={item}
                   onClick={() => setSelectedSeverity(item)}
                   type="button"
                 >
-                  {item}
+                  {filterLabels[item]}
                 </button>
               ))}
             </div>
@@ -186,7 +240,7 @@ export default function App() {
               <ProofMetric
                 label="Internal links"
                 value={firstPage?.rendered?.internalLinks?.length ?? "-"}
-                detail="Normal anchor links"
+                detail="Crawlable site paths"
               />
               <ProofMetric
                 label="Schema types"
@@ -197,21 +251,33 @@ export default function App() {
               />
             </section>
 
-            <section className="findings-list">
+            <section className="findings-list" aria-label="Findings">
               {findings.map((finding) => (
-                <FindingCard key={finding.id} finding={finding} />
+                <FindingCard
+                  copiedKey={copiedKey}
+                  finding={finding}
+                  key={finding.id}
+                  onCopy={copySnippet}
+                />
               ))}
+              {!findings.length && (
+                <div className="clear-state">
+                  No findings in this filter.
+                </div>
+              )}
             </section>
 
             <section className="fix-pack">
-              <div>
-                <p className="eyebrow">Reusable fixes</p>
-                <h3>Starter code pack</h3>
+              <div className="section-heading">
+                <span>Starter kit</span>
+                <h3>Copy-paste fixes</h3>
               </div>
               {report.fixPack.map((fix) => (
                 <CodeBlock
                   body={fix.body}
+                  copied={copiedKey === fix.title}
                   key={fix.title}
+                  onCopy={() => copySnippet(fix.title, fix.snippet)}
                   title={fix.title}
                   value={fix.snippet}
                 />
@@ -224,22 +290,63 @@ export default function App() {
   );
 }
 
+function fallbackCopy(value) {
+  const field = document.createElement("textarea");
+  field.value = value;
+  field.setAttribute("readonly", "");
+  field.style.position = "fixed";
+  field.style.left = "-999px";
+  document.body.append(field);
+  field.select();
+  document.execCommand("copy");
+  field.remove();
+}
+
 function EmptyState({ onDemo, onRun }) {
   return (
     <div className="empty-state">
-      <p className="eyebrow">Working MVP</p>
-      <h2>No false-positive SEO homework.</h2>
-      <p>
-        Run the sample to see the core wedge: rendered-page facts, guarded
-        crawler mistakes, and exact repair snippets.
-      </p>
-      <div className="empty-actions">
-        <button onClick={onDemo} type="button">
-          Run false-positive demo
-        </button>
-        <button className="secondary-action" onClick={onRun} type="button">
-          Audit sample site
-        </button>
+      <div className="empty-copy">
+        <h2>A repair report you can ship.</h2>
+        <p>
+          Start with any public URL. The kit returns the issue, the proof, and a
+          clean first fix.
+        </p>
+        <div className="empty-actions">
+          <button onClick={onRun} type="button">
+            Audit sample site
+          </button>
+          <button className="secondary-action" onClick={onDemo} type="button">
+            Run demo
+          </button>
+        </div>
+      </div>
+      <div className="preview-board" aria-hidden="true">
+        <div className="preview-line good" />
+        <div className="preview-row">
+          <span>H1 exists after render</span>
+          <strong>Guarded</strong>
+        </div>
+        <div className="preview-row">
+          <span>Internal links found</span>
+          <strong>Guarded</strong>
+        </div>
+        <div className="preview-row warning">
+          <span>Social image incomplete</span>
+          <strong>Fix</strong>
+        </div>
+        <pre>{'<meta property="og:image" content="/og.png" />'}</pre>
+      </div>
+    </div>
+  );
+}
+
+function LoadingCard() {
+  return (
+    <div className="loading-card">
+      <div className="spinner" />
+      <div>
+        <strong>Rendering pages</strong>
+        <p>Checking HTML, browser DOM, links, schema, and metadata.</p>
       </div>
     </div>
   );
@@ -262,7 +369,7 @@ function SummaryPanel({ report, firstPage }) {
           <dd>{report.summary.warnings}</dd>
         </div>
         <div>
-          <dt>False positives guarded</dt>
+          <dt>Guarded</dt>
           <dd>{report.summary.guardedFalsePositives}</dd>
         </div>
       </dl>
@@ -277,6 +384,15 @@ function SummaryPanel({ report, firstPage }) {
   );
 }
 
+function Signal({ label, tone, value }) {
+  return (
+    <article className={`signal ${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </article>
+  );
+}
+
 function ProofMetric({ label, value, detail }) {
   return (
     <article className="proof-card">
@@ -287,7 +403,7 @@ function ProofMetric({ label, value, detail }) {
   );
 }
 
-function FindingCard({ finding }) {
+function FindingCard({ copiedKey, finding, onCopy }) {
   return (
     <article className={`finding-card ${finding.severity}`}>
       <div className="finding-top">
@@ -308,24 +424,38 @@ function FindingCard({ finding }) {
           <strong>Fix:</strong> {finding.fix}
         </p>
       </div>
-      {finding.source && (
-        <a href={finding.source} rel="noreferrer" target="_blank">
-          Source guidance
-        </a>
-      )}
+      <div className="finding-actions">
+        {finding.source && (
+          <a href={finding.source} rel="noreferrer" target="_blank">
+            Source guidance
+          </a>
+        )}
+      </div>
       {finding.snippet && (
-        <CodeBlock title="Exact fix" value={finding.snippet} />
+        <CodeBlock
+          copied={copiedKey === finding.id}
+          onCopy={() => onCopy(finding.id, finding.snippet)}
+          title="Exact fix"
+          value={finding.snippet}
+        />
       )}
     </article>
   );
 }
 
-function CodeBlock({ body, title, value }) {
+function CodeBlock({ body, copied, onCopy, title, value }) {
   return (
     <div className="code-block">
-      <div>
-        <strong>{title}</strong>
-        {body && <p>{body}</p>}
+      <div className="code-heading">
+        <div>
+          <strong>{title}</strong>
+          {body && <p>{body}</p>}
+        </div>
+        {onCopy && (
+          <button onClick={onCopy} type="button">
+            {copied ? "Copied" : "Copy"}
+          </button>
+        )}
       </div>
       <pre>
         <code>{value}</code>

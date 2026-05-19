@@ -15,7 +15,7 @@ app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/api/health", (req, res) => {
-  res.json({ ok: true, service: "proof-seo", version: "0.1.0" });
+  res.json({ ok: true, service: "seo-fix-kit", version: "0.3.0" });
 });
 
 app.get("/api/demo-audit", async (req, res) => {
@@ -66,7 +66,7 @@ app.get("/fixture/rendered-page", (req, res) => {
       document.getElementById("app").innerHTML = \`
         <main>
           <h1>Rendered SaaS page with real content</h1>
-          <p>This demo intentionally ships a thin static shell, then renders the real page content with JavaScript. A weak static-only SEO audit would say the page has no H1, no internal links, and thin content. Proof SEO should not make that mistake.</p>
+          <p>This demo intentionally ships a thin static shell, then renders the real page content with JavaScript. A weak static-only SEO audit would say the page has no H1, no internal links, and thin content. SEO Fix Kit should not make that mistake.</p>
           <p>Founders need verified findings, not busywork. The page includes enough rendered text to show that the final browser-visible page is materially different from the raw HTML response.</p>
           <p>Use this fixture to prove that the audit sees what users and modern rendering systems see after JavaScript runs. The report should guard false positives instead of telling the user to add duplicate headings or unnecessary internal links.</p>
           <p>The right output is evidence, confidence, and a practical fix only when a real fix is needed.</p>
@@ -99,5 +99,5 @@ app.get(/.*/, (req, res) => {
 });
 
 app.listen(port, "127.0.0.1", () => {
-  console.log(`Proof SEO server running at http://127.0.0.1:${port}`);
+  console.log(`SEO Fix Kit server running at http://127.0.0.1:${port}`);
 });

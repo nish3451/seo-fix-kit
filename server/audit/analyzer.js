@@ -120,7 +120,7 @@ async function extractRenderedFacts(browser, url) {
   const context = await browser.newContext({
     viewport: { width: 1366, height: 900 },
     userAgent:
-      "ProofSEO/0.1 (+https://proof-seo.local; rendered SEO audit; respectful crawl)"
+      "SEOFixKit/0.3 (+https://seo-fix-kit.local; rendered SEO audit; respectful crawl)"
   });
   const page = await context.newPage();
   const started = Date.now();
@@ -672,7 +672,7 @@ async function fetchText(url) {
       redirect: "follow",
       headers: {
         "user-agent":
-          "ProofSEO/0.1 (+https://proof-seo.local; evidence-backed SEO audit)"
+          "SEOFixKit/0.3 (+https://seo-fix-kit.local; evidence-backed SEO audit)"
       },
       signal: AbortSignal.timeout(15000)
     });

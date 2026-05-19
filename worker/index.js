@@ -18,10 +18,10 @@ export default {
       if (url.pathname === "/api/health") {
         return json({
           ok: true,
-          service: "proof-seo",
+          service: "seo-fix-kit",
           runtime: "cloudflare-worker",
           browserRun: Boolean(env.BROWSER),
-          version: "0.2.0"
+          version: "0.3.0"
         });
       }
 
@@ -566,7 +566,7 @@ async function fetchText(url) {
   try {
     const response = await fetch(url, {
       redirect: "follow",
-      headers: { "user-agent": "ProofSEO/0.2 (+https://proof-seo.local)" }
+      headers: { "user-agent": "SEOFixKit/0.3 (+https://seo-fix-kit.local)" }
     });
     const contentType = response.headers.get("content-type") || "";
     const body =
@@ -730,7 +730,7 @@ function renderedFixture(origin) {
       document.getElementById("app").innerHTML = \`
         <main>
           <h1>Rendered SaaS page with real content</h1>
-          <p>This demo intentionally ships a thin static shell, then renders the real page content with JavaScript. A weak static-only SEO audit would say the page has no H1, no internal links, and thin content. Proof SEO should not make that mistake.</p>
+          <p>This demo intentionally ships a thin static shell, then renders the real page content with JavaScript. A weak static-only SEO audit would say the page has no H1, no internal links, and thin content. SEO Fix Kit should not make that mistake.</p>
           <p>Founders need verified findings, not busywork. The page includes enough rendered text to show that the final browser-visible page is materially different from the raw HTML response.</p>
           <p>Use this fixture to prove that the audit sees what users and modern rendering systems see after JavaScript runs. The report should guard false positives instead of telling the user to add duplicate headings or unnecessary internal links.</p>
           <p>The right output is evidence, confidence, and a practical fix only when a real fix is needed.</p>
@@ -747,15 +747,16 @@ function renderedFixture(origin) {
 }
 
 function llmsText(origin) {
-  return `# Proof SEO
+  return `# SEO Fix Kit
 
-Proof SEO is a proof-backed SEO repair tool.
+SEO Fix Kit audits a website, proves what is wrong, and generates a first repair pack.
 
 Live product claims:
 - Renders pages before judging common SEO issues.
 - Compares static HTML against rendered DOM.
 - Shows evidence for findings.
-- Generates starter fix snippets for metadata, social previews, canonical tags, and schema.
+- Generates starter fix snippets for metadata, social previews, canonical tags, robots, sitemaps, and schema.
+- Guards common false positives on JavaScript-rendered pages.
 
 Current product boundary:
 - Does not provide backlink databases.
@@ -770,11 +771,11 @@ Useful routes:
 }
 
 function homeMarkdown(origin) {
-  return `# Proof SEO
+  return `# SEO Fix Kit
 
-Tell me what is wrong with my site, prove it, and generate the fix.
+Audit it. Prove it. Fix it.
 
-Proof SEO renders pages before judging them, compares static HTML against rendered DOM, and separates real SEO repairs from crawler false positives.
+SEO Fix Kit returns an evidence-backed SEO repair report. It renders pages before judging them, compares static HTML against rendered DOM, separates real SEO repairs from crawler false positives, and generates copy-paste starter fixes.
 
 Start at ${origin}/.
 `;

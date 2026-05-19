@@ -1,6 +1,6 @@
 # Build Prompt
 
-Build a local SaaS MVP called Proof SEO.
+Build a local SaaS MVP called SEO Fix Kit.
 
 The product promise is: "Tell me what is wrong with my site, prove it, and generate the fix."
 

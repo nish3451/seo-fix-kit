@@ -1,6 +1,6 @@
-# Proof SEO
+# SEO Fix Kit
 
-Proof SEO is a local MVP for proof-backed SEO repair reports.
+SEO Fix Kit is a proof-backed SEO repair tool for sites that need clear fixes, not generic audit homework.
 
 It is not trying to replace Ahrefs or Semrush keyword and backlink databases. The first wedge is narrower and sharper:
 
@@ -49,6 +49,19 @@ Dry-run build:
 
 ```bash
 npm run cf:dry-run
+```
+
+## Custom domain
+
+`seofixkit.com` is the intended production domain. It currently needs DNS moved from Porkbun to Cloudflare or a Cloudflare zone with the right DNS records before the Worker can answer on that hostname.
+
+After the zone is active on Cloudflare, add the custom domains to `wrangler.jsonc` and deploy:
+
+```jsonc
+"routes": [
+  { "pattern": "seofixkit.com", "custom_domain": true },
+  { "pattern": "www.seofixkit.com", "custom_domain": true }
+]
 ```
 
 ## Product boundary

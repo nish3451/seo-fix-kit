@@ -1,5 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://proof-seo.nishant345.workers.dev/sitemap.xml
-
+Sitemap: https://seofixkit.com/sitemap.xml

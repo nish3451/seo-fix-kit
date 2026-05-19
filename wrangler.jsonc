@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "proof-seo",
+  "name": "seo-fix-kit",
   "main": "worker/index.js",
   "workers_dev": true,
   "preview_urls": true,
