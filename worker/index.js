@@ -132,12 +132,18 @@ async function auditUrl(inputUrl, env, options = {}) {
       visited.add(nextUrl);
 
       const page = await inspectPage(nextUrl, browser);
+      if (!page.isHtml) continue;
       pages.push(page);
 
       for (const link of page.rendered.internalLinks) {
         const href = stripHash(link.href);
         if (!href.startsWith(origin)) continue;
-        if (!visited.has(href) && !queue.includes(href) && queue.length + pages.length < maxPages) {
+        if (
+          isLikelyHtmlUrl(href) &&
+          !visited.has(href) &&
+          !queue.includes(href) &&
+          queue.length + pages.length < maxPages
+        ) {
           queue.push(href);
         }
       }
@@ -171,13 +177,16 @@ async function auditUrl(inputUrl, env, options = {}) {
 
 async function inspectPage(url, browser) {
   const staticFetch = await fetchText(url);
+  const isHtml = isHtmlResponse(staticFetch, url);
   const staticFacts = extractStaticFacts(staticFetch.body || "", url, staticFetch);
-  const rendered = await extractRenderedFacts(browser, url);
+  const rendered = isHtml ? await extractRenderedFacts(browser, url) : staticFacts;
 
   return {
     url,
     status: staticFetch.status,
     ok: staticFetch.ok,
+    contentType: staticFetch.contentType,
+    isHtml,
     static: staticFacts,
     rendered
   };
@@ -575,9 +584,25 @@ async function fetchText(url) {
       contentType.includes("xml")
         ? await readTextLimited(response, MAX_HTML_BYTES)
         : "";
-    return { ok: response.ok, status: response.status, url: response.url, body };
+    return { ok: response.ok, status: response.status, url: response.url, contentType, body };
   } catch (error) {
-    return { ok: false, status: null, url, body: "", error: error.message };
+    return { ok: false, status: null, url, contentType: "", body: "", error: error.message };
+  }
+}
+
+function isHtmlResponse(fetchResult, url) {
+  const contentType = (fetchResult.contentType || "").toLowerCase();
+  if (contentType.includes("text/html") || contentType.includes("application/xhtml+xml")) return true;
+  if (contentType) return false;
+  return isLikelyHtmlUrl(url);
+}
+
+function isLikelyHtmlUrl(value) {
+  try {
+    const pathname = new URL(value).pathname.toLowerCase();
+    return !/\.(txt|xml|json|csv|pdf|png|jpe?g|gif|webp|svg|ico|css|js|map|zip)$/i.test(pathname);
+  } catch {
+    return false;
   }
 }
 

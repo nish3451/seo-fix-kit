@@ -43,13 +43,14 @@ export async function auditUrl(inputUrl, options = {}) {
     visited.add(normalized);
 
     const page = await inspectPage(normalized, browser);
+    if (!page.isHtml) continue;
     pages.push(page);
 
     for (const link of page.rendered.internalLinks) {
       if (pages.length + queue.length >= maxPages) break;
       const href = stripHash(link.href);
       if (!href.startsWith(origin)) continue;
-      if (!visited.has(href) && !queue.includes(href)) {
+      if (isLikelyHtmlUrl(href) && !visited.has(href) && !queue.includes(href)) {
         queue.push(href);
       }
     }
@@ -88,11 +89,12 @@ export async function auditUrl(inputUrl, options = {}) {
 
 async function inspectPage(url, browser) {
   const staticFetch = await fetchText(url);
+  const isHtml = isHtmlResponse(staticFetch, url);
   const staticFacts = extractStaticFacts(staticFetch.body || "", url, staticFetch);
   let renderedFacts = null;
   let renderedError = null;
 
-  if (browser) {
+  if (browser && isHtml) {
     try {
       renderedFacts = await extractRenderedFacts(browser, url);
     } catch (error) {
@@ -110,6 +112,8 @@ async function inspectPage(url, browser) {
     url,
     status: staticFetch.status,
     ok: staticFetch.ok,
+    contentType: staticFetch.contentType,
+    isHtml,
     static: staticFacts,
     rendered,
     renderError: renderedError
@@ -684,6 +688,7 @@ async function fetchText(url) {
       ok: response.ok,
       status: response.status,
       url: response.url,
+      contentType,
       body
     };
   } catch (error) {
@@ -691,9 +696,26 @@ async function fetchText(url) {
       ok: false,
       status: null,
       url,
+      contentType: "",
       body: "",
       error: error.message
     };
+  }
+}
+
+function isHtmlResponse(fetchResult, url) {
+  const contentType = (fetchResult.contentType || "").toLowerCase();
+  if (contentType.includes("text/html") || contentType.includes("application/xhtml+xml")) return true;
+  if (contentType) return false;
+  return isLikelyHtmlUrl(url);
+}
+
+function isLikelyHtmlUrl(value) {
+  try {
+    const pathname = new URL(value).pathname.toLowerCase();
+    return !/\.(txt|xml|json|csv|pdf|png|jpe?g|gif|webp|svg|ico|css|js|map|zip)$/i.test(pathname);
+  } catch {
+    return false;
   }
 }
 

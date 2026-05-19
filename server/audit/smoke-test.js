@@ -52,6 +52,11 @@ const fixtureServer = http.createServer((req, res) => {
 </urlset>`);
     return;
   }
+  if (req.url === "/llms.txt") {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.end("# Fixture\n\nThis is an AI-readable utility file, not an HTML page.");
+    return;
+  }
   res.writeHead(200, { "content-type": "text/html" });
   res.end(`<!doctype html>
 <html lang="en">
@@ -63,7 +68,7 @@ const fixtureServer = http.createServer((req, res) => {
   <body>
     <div id="root">Shell</div>
     <script>
-      document.getElementById("root").innerHTML = '<main><h1>Rendered page title</h1><p>' + 'Useful rendered content. '.repeat(260) + '</p><a href="/about">About</a></main>';
+      document.getElementById("root").innerHTML = '<main><h1>Rendered page title</h1><p>' + 'Useful rendered content. '.repeat(260) + '</p><a href="/llms.txt">AI guide</a><a href="/about">About</a></main>';
     </script>
   </body>
 </html>`);
@@ -72,7 +77,7 @@ const fixtureServer = http.createServer((req, res) => {
 await new Promise((resolve) => fixtureServer.listen(0, "127.0.0.1", resolve));
 const address = fixtureServer.address();
 const fixtureUrl = `http://127.0.0.1:${address.port}/`;
-const fixtureReport = await auditUrl(fixtureUrl, { maxPages: 1 });
+const fixtureReport = await auditUrl(fixtureUrl, { maxPages: 2 });
 fixtureServer.close();
 
 const guarded = fixtureReport.findings.filter(
@@ -81,6 +86,10 @@ const guarded = fixtureReport.findings.filter(
 
 if (guarded.length < 2) {
   throw new Error("False-positive guard findings were not created for rendered fixture.");
+}
+
+if (fixtureReport.pages.some((page) => page.url.endsWith("/llms.txt"))) {
+  throw new Error("Plain-text utility files should not be audited as HTML pages.");
 }
 
 console.log(
