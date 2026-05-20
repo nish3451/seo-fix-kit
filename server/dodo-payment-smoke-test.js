@@ -4,6 +4,12 @@ import {
   extractDodoPayment,
   verifyDodoWebhookSignature
 } from "../shared/dodo.js";
+import {
+  buildPaymentNotificationEmail,
+  fixRequestStatusLabel,
+  isResendEmailConfigured,
+  normalizeFixRequestStatus
+} from "../shared/fulfillment.js";
 
 const secret = "test_webhook_secret";
 const payload = JSON.stringify({
@@ -55,8 +61,33 @@ assert.equal(payment.metadataProductKey, "seofixkit_fix_pack");
 assert.deepEqual(payment.productIds, ["pdt_fix_pack"]);
 assert.equal(dodoProductMatches(payment, "pdt_fix_pack"), true);
 assert.equal(dodoProductMatches(payment, "pdt_other"), false);
+assert.equal(normalizeFixRequestStatus("in_progress"), "in_progress");
+assert.equal(normalizeFixRequestStatus("nonsense"), "new");
+assert.equal(fixRequestStatusLabel("delivered"), "Delivered");
+assert.equal(isResendEmailConfigured({}), false);
+assert.equal(
+  isResendEmailConfigured({
+    RESEND_API_KEY: "re_test",
+    SEOFIXKIT_EMAIL_FROM: "SEO Fix Kit <hello@seofixkit.com>"
+  }),
+  true
+);
 
-console.log(JSON.stringify({ ok: true, checked: "dodo payment helpers" }));
+const notification = buildPaymentNotificationEmail({
+  appOrigin: "https://seofixkit.com",
+  fixRequest: {
+    report_id: "report_123",
+    target_host: "example.com",
+    target_url: "https://example.com/"
+  },
+  report: {},
+  payment,
+  recipientType: "owner"
+});
+assert.equal(notification.subject.includes("example.com"), true);
+assert.equal(notification.text.includes("No ranking promises"), true);
+
+console.log(JSON.stringify({ ok: true, checked: "dodo payment and fulfillment helpers" }));
 
 async function sign({ payload, webhookId, webhookTimestamp, secret }) {
   const key = await crypto.subtle.importKey(

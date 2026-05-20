@@ -14,7 +14,7 @@ const port = Number(process.env.PORT || 8787);
 const auditReports = new Map();
 const betaSessions = new Map();
 const fixRequests = [];
-const VERSION = "0.7.0";
+const VERSION = "0.8.0";
 const SESSION_COOKIE = "sfk_beta_session";
 const BETA_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const REPORT_RETENTION_DAYS = 30;
@@ -80,8 +80,14 @@ app.post("/api/beta/fix-request", (req, res) => {
     reportId: report.id,
     ownerEmail: access.ownerEmail,
     targetUrl: report.url,
+    targetHost: new URL(report.url).hostname,
     status: process.env.DODO_SEOFIXKIT_MOCK_CHECKOUT_URL ? "checkout_created" : "new",
     offer: FIX_PACK_OFFER,
+    customerNote: "",
+    adminNote: "",
+    assignedTo: "",
+    deliveryUrl: "",
+    finalReportId: "",
     createdAt: new Date().toISOString()
   };
   fixRequests.push(request);
@@ -171,7 +177,9 @@ app.get("/admin/summary", (req, res) => {
       audits: reports.length,
       auditsToday: reports.length,
       reportsExpiringSoon: reports.filter((report) => report.retention?.expiresAt).length,
-      fixRequests: fixRequests.length
+      fixRequests: fixRequests.length,
+      fixRequestStatuses: countFixRequestStatuses(fixRequests),
+      emailNotificationsConfigured: false
     },
     offer: FIX_PACK_OFFER,
     recentAudits: reports.slice(0, 20).map((report) => ({
@@ -188,6 +196,7 @@ app.get("/admin/summary", (req, res) => {
       expiresAt: report.retention?.expiresAt
     })),
     issuePatterns: summarizeIssuePatterns(reports),
+    fixQueue: fixRequests.slice().reverse().map(localFixRequestAdminResponse),
     invites: [
       {
         id: "local-founder",
@@ -201,6 +210,36 @@ app.get("/admin/summary", (req, res) => {
       }
     ]
   });
+});
+
+app.patch("/admin/fix-requests/:id", (req, res) => {
+  const expected = process.env.ADMIN_EXPORT_TOKEN || "local-admin";
+  const auth = req.get("authorization") || "";
+  const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+  if (bearer !== expected) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const request = fixRequests.find((item) => item.id === req.params.id);
+  if (!request) {
+    res.status(404).json({ error: "Fix request not found." });
+    return;
+  }
+  const status = String(req.body?.status || request.status || "new");
+  if (!["checkout_created", "paid", "in_progress", "delivered"].includes(status)) {
+    res.status(400).json({ error: "Choose a valid fulfillment status." });
+    return;
+  }
+  request.status = status;
+  request.assignedTo = cleanText(req.body?.assignedTo || "", 160);
+  request.adminNote = cleanText(req.body?.adminNote || "", 2000);
+  request.customerNote = cleanText(req.body?.customerNote || "", 2000);
+  request.deliveryUrl = cleanUrlText(req.body?.deliveryUrl || "", 600);
+  request.finalReportId = cleanText(req.body?.finalReportId || "", 180);
+  request.inProgressAt = status === "in_progress" && !request.inProgressAt ? new Date().toISOString() : request.inProgressAt;
+  request.deliveredAt = status === "delivered" && !request.deliveredAt ? new Date().toISOString() : request.deliveredAt;
+  request.updatedAt = new Date().toISOString();
+  res.set("cache-control", "no-store").json({ ok: true, request: localFixRequestAdminResponse(request) });
 });
 
 app.post("/admin/invites", (req, res) => {
@@ -318,6 +357,8 @@ app.get("/api/reports/:id", (req, res) => {
     res.status(404).json({ error: "Report not found." });
     return;
   }
+  const fixRequest = fixRequests.find((request) => request.reportId === report.id && request.ownerEmail === access.ownerEmail);
+  if (fixRequest) report.fixRequest = localFixRequestResponse(fixRequest);
   res
     .set({ "cache-control": "no-store", "x-robots-tag": "noindex, nofollow" })
     .json(report);
@@ -482,6 +523,67 @@ function summarizeIssuePatterns(reports) {
   return [...counts.values()].sort((a, b) => b.count - a.count).slice(0, 12);
 }
 
+function localFixRequestResponse(request) {
+  return {
+    id: request.id,
+    status: request.status || "new",
+    statusLabel: localFixRequestStatusLabel(request.status),
+    targetUrl: request.targetUrl,
+    targetHost: request.targetHost || safeHost(request.targetUrl),
+    score: request.score,
+    issueCount: request.issueCount,
+    customerNote: request.customerNote || "",
+    deliveryUrl: request.deliveryUrl || "",
+    finalReportId: request.finalReportId || "",
+    finalReportPath: request.finalReportId ? `/beta/reports/${request.finalReportId}` : "",
+    inProgressAt: request.inProgressAt || "",
+    deliveredAt: request.deliveredAt || "",
+    paidAt: request.paidAt || "",
+    createdAt: request.createdAt,
+    updatedAt: request.updatedAt || request.createdAt
+  };
+}
+
+function localFixRequestAdminResponse(request) {
+  return {
+    ...localFixRequestResponse(request),
+    reportId: request.reportId,
+    ownerEmail: request.ownerEmail,
+    assignedTo: request.assignedTo || "",
+    adminNote: request.adminNote || "",
+    reportPath: `/beta/reports/${request.reportId}`,
+    briefPath: `/api/reports/${request.reportId}/brief.md`,
+    notifications: []
+  };
+}
+
+function countFixRequestStatuses(requests) {
+  return requests.reduce((counts, request) => {
+    counts[request.status || "new"] = (counts[request.status || "new"] || 0) + 1;
+    return counts;
+  }, {});
+}
+
+function localFixRequestStatusLabel(status) {
+  const labels = {
+    new: "Request saved",
+    checkout_created: "Checkout opened",
+    paid: "Payment confirmed",
+    in_progress: "Repair in progress",
+    delivered: "Delivered",
+    payment_failed: "Payment failed"
+  };
+  return labels[status] || labels.new;
+}
+
+function safeHost(value) {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return "";
+  }
+}
+
 function makePrivateReportId(url) {
   const host = new URL(url).hostname
     .replace(/^www\./, "")
@@ -513,6 +615,18 @@ function cleanText(input, maxLength) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
+}
+
+function cleanUrlText(input, maxLength) {
+  const value = cleanText(input, maxLength);
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    if (!["http:", "https:"].includes(url.protocol)) return "";
+    return url.href.slice(0, maxLength);
+  } catch {
+    return "";
+  }
 }
 
 function isoSecondsFromNow(seconds) {

@@ -34,7 +34,9 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
@@ -521,6 +523,62 @@ h1 {
   color: #ffb6a6;
 }
 
+.fix-status-panel {
+  align-items: start;
+  background: rgba(251, 248, 239, 0.055);
+  border: 1px solid rgba(152, 240, 204, 0.18);
+  border-radius: 8px;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.1fr) minmax(260px, 0.9fr);
+  padding: clamp(20px, 3vw, 30px);
+}
+
+.fix-status-panel h2 {
+  font-size: clamp(25px, 3vw, 38px);
+  line-height: 1.05;
+  margin: 0;
+}
+
+.fix-status-panel p {
+  color: var(--ink-soft);
+  line-height: 1.55;
+  margin: 12px 0 0;
+}
+
+.fix-status-panel dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.fix-status-panel dl div {
+  background: rgba(7, 13, 10, 0.58);
+  border: 1px solid rgba(251, 248, 239, 0.1);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+}
+
+.fix-status-panel dt {
+  color: var(--ink-muted);
+  font-size: 11px;
+  font-weight: 840;
+  text-transform: uppercase;
+}
+
+.fix-status-panel dd {
+  color: var(--ink-soft);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.fix-status-panel a {
+  color: var(--accent);
+  font-weight: 820;
+}
+
 .beta-hero {
   align-items: end;
   display: grid;
@@ -778,6 +836,129 @@ h1 {
   line-height: 1.55;
 }
 
+.fix-queue-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.queue-heading {
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.queue-summary {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.queue-summary span,
+.status-pill,
+.queue-links a {
+  border: 1px solid rgba(152, 240, 204, 0.2);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 840;
+  line-height: 1;
+  padding: 8px 10px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.queue-summary span:last-child {
+  border-color: rgba(214, 177, 95, 0.28);
+  color: var(--gold);
+}
+
+.fix-queue-list {
+  display: grid;
+  gap: 14px;
+}
+
+.fix-queue-card {
+  background: rgba(7, 13, 10, 0.58);
+  border: 1px solid rgba(251, 248, 239, 0.1);
+  border-radius: 8px;
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.fix-queue-card.paid,
+.fix-queue-card.in_progress {
+  border-color: rgba(152, 240, 204, 0.24);
+}
+
+.fix-queue-card.delivered {
+  border-color: rgba(214, 177, 95, 0.3);
+}
+
+.fix-queue-main {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.fix-queue-main h3 {
+  font-size: 20px;
+  line-height: 1.2;
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.fix-queue-main p {
+  font-size: 13px;
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.queue-links {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.queue-links a {
+  background: rgba(251, 248, 239, 0.06);
+  color: var(--ink-soft);
+}
+
+.fulfillment-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fulfillment-grid label {
+  color: var(--ink-muted);
+  display: grid;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 7px;
+  text-transform: uppercase;
+}
+
+.queue-footer {
+  align-items: center;
+  border-top: 1px solid rgba(251, 248, 239, 0.08);
+  color: var(--ink-muted);
+  display: flex;
+  font-size: 12px;
+  gap: 12px;
+  justify-content: space-between;
+  padding-top: 14px;
+}
+
+.queue-footer > div {
+  overflow-wrap: anywhere;
+}
+
 .admin-shell {
   display: grid;
   gap: 18px;
@@ -817,7 +998,10 @@ h1 {
 }
 
 .admin-token-form input,
-.invite-form input {
+.invite-form input,
+.fulfillment-grid input,
+.fulfillment-grid select,
+.fulfillment-grid textarea {
   background: rgba(7, 12, 10, 0.78);
   border: 1px solid rgba(251, 248, 239, 0.18);
   border-radius: 8px;
@@ -825,6 +1009,13 @@ h1 {
   min-height: 46px;
   min-width: 0;
   padding: 0 14px;
+}
+
+.fulfillment-grid textarea {
+  line-height: 1.45;
+  min-height: 92px;
+  padding: 12px 14px;
+  resize: vertical;
 }
 
 .admin-metrics {
@@ -1102,6 +1293,10 @@ h1 {
   .report-preview,
   .admin-heading,
   .admin-grid,
+  .queue-heading,
+  .fix-queue-main,
+  .fulfillment-grid,
+  .fix-status-panel,
   .paid-panel {
     grid-template-columns: 1fr;
   }
@@ -1125,6 +1320,11 @@ h1 {
     align-items: flex-start;
     flex-direction: column;
   }
+
+  .queue-summary,
+  .queue-links {
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 560px) {
@@ -1143,5 +1343,10 @@ h1 {
 
   .metric-strip {
     grid-template-columns: 1fr;
+  }
+
+  .queue-footer {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

@@ -14,6 +14,14 @@ import {
   hasDodoCheckoutConfig,
   verifyDodoWebhookSignature
 } from "../shared/dodo.js";
+import {
+  ADMIN_EDITABLE_FIX_REQUEST_STATUSES,
+  adminNotificationEmail,
+  buildPaymentNotificationEmail,
+  fixRequestStatusLabel,
+  isResendEmailConfigured,
+  normalizeFixRequestStatus
+} from "../shared/fulfillment.js";
 
 const DOCS = {
   javascript:
@@ -25,7 +33,7 @@ const DOCS = {
 };
 
 const MAX_HTML_BYTES = 1_000_000;
-const VERSION = "0.7.0";
+const VERSION = "0.8.0";
 const SESSION_COOKIE = "sfk_beta_session";
 const BETA_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const REPORT_RETENTION_DAYS = 30;
@@ -59,6 +67,7 @@ export default {
           runtime: "cloudflare-worker",
           browserRun: Boolean(env.BROWSER),
           waitlistDb: Boolean(env.WAITLIST_DB),
+          emailNotifications: isResendEmailConfigured(env),
           version: VERSION
         });
       }
@@ -97,6 +106,10 @@ export default {
 
       if (url.pathname === "/admin/invites" && request.method === "POST") {
         return createInvite(request, env);
+      }
+
+      if (url.pathname.startsWith("/admin/fix-requests/") && request.method === "PATCH") {
+        return updateFixRequestAdmin(request, env);
       }
 
       if (url.pathname === "/admin/leads.csv") {
@@ -343,7 +356,10 @@ async function getAdminSummary(request, env) {
     fixRequests,
     recentAudits,
     issuePatterns,
-    recentInvites
+    recentInvites,
+    fixStatusCounts,
+    fixQueue,
+    notificationRows
   ] = await Promise.all([
     countRows(env, "waitlist_leads"),
     countRows(env, "beta_invites"),
@@ -369,8 +385,34 @@ async function getAdminSummary(request, env) {
        FROM beta_invites
        ORDER BY created_at DESC
        LIMIT 20`
+    ).all(),
+    env.WAITLIST_DB.prepare(
+      `SELECT status, COUNT(*) AS count
+       FROM fix_requests
+       GROUP BY status`
+    ).all(),
+    env.WAITLIST_DB.prepare(
+      `SELECT *
+       FROM fix_requests
+       ORDER BY
+        CASE status
+          WHEN 'paid' THEN 0
+          WHEN 'in_progress' THEN 1
+          WHEN 'checkout_created' THEN 2
+          WHEN 'delivered' THEN 3
+          ELSE 4
+        END,
+        updated_at DESC
+       LIMIT 50`
+    ).all(),
+    env.WAITLIST_DB.prepare(
+      `SELECT fix_request_id, recipient_type, recipient_email, status, provider, provider_message_id, error, created_at
+       FROM fix_request_notifications
+       ORDER BY created_at DESC
+       LIMIT 100`
     ).all()
   ]);
+  const notificationsByFixRequest = groupNotificationsByFixRequest(notificationRows.results || []);
 
   return jsonNoStore({
     ok: true,
@@ -381,7 +423,11 @@ async function getAdminSummary(request, env) {
       audits,
       auditsToday,
       reportsExpiringSoon: expiring,
-      fixRequests
+      fixRequests,
+      fixRequestStatuses: Object.fromEntries(
+        (fixStatusCounts.results || []).map((row) => [row.status || "unknown", row.count || 0])
+      ),
+      emailNotificationsConfigured: isResendEmailConfigured(env)
     },
     offer: FIX_PACK_OFFER,
     recentAudits: (recentAudits.results || []).map((row) => {
@@ -410,7 +456,10 @@ async function getAdminSummary(request, env) {
       usedCount: invite.used_count,
       expiresAt: invite.expires_at,
       createdAt: invite.created_at
-    }))
+    })),
+    fixQueue: (fixQueue.results || []).map((row) =>
+      fixRequestAdminResponse(row, notificationsByFixRequest.get(row.id) || [])
+    )
   });
 }
 
@@ -454,6 +503,91 @@ async function createInvite(request, env) {
       expiresAt,
       url: `${new URL(request.url).origin}/beta?email=${encodeURIComponent(ownerEmail)}&invite=${encodeURIComponent(code)}`
     }
+  });
+}
+
+async function updateFixRequestAdmin(request, env) {
+  const admin = await adminAccessStatus(request, env, "update-fix-request");
+  if (!admin.ok) return jsonNoStore({ error: "Unauthorized" }, 401);
+  if (!env.WAITLIST_DB) return json({ error: "Fix request storage is not configured." }, 503);
+
+  const id = decodeURIComponent(new URL(request.url).pathname.slice("/admin/fix-requests/".length));
+  if (!isSafeUuid(id)) return jsonNoStore({ error: "Fix request not found." }, 404);
+
+  const existing = await env.WAITLIST_DB.prepare("SELECT * FROM fix_requests WHERE id = ? LIMIT 1")
+    .bind(id)
+    .first();
+  if (!existing?.id) return jsonNoStore({ error: "Fix request not found." }, 404);
+
+  const body = await request.json().catch(() => ({}));
+  const requestedStatus = normalizeFixRequestStatus(body.status, existing.status || "new");
+  if (!ADMIN_EDITABLE_FIX_REQUEST_STATUSES.has(requestedStatus)) {
+    return jsonNoStore({ error: "Choose a valid fulfillment status." }, 400);
+  }
+  if (
+    ["in_progress", "delivered"].includes(requestedStatus) &&
+    !existing.paid_at &&
+    existing.status !== "paid" &&
+    existing.status !== "in_progress" &&
+    existing.status !== "delivered"
+  ) {
+    return jsonNoStore({ error: "Payment must be confirmed before fulfillment starts." }, 409);
+  }
+
+  const now = new Date().toISOString();
+  const assignedTo = cleanText(body.assignedTo || body.assigned_to || "", 160);
+  const adminNote = cleanText(body.adminNote || body.admin_note || "", 2000);
+  const customerNote = cleanText(body.customerNote || body.customer_note || "", 2000);
+  const deliveryUrl = cleanUrlText(body.deliveryUrl || body.delivery_url || "", 600);
+  const finalReportId = cleanText(body.finalReportId || body.final_report_id || "", 180);
+  const inProgressAt =
+    requestedStatus === "in_progress" && !existing.in_progress_at ? now : existing.in_progress_at || "";
+  const deliveredAt = requestedStatus === "delivered" && !existing.delivered_at ? now : existing.delivered_at || "";
+
+  await env.WAITLIST_DB.prepare(
+    `UPDATE fix_requests
+     SET status = ?,
+         assigned_to = ?,
+         admin_note = ?,
+         customer_note = ?,
+         delivery_url = ?,
+         final_report_id = ?,
+         in_progress_at = ?,
+         delivered_at = ?,
+         updated_at = ?
+     WHERE id = ?`
+  )
+    .bind(
+      requestedStatus,
+      assignedTo,
+      adminNote,
+      customerNote,
+      deliveryUrl,
+      finalReportId,
+      inProgressAt,
+      deliveredAt,
+      now,
+      id
+    )
+    .run();
+  await logAdminAction(request, env, "update-fix-request", true, admin.actorEmail, `${id}:${requestedStatus}`);
+
+  const updated = await env.WAITLIST_DB.prepare("SELECT * FROM fix_requests WHERE id = ? LIMIT 1")
+    .bind(id)
+    .first();
+  const notifications = await env.WAITLIST_DB.prepare(
+    `SELECT recipient_type, recipient_email, status, provider, provider_message_id, error, created_at
+     FROM fix_request_notifications
+     WHERE fix_request_id = ?
+     ORDER BY created_at DESC
+     LIMIT 20`
+  )
+    .bind(id)
+    .all();
+
+  return jsonNoStore({
+    ok: true,
+    request: fixRequestAdminResponse(updated, notifications.results || [])
   });
 }
 
@@ -590,10 +724,10 @@ async function requestFixPack(request, env) {
   const note = cleanText(body.note || "", 1000);
   const fixRequest = await getOrCreateFixRequest(env, row, access, summary, note, now);
 
-  if (fixRequest.status === "paid") {
+  if (["paid", "in_progress", "delivered"].includes(fixRequest.status)) {
     return jsonNoStore({
       ok: true,
-      mode: "paid",
+      mode: fixRequest.status,
       request: fixRequestResponse(fixRequest, now),
       offer: FIX_PACK_OFFER
     });
@@ -721,15 +855,58 @@ function fixRequestResponse(row, now = new Date().toISOString()) {
   return {
     id: row.id,
     status: row.status || "new",
+    statusLabel: fixRequestStatusLabel(row.status || "new"),
     targetUrl: row.target_url,
     targetHost: row.target_host,
     score: row.score,
     issueCount: row.issue_count,
     checkoutSessionId: row.checkout_session_id || "",
+    customerNote: row.customer_note || "",
+    deliveryUrl: row.delivery_url || "",
+    finalReportId: row.final_report_id || "",
+    inProgressAt: row.in_progress_at || "",
+    deliveredAt: row.delivered_at || "",
     paidAt: row.paid_at || "",
     createdAt: row.created_at || now,
     updatedAt: row.updated_at || now
   };
+}
+
+function fixRequestAdminResponse(row, notifications = [], now = new Date().toISOString()) {
+  return {
+    ...fixRequestResponse(row, now),
+    reportId: row.report_id,
+    ownerEmail: row.owner_email,
+    note: row.note || "",
+    adminNote: row.admin_note || "",
+    assignedTo: row.assigned_to || "",
+    checkoutUrl: row.checkout_url || "",
+    checkoutCreatedAt: row.checkout_created_at || "",
+    productId: row.product_id || "",
+    paymentId: row.payment_id || "",
+    lastNotificationAt: row.last_notification_at || "",
+    notificationError: row.notification_error || "",
+    reportPath: `/beta/reports/${row.report_id}`,
+    briefPath: `/api/reports/${row.report_id}/brief.md`,
+    notifications: notifications.map((notification) => ({
+      recipientType: notification.recipient_type,
+      recipientEmail: notification.recipient_email || "",
+      status: notification.status,
+      provider: notification.provider || "",
+      providerMessageId: notification.provider_message_id || "",
+      error: notification.error || "",
+      createdAt: notification.created_at
+    }))
+  };
+}
+
+function groupNotificationsByFixRequest(rows) {
+  const groups = new Map();
+  for (const row of rows) {
+    if (!groups.has(row.fix_request_id)) groups.set(row.fix_request_id, []);
+    groups.get(row.fix_request_id).push(row);
+  }
+  return groups;
 }
 
 async function createDodoFixPackCheckout(request, env, reportRow, fixRequest, access) {
@@ -901,6 +1078,7 @@ async function processDodoPaymentWebhook(env, eventType, payment) {
     )
       .bind(payment.paymentId, payment.checkoutSessionId, now, now, fixRequest.id)
       .run();
+    await notifyPaymentSucceeded(env, fixRequest, payment);
     return { ok: true, status: "processed", paid: true, fixRequestId: fixRequest.id };
   }
 
@@ -946,6 +1124,177 @@ async function markDodoWebhookProcessed(env, webhookId, status, error = "", fixR
   )
     .bind(status, String(error || "").slice(0, 1000), fixRequestId, status === "processed" ? now : "", now, webhookId)
     .run();
+}
+
+async function notifyPaymentSucceeded(env, fixRequest, payment) {
+  const appOrigin = String(env.SEOFIXKIT_APP_ORIGIN || "https://seofixkit.com").replace(/\/+$/, "");
+  const report = await reportForNotification(env, fixRequest.report_id);
+  const recipients = [
+    { type: "owner", email: normalizeEmail(fixRequest.owner_email) },
+    { type: "admin", email: adminNotificationEmail(env) }
+  ];
+  const results = [];
+
+  for (const recipient of recipients) {
+    results.push(
+      await sendFixPackPaymentEmail({
+        env,
+        appOrigin,
+        fixRequest,
+        report,
+        payment,
+        recipientType: recipient.type,
+        recipientEmail: recipient.email
+      })
+    );
+  }
+
+  const now = new Date().toISOString();
+  const errors = results
+    .filter((result) => result.status !== "sent" && result.error)
+    .map((result) => `${result.recipientType}:${result.error}`)
+    .join("; ")
+    .slice(0, 1000);
+  await env.WAITLIST_DB.prepare(
+    `UPDATE fix_requests
+     SET last_notification_at = ?,
+         notification_error = ?,
+         updated_at = ?
+     WHERE id = ?`
+  )
+    .bind(now, errors, now, fixRequest.id)
+    .run();
+}
+
+async function sendFixPackPaymentEmail({
+  env,
+  appOrigin,
+  fixRequest,
+  report,
+  payment,
+  recipientType,
+  recipientEmail
+}) {
+  const event = "payment_succeeded";
+  if (!recipientEmail) {
+    await logFixRequestNotification(env, {
+      fixRequestId: fixRequest.id,
+      event,
+      recipientType,
+      recipientEmail: "",
+      status: "skipped",
+      provider: "resend",
+      error: "missing_recipient"
+    });
+    return { recipientType, status: "skipped", error: "missing_recipient" };
+  }
+
+  if (!isResendEmailConfigured(env)) {
+    await logFixRequestNotification(env, {
+      fixRequestId: fixRequest.id,
+      event,
+      recipientType,
+      recipientEmail,
+      status: "skipped",
+      provider: "resend",
+      error: "missing_resend_config"
+    });
+    return { recipientType, status: "skipped", error: "missing_resend_config" };
+  }
+
+  const email = buildPaymentNotificationEmail({
+    appOrigin,
+    fixRequest,
+    report,
+    payment,
+    recipientType
+  });
+  const body = {
+    from: env.SEOFIXKIT_EMAIL_FROM,
+    to: [recipientEmail],
+    subject: email.subject,
+    html: email.html,
+    text: email.text
+  };
+  if (env.SEOFIXKIT_REPLY_TO) body.reply_to = env.SEOFIXKIT_REPLY_TO;
+
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": `${fixRequest.id}:${event}:${recipientType}`,
+        "User-Agent": "seo-fix-kit-worker/0.8"
+      },
+      body: JSON.stringify(body)
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.message || `Resend returned ${response.status}`);
+    }
+    const providerMessageId = payload.id || "";
+    await logFixRequestNotification(env, {
+      fixRequestId: fixRequest.id,
+      event,
+      recipientType,
+      recipientEmail,
+      status: "sent",
+      provider: "resend",
+      providerMessageId
+    });
+    return { recipientType, status: "sent", providerMessageId };
+  } catch (error) {
+    const message = String(error?.message || "Email send failed.").slice(0, 1000);
+    await logFixRequestNotification(env, {
+      fixRequestId: fixRequest.id,
+      event,
+      recipientType,
+      recipientEmail,
+      status: "error",
+      provider: "resend",
+      error: message
+    });
+    return { recipientType, status: "error", error: message };
+  }
+}
+
+async function logFixRequestNotification(env, {
+  fixRequestId,
+  event,
+  recipientType,
+  recipientEmail,
+  status,
+  provider,
+  providerMessageId = "",
+  error = ""
+}) {
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO fix_request_notifications
+      (id, fix_request_id, event, recipient_type, recipient_email, status, provider, provider_message_id, error, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      crypto.randomUUID(),
+      fixRequestId,
+      event,
+      recipientType,
+      recipientEmail,
+      status,
+      provider,
+      providerMessageId,
+      error,
+      new Date().toISOString()
+    )
+    .run();
+}
+
+async function reportForNotification(env, reportId) {
+  if (!reportId) return {};
+  const row = await env.WAITLIST_DB.prepare("SELECT report_json FROM audit_reports WHERE id = ? LIMIT 1")
+    .bind(reportId)
+    .first();
+  return parseJson(row?.report_json, {});
 }
 
 async function runPrivateDemoAudit(request, env) {
@@ -1061,6 +1410,22 @@ async function getSavedReport(request, env) {
         "x-robots-tag": "noindex, nofollow"
       }
     });
+  }
+
+  const fixRequest = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM fix_requests
+     WHERE report_id = ? AND owner_email = ?
+     ORDER BY created_at DESC
+     LIMIT 1`
+  )
+    .bind(id, access.ownerEmail)
+    .first();
+  if (fixRequest?.id) {
+    report.fixRequest = fixRequestResponse(fixRequest);
+    if (fixRequest.final_report_id) {
+      report.fixRequest.finalReportPath = `/beta/reports/${encodeURIComponent(fixRequest.final_report_id)}`;
+    }
   }
 
   return jsonNoStore(report);
@@ -2170,6 +2535,22 @@ function cleanText(input, maxLength) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLength);
+}
+
+function cleanUrlText(input, maxLength) {
+  const value = cleanText(input, maxLength);
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    if (!["http:", "https:"].includes(url.protocol)) return "";
+    return url.href.slice(0, maxLength);
+  } catch {
+    return "";
+  }
+}
+
+function isSafeUuid(input) {
+  return /^[a-f0-9-]{32,40}$/i.test(String(input || ""));
 }
 
 function isAdminAuthorized(request, env) {

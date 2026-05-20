@@ -450,6 +450,7 @@ function ReportView({ report }) {
       }).format(new Date(report.retention.expiresAt))
     : "";
   const hasPriorityFixes = topFixes.length > 0;
+  const checkoutReturned = new URLSearchParams(window.location.search).get("checkout") === "return";
 
   return (
     <div className="report-layout">
@@ -475,6 +476,10 @@ function ReportView({ report }) {
           <span>/100</span>
         </div>
       </section>
+
+      {(checkoutReturned || report.fixRequest) && (
+        <FixRequestStatusPanel fixRequest={report.fixRequest} checkoutReturned={checkoutReturned} />
+      )}
 
       <section className="metric-strip" aria-label="Audit summary">
         <Metric label="Pages" value={`${report.summary?.pagesScanned || 0}/${report.summary?.maxPages || 10}`} />
@@ -590,6 +595,91 @@ function Metric({ label, value }) {
       <span>{label}</span>
     </div>
   );
+}
+
+function FixRequestStatusPanel({ fixRequest, checkoutReturned }) {
+  const status = fixRequest?.status || (checkoutReturned ? "checkout_created" : "new");
+  const label = fixRequest?.statusLabel || statusLabel(status);
+  const message = checkoutMessage(status, checkoutReturned);
+
+  return (
+    <section className={`fix-status-panel ${status}`}>
+      <div>
+        <p className="beta-eyebrow">SEO Fix Pack</p>
+        <h2>{label}</h2>
+        <p>{message}</p>
+      </div>
+      {fixRequest && (
+        <dl>
+          {fixRequest.paidAt && (
+            <div>
+              <dt>Paid</dt>
+              <dd>{formatDate(fixRequest.paidAt)}</dd>
+            </div>
+          )}
+          {fixRequest.inProgressAt && (
+            <div>
+              <dt>Started</dt>
+              <dd>{formatDate(fixRequest.inProgressAt)}</dd>
+            </div>
+          )}
+          {fixRequest.deliveredAt && (
+            <div>
+              <dt>Delivered</dt>
+              <dd>{formatDate(fixRequest.deliveredAt)}</dd>
+            </div>
+          )}
+          {fixRequest.customerNote && (
+            <div>
+              <dt>Note</dt>
+              <dd>{fixRequest.customerNote}</dd>
+            </div>
+          )}
+          {fixRequest.deliveryUrl && (
+            <div>
+              <dt>Delivery</dt>
+              <dd><a href={fixRequest.deliveryUrl} target="_blank" rel="noreferrer">Open delivery link</a></dd>
+            </div>
+          )}
+          {fixRequest.finalReportPath && (
+            <div>
+              <dt>Final rerun</dt>
+              <dd><a href={fixRequest.finalReportPath}>Open rerun report</a></dd>
+            </div>
+          )}
+        </dl>
+      )}
+    </section>
+  );
+}
+
+function checkoutMessage(status, checkoutReturned) {
+  if (status === "paid") return "Payment is confirmed. Your repair pass is queued.";
+  if (status === "in_progress") return "The repair pass is in progress. Delivery notes will appear here.";
+  if (status === "delivered") return "Delivery is ready. Use the delivery and rerun links below.";
+  if (status === "payment_failed") return "Payment did not complete. You can reopen checkout from this report.";
+  if (checkoutReturned) return "Checkout returned. Payment confirmation can take a moment after Dodo finishes processing.";
+  return "Checkout has been opened for this report.";
+}
+
+function statusLabel(status) {
+  const labels = {
+    new: "Request saved",
+    checkout_created: "Checkout opened",
+    paid: "Payment confirmed",
+    in_progress: "Repair in progress",
+    delivered: "Delivered",
+    payment_failed: "Payment failed"
+  };
+  return labels[status] || labels.new;
+}
+
+function formatDate(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(new Date(value));
 }
 
 function FindingItem({ finding, plan, compact = false }) {
@@ -924,6 +1014,14 @@ function AdminDashboard({
         <Metric label="Fix requests" value={metrics.fixRequests || 0} />
       </section>
 
+      <FixPackQueue
+        adminToken={adminToken}
+        emailConfigured={Boolean(metrics.emailNotificationsConfigured)}
+        requests={adminData?.fixQueue || []}
+        statusCounts={metrics.fixRequestStatuses || {}}
+        onUpdated={onLoad}
+      />
+
       <section className="admin-grid">
         <div className="admin-panel">
           <div className="section-heading">
@@ -1009,6 +1107,157 @@ function AdminDashboard({
           <p>{adminData?.offer?.description || "One proof-backed repair pass plus one rerun after fixes."}</p>
         </div>
       </section>
+    </section>
+  );
+}
+
+function FixPackQueue({ adminToken, emailConfigured, requests, statusCounts, onUpdated }) {
+  const [drafts, setDrafts] = useState({});
+  const [savingId, setSavingId] = useState("");
+  const [message, setMessage] = useState("");
+
+  function draftFor(request) {
+    return drafts[request.id] || {
+      status: request.status || "paid",
+      assignedTo: request.assignedTo || "",
+      deliveryUrl: request.deliveryUrl || "",
+      finalReportId: request.finalReportId || "",
+      customerNote: request.customerNote || "",
+      adminNote: request.adminNote || ""
+    };
+  }
+
+  function updateDraft(id, patch) {
+    setDrafts((current) => ({
+      ...current,
+      [id]: {
+        ...(current[id] || {}),
+        ...patch
+      }
+    }));
+  }
+
+  async function save(request) {
+    setSavingId(request.id);
+    setMessage("");
+    const result = await patchAdminFixRequest(adminToken, request.id, draftFor(request));
+    setSavingId("");
+    if (!result.ok) {
+      setMessage(result.error || "Could not update the Fix Pack request.");
+      return;
+    }
+    setMessage("Fix Pack queue updated.");
+    onUpdated();
+  }
+
+  return (
+    <section className="admin-panel fix-queue-panel">
+      <div className="section-heading queue-heading">
+        <div>
+          <p className="beta-eyebrow">Paid fulfillment</p>
+          <h2>SEO Fix Pack queue</h2>
+        </div>
+        <div className="queue-summary">
+          <span>Checkout {statusCounts.checkout_created || 0}</span>
+          <span>Paid {statusCounts.paid || 0}</span>
+          <span>In progress {statusCounts.in_progress || 0}</span>
+          <span>Delivered {statusCounts.delivered || 0}</span>
+          <span>{emailConfigured ? "Email on" : "Email config missing"}</span>
+        </div>
+      </div>
+      {message && <p className={`form-message ${message.includes("Could") ? "error" : "success"}`}>{message}</p>}
+      <div className="fix-queue-list">
+        {requests.map((request) => {
+          const draft = draftFor(request);
+          return (
+            <article className={`fix-queue-card ${request.status}`} key={request.id}>
+              <div className="fix-queue-main">
+                <div>
+                  <span className="status-pill">{request.statusLabel || statusLabel(request.status)}</span>
+                  <h3>{request.targetHost || request.targetUrl}</h3>
+                  <p>{request.ownerEmail}</p>
+                  <p>{request.issueCount || 0} findings · score {request.score ?? "unknown"}</p>
+                </div>
+                <div className="queue-links">
+                  <a href={request.reportPath}>Report</a>
+                  <a href={request.briefPath}>Brief</a>
+                  {request.checkoutUrl && <a href={request.checkoutUrl} target="_blank" rel="noreferrer">Checkout</a>}
+                </div>
+              </div>
+              <div className="fulfillment-grid">
+                <label>
+                  Status
+                  <select
+                    onChange={(event) => updateDraft(request.id, { status: event.target.value })}
+                    value={draft.status}
+                  >
+                    <option value="checkout_created">Checkout opened</option>
+                    <option value="paid">Paid</option>
+                    <option value="in_progress">In progress</option>
+                    <option value="delivered">Delivered</option>
+                  </select>
+                </label>
+                <label>
+                  Assigned
+                  <input
+                    onChange={(event) => updateDraft(request.id, { assignedTo: event.target.value })}
+                    placeholder="Owner"
+                    value={draft.assignedTo}
+                  />
+                </label>
+                <label>
+                  Delivery URL
+                  <input
+                    onChange={(event) => updateDraft(request.id, { deliveryUrl: event.target.value })}
+                    placeholder="https://..."
+                    value={draft.deliveryUrl}
+                  />
+                </label>
+                <label>
+                  Final rerun report ID
+                  <input
+                    onChange={(event) => updateDraft(request.id, { finalReportId: event.target.value })}
+                    placeholder="report id"
+                    value={draft.finalReportId}
+                  />
+                </label>
+                <label>
+                  Customer note
+                  <textarea
+                    onChange={(event) => updateDraft(request.id, { customerNote: event.target.value })}
+                    placeholder="Visible on customer report"
+                    value={draft.customerNote}
+                  />
+                </label>
+                <label>
+                  Admin note
+                  <textarea
+                    onChange={(event) => updateDraft(request.id, { adminNote: event.target.value })}
+                    placeholder="Internal"
+                    value={draft.adminNote}
+                  />
+                </label>
+              </div>
+              <div className="queue-footer">
+                <div>
+                  {request.paidAt && <span>Paid {formatDate(request.paidAt)}</span>}
+                  {request.lastNotificationAt && <span> · Notified {formatDate(request.lastNotificationAt)}</span>}
+                  {request.notificationError && <span> · {request.notificationError}</span>}
+                </div>
+                <button
+                  className="action-link paid-action"
+                  disabled={savingId === request.id}
+                  onClick={() => save(request)}
+                  type="button"
+                >
+                  {savingId === request.id ? "Saving" : "Save"}
+                </button>
+              </div>
+            </article>
+          );
+        })}
+        {!requests.length && <p className="quiet-note">No Fix Pack requests yet.</p>}
+      </div>
     </section>
   );
 }
@@ -1105,7 +1354,7 @@ async function loadAdmin(token, setAdminData, setAdminStatus, setAdminMessage) {
       headers: { authorization: `Bearer ${token}` }
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || "Could not load ops.");
+    if (!response.ok || payload.ok !== true) throw new Error(payload.error || "Could not load ops.");
     setAdminData(payload);
     setAdminStatus("success");
     setAdminMessage("Ops loaded.");
@@ -1127,10 +1376,31 @@ async function postAdminInvite(token, body) {
       body: JSON.stringify(body)
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) return { ok: false, error: payload.error || "Could not create invite." };
+    if (!response.ok || payload.ok !== true) return { ok: false, error: payload.error || "Could not create invite." };
     return payload;
   } catch (error) {
     return { ok: false, error: error.message || "Could not create invite." };
+  }
+}
+
+async function patchAdminFixRequest(token, id, body) {
+  try {
+    const response = await fetch(`/admin/fix-requests/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      credentials: "same-origin",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok !== true) {
+      return { ok: false, error: payload.error || "Could not update Fix Pack request." };
+    }
+    return payload;
+  } catch (error) {
+    return { ok: false, error: error.message || "Could not update Fix Pack request." };
   }
 }
 
