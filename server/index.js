@@ -31,6 +31,26 @@ app.post("/api/waitlist", (req, res) => {
   res.json({ ok: true, status: "joined", mode: "local-dev" });
 });
 
+app.get("/admin/leads.csv", (req, res) => {
+  const expected = process.env.ADMIN_EXPORT_TOKEN || "";
+  const auth = req.get("authorization") || "";
+  const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+  const token = bearer || req.query.token || "";
+
+  if (!expected || token !== expected) {
+    res.status(401).type("text").send("Unauthorized");
+    return;
+  }
+
+  res
+    .set({
+      "cache-control": "no-store",
+      "content-disposition": 'attachment; filename="seofixkit-waitlist-local.csv"'
+    })
+    .type("text/csv")
+    .send("email,source,utm_source,utm_medium,utm_campaign,landing_path,created_at,updated_at\n");
+});
+
 app.get("/api/demo-audit", async (req, res) => {
   try {
     const report = await auditUrl(`http://127.0.0.1:${port}/fixture/rendered-page`, {

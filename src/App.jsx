@@ -5,6 +5,7 @@ export default function App() {
   const [company, setCompany] = useState("");
   const [status, setStatus] = useState("idle");
   const [message, setMessage] = useState("");
+  const [formStartedAt] = useState(() => Date.now());
 
   async function joinWaitlist(event) {
     event.preventDefault();
@@ -18,7 +19,8 @@ export default function App() {
         body: JSON.stringify({
           email,
           company,
-          source: "locked-homepage"
+          source: "locked-homepage",
+          ...trackingPayload(formStartedAt)
         })
       });
       const payload = await response.json().catch(() => ({}));
@@ -102,6 +104,21 @@ export default function App() {
       </footer>
     </main>
   );
+}
+
+function trackingPayload(formStartedAt) {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    landingPath: `${window.location.pathname}${window.location.search}` || "/",
+    timeToSubmitMs: Date.now() - formStartedAt,
+    utm: {
+      source: params.get("utm_source") || "",
+      medium: params.get("utm_medium") || "",
+      campaign: params.get("utm_campaign") || "",
+      term: params.get("utm_term") || "",
+      content: params.get("utm_content") || ""
+    }
+  };
 }
 
 function LogoMark() {

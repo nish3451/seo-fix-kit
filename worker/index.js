@@ -31,6 +31,10 @@ export default {
         return joinWaitlist(request, env);
       }
 
+      if (url.pathname === "/admin/leads.csv") {
+        return exportLeadsCsv(request, env);
+      }
+
       if (url.pathname === "/api/audit" && request.method === "POST") {
         return json(
           {
@@ -127,32 +131,129 @@ async function joinWaitlist(request, env) {
     return json({ ok: true, status: "joined" });
   }
 
+  const submitMs = Number(body.timeToSubmitMs || 0);
+  if (submitMs > 0 && submitMs < 1200) {
+    return json({ ok: true, status: "joined" });
+  }
+
   const email = normalizeEmail(body.email);
   if (!email) {
     return json({ error: "Enter a valid email address." }, 400);
   }
 
   const now = new Date().toISOString();
+  const utm = typeof body.utm === "object" && body.utm ? body.utm : {};
   const source = cleanText(body.source || "locked-homepage", 80);
+  const utmSource = cleanText(utm.source || body.utm_source || "", 120);
+  const utmMedium = cleanText(utm.medium || body.utm_medium || "", 120);
+  const utmCampaign = cleanText(utm.campaign || body.utm_campaign || "", 180);
+  const utmTerm = cleanText(utm.term || body.utm_term || "", 180);
+  const utmContent = cleanText(utm.content || body.utm_content || "", 180);
+  const landingPath = cleanText(body.landingPath || "/", 500);
   const referrer = cleanText(request.headers.get("referer") || "", 500);
   const userAgent = cleanText(request.headers.get("user-agent") || "", 500);
   const country = cleanText(request.cf?.country || "", 8);
 
   await env.WAITLIST_DB.prepare(
     `INSERT INTO waitlist_leads
-      (email, source, referrer, user_agent, country, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+      (email, source, utm_source, utm_medium, utm_campaign, utm_term, utm_content, landing_path, submit_ms, referrer, user_agent, country, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(email) DO UPDATE SET
       source = excluded.source,
+      utm_source = excluded.utm_source,
+      utm_medium = excluded.utm_medium,
+      utm_campaign = excluded.utm_campaign,
+      utm_term = excluded.utm_term,
+      utm_content = excluded.utm_content,
+      landing_path = excluded.landing_path,
+      submit_ms = excluded.submit_ms,
       referrer = excluded.referrer,
       user_agent = excluded.user_agent,
       country = excluded.country,
       updated_at = excluded.updated_at`
   )
-    .bind(email, source, referrer, userAgent, country, now, now)
+    .bind(
+      email,
+      source,
+      utmSource,
+      utmMedium,
+      utmCampaign,
+      utmTerm,
+      utmContent,
+      landingPath,
+      Number.isFinite(submitMs) ? Math.round(submitMs) : null,
+      referrer,
+      userAgent,
+      country,
+      now,
+      now
+    )
     .run();
 
   return json({ ok: true, status: "joined" });
+}
+
+async function exportLeadsCsv(request, env) {
+  if (!env.WAITLIST_DB) {
+    return new Response("Waitlist storage is not configured.", { status: 503 });
+  }
+
+  if (!isAdminAuthorized(request, env)) {
+    return new Response("Unauthorized", {
+      status: 401,
+      headers: {
+        "cache-control": "no-store",
+        "www-authenticate": "Bearer"
+      }
+    });
+  }
+
+  const { results } = await env.WAITLIST_DB.prepare(
+    `SELECT
+      email,
+      source,
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_term,
+      utm_content,
+      landing_path,
+      referrer,
+      country,
+      created_at,
+      updated_at
+     FROM waitlist_leads
+     ORDER BY created_at DESC
+     LIMIT 10000`
+  ).all();
+
+  const columns = [
+    "email",
+    "source",
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "landing_path",
+    "referrer",
+    "country",
+    "created_at",
+    "updated_at"
+  ];
+  const rows = [columns.join(",")];
+
+  for (const lead of results || []) {
+    rows.push(columns.map((column) => csvCell(lead[column])).join(","));
+  }
+
+  return new Response(`${rows.join("\n")}\n`, {
+    headers: {
+      "cache-control": "no-store",
+      "content-disposition": `attachment; filename="seofixkit-waitlist-${new Date().toISOString().slice(0, 10)}.csv"`,
+      "content-type": "text/csv; charset=utf-8"
+    }
+  });
 }
 
 async function auditUrl(inputUrl, env, options = {}) {
@@ -999,6 +1100,37 @@ function cleanText(input, maxLength) {
     .slice(0, maxLength);
 }
 
+function isAdminAuthorized(request, env) {
+  const expected = String(env.ADMIN_EXPORT_TOKEN || "");
+  if (!expected) return false;
+
+  const auth = request.headers.get("authorization") || "";
+  const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+  const token = bearer || new URL(request.url).searchParams.get("token") || "";
+  return constantTimeEqual(token, expected);
+}
+
+function constantTimeEqual(left, right) {
+  const leftBytes = new TextEncoder().encode(String(left || ""));
+  const rightBytes = new TextEncoder().encode(String(right || ""));
+  const maxLength = Math.max(leftBytes.length, rightBytes.length);
+  let diff = leftBytes.length ^ rightBytes.length;
+
+  for (let index = 0; index < maxLength; index += 1) {
+    diff |= (leftBytes[index] || 0) ^ (rightBytes[index] || 0);
+  }
+
+  return maxLength > 0 && diff === 0;
+}
+
+function csvCell(value) {
+  const text = String(value ?? "");
+  if (/[",\n\r]/.test(text)) {
+    return `"${text.replaceAll('"', '""')}"`;
+  }
+  return text;
+}
+
 function stripHash(value) {
   const url = new URL(value);
   url.hash = "";
@@ -1158,7 +1290,7 @@ function privacyHtml(origin) {
       <h1>Privacy</h1>
       <p>SEO Fix Kit collects the email address you submit on the waitlist so we can contact you about private beta access and product updates.</p>
       <ul>
-        <li>We store your email address, signup source, referrer, browser user agent, country code when Cloudflare provides it, and signup timestamps.</li>
+        <li>We store your email address, signup source, UTM fields, landing path, referrer, browser user agent, country code when Cloudflare provides it, and signup timestamps.</li>
         <li>We do not sell the waitlist.</li>
         <li>We do not use the waitlist to send unrelated promotions.</li>
         <li>To be removed from outreach, reply to any email we send and ask to be removed.</li>

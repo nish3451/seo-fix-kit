@@ -40,6 +40,7 @@ Cloudflare cannot run the local Express + Chromium server directly. The deployab
 
 - React UI served by Workers Static Assets from `dist/`
 - `/api/waitlist` handled by `worker/index.js` and stored in D1
+- `/admin/leads.csv` exports waitlist leads when called with the admin export token
 - `/api/audit` is currently locked on the public Worker
 - rendered checks powered by Cloudflare Browser Run through the `BROWSER` binding
 - `/llms.txt` and same-URL Markdown for `/` kept truthful to the visible product
@@ -61,6 +62,8 @@ Apply D1 migrations after creating or changing the waitlist schema:
 ```bash
 wrangler d1 migrations apply seofixkit_waitlist --remote
 ```
+
+The protected lead export requires the `ADMIN_EXPORT_TOKEN` Worker secret.
 
 ## Custom domain
 
