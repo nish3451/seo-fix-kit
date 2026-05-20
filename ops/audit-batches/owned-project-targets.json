@@ -1,0 +1,67 @@
+[
+  {
+    "project": "SEO Fix Kit",
+    "url": "https://seofixkit.com/",
+    "kind": "marketing",
+    "audit": true,
+    "source": "proof-seo wrangler routes"
+  },
+  {
+    "project": "AI Converter",
+    "url": "https://aiconverter.app/",
+    "kind": "marketing",
+    "audit": true,
+    "source": "aiconverter durable repo and live status"
+  },
+  {
+    "project": "0509",
+    "url": "https://0509.in/",
+    "kind": "marketing",
+    "audit": true,
+    "source": "0509 wrangler routes"
+  },
+  {
+    "project": "Site Rep",
+    "url": "https://siterep.net/",
+    "kind": "marketing",
+    "audit": true,
+    "source": "siterep wrangler routes"
+  },
+  {
+    "project": "TinyStudio",
+    "url": "https://tinystudio.io/",
+    "kind": "marketing",
+    "audit": true,
+    "source": "website-manager-api wrangler routes"
+  },
+  {
+    "project": "Tiny Studio portfolio",
+    "url": "https://tinystudio.in/",
+    "kind": "marketing",
+    "audit": true,
+    "source": "live public domain and iCloud domain file"
+  },
+  {
+    "project": "Inish",
+    "url": "https://inish.in/",
+    "kind": "personal",
+    "audit": true,
+    "source": "live public domain and iCloud domain file"
+  },
+  {
+    "project": "TinyStudio app",
+    "url": "https://app.tinystudio.io/",
+    "kind": "app-login",
+    "audit": false,
+    "source": "website-manager-api wrangler routes",
+    "note": "Operational app shell; preflight only unless explicitly auditing app metadata."
+  },
+  {
+    "project": "TinyStudio API",
+    "url": "https://api.tinystudio.io/",
+    "kind": "api",
+    "audit": false,
+    "source": "website-manager-api wrangler routes",
+    "note": "API host, not a public SEO target."
+  }
+]

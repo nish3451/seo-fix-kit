@@ -1,0 +1,682 @@
+{
+  "runId": "2026-05-20T15-20-17-471Z",
+  "createdAt": "2026-05-20T15:20:17.498Z",
+  "baseUrl": "https://seofixkit.com",
+  "ownerEmail": "nish.audit.1779290417472@seofixkit.com",
+  "maxPages": 6,
+  "targets": [
+    {
+      "project": "SEO Fix Kit",
+      "url": "https://seofixkit.com/",
+      "kind": "marketing",
+      "audit": true,
+      "source": "proof-seo wrangler routes",
+      "note": "",
+      "preflight": {
+        "ok": true,
+        "status": 200,
+        "finalUrl": "https://seofixkit.com/",
+        "contentType": "text/html",
+        "bytes": 1984,
+        "title": "SEO Fix Kit - Coming Soon",
+        "ms": 115
+      },
+      "status": "audited",
+      "report": {
+        "id": "seofixkit-com-9068ab21-6c1b-493d-aa3c-0eee4f5ea6f7",
+        "reportUrl": "https://seofixkit.com/beta/reports/seofixkit-com-9068ab21-6c1b-493d-aa3c-0eee4f5ea6f7",
+        "url": "https://seofixkit.com/",
+        "score": 68,
+        "pages": 2,
+        "findings": 8,
+        "guardedFalsePositives": 4,
+        "severityCounts": {
+          "warning": 6,
+          "notice": 2
+        },
+        "topIssues": [
+          {
+            "severity": "warning",
+            "title": "Thin rendered content on home",
+            "page": "",
+            "evidence": "67 rendered words found.",
+            "fix": "Add useful page-specific detail, proof, examples, and next steps."
+          },
+          {
+            "severity": "warning",
+            "title": "Images missing alt text on home",
+            "page": "",
+            "evidence": "1/1 images have empty alt text.",
+            "fix": "Add useful alt text to informative images. Leave decorative images empty intentionally."
+          },
+          {
+            "severity": "warning",
+            "title": "Meta description needs tightening on /privacy",
+            "page": "",
+            "evidence": "34 characters: \"SEO Fix Kit waitlist privacy note.\"",
+            "fix": "Rewrite it as one clear value proposition."
+          },
+          {
+            "severity": "warning",
+            "title": "Thin rendered content on /privacy",
+            "page": "",
+            "evidence": "89 rendered words found.",
+            "fix": "Add useful page-specific detail, proof, examples, and next steps."
+          },
+          {
+            "severity": "warning",
+            "title": "Missing canonical URL on /privacy",
+            "page": "",
+            "evidence": "No rendered rel=canonical tag found.",
+            "fix": "Add a canonical tag that points to the preferred URL."
+          },
+          {
+            "severity": "warning",
+            "title": "Social share image incomplete on /privacy",
+            "page": "",
+            "evidence": "og:image: missing; twitter:image: missing",
+            "fix": "Add 1200x630 Open Graph and Twitter images."
+          },
+          {
+            "severity": "notice",
+            "title": "Apple touch icon missing on /privacy",
+            "page": "",
+            "evidence": "No apple-touch-icon link found.",
+            "fix": "Add an Apple touch icon."
+          },
+          {
+            "severity": "notice",
+            "title": "Structured data opportunity on /privacy",
+            "page": "",
+            "evidence": "No JSON-LD structured data found.",
+            "fix": "Add truthful schema that matches visible content."
+          }
+        ]
+      }
+    },
+    {
+      "project": "AI Converter",
+      "url": "https://aiconverter.app/",
+      "kind": "marketing",
+      "audit": true,
+      "source": "aiconverter durable repo and live status",
+      "note": "",
+      "preflight": {
+        "ok": true,
+        "status": 200,
+        "finalUrl": "https://aiconverter.app/",
+        "contentType": "text/html; charset=utf-8",
+        "bytes": 6891,
+        "title": "AI Converter - Useful file conversion",
+        "ms": 206
+      },
+      "status": "audited",
+      "report": {
+        "id": "aiconverter-app-4aea0435-31ed-48d3-a0df-74b93797b5ac",
+        "reportUrl": "https://seofixkit.com/beta/reports/aiconverter-app-4aea0435-31ed-48d3-a0df-74b93797b5ac",
+        "url": "https://aiconverter.app/",
+        "score": 75,
+        "pages": 6,
+        "findings": 5,
+        "guardedFalsePositives": 0,
+        "severityCounts": {
+          "warning": 5
+        },
+        "topIssues": [
+          {
+            "severity": "warning",
+            "title": "Images missing alt text on /formats",
+            "page": "",
+            "evidence": "1/1 images have empty alt text.",
+            "fix": "Add useful alt text to informative images. Leave decorative images empty intentionally."
+          },
+          {
+            "severity": "warning",
+            "title": "Images missing alt text on /support",
+            "page": "",
+            "evidence": "1/1 images have empty alt text.",
+            "fix": "Add useful alt text to informative images. Leave decorative images empty intentionally."
+          },
+          {
+            "severity": "warning",
+            "title": "Images missing alt text on /privacy",
+            "page": "",
+            "evidence": "1/1 images have empty alt text.",
+            "fix": "Add useful alt text to informative images. Leave decorative images empty intentionally."
+          },
+          {
+            "severity": "warning",
+            "title": "Images missing alt text on /about",
+            "page": "",
+            "evidence": "1/1 images have empty alt text.",
+            "fix": "Add useful alt text to informative images. Leave decorative images empty intentionally."
+          },
+          {
+            "severity": "warning",
+            "title": "Images missing alt text on /terms",
+            "page": "",
+            "evidence": "1/1 images have empty alt text.",
+            "fix": "Add useful alt text to informative images. Leave decorative images empty intentionally."
+          }
+        ]
+      }
+    },
+    {
+      "project": "0509",
+      "url": "https://0509.in/",
+      "kind": "marketing",
+      "audit": true,
+      "source": "0509 wrangler routes",
+      "note": "",
+      "preflight": {
+        "ok": true,
+        "status": 200,
+        "finalUrl": "https://0509.in/",
+        "contentType": "text/html",
+        "bytes": 16579,
+        "title": "Five to Nine | Market intelligence for revenue teams",
+        "ms": 657
+      },
+      "status": "audited",
+      "report": {
+        "id": "0509-in-a7c2ecbd-1a2b-4512-a0b4-1d8184345760",
+        "reportUrl": "https://seofixkit.com/beta/reports/0509-in-a7c2ecbd-1a2b-4512-a0b4-1d8184345760",
+        "url": "https://0509.in/",
+        "score": 73,
+        "pages": 6,
+        "findings": 15,
+        "guardedFalsePositives": 0,
+        "severityCounts": {
+          "notice": 12,
+          "warning": 3
+        },
+        "topIssues": [
+          {
+            "severity": "notice",
+            "title": "Apple touch icon missing on home",
+            "page": "",
+            "evidence": "No apple-touch-icon link found.",
+            "fix": "Add an Apple touch icon."
+          },
+          {
+            "severity": "notice",
+            "title": "Structured data opportunity on home",
+            "page": "",
+            "evidence": "No JSON-LD structured data found.",
+            "fix": "Add truthful schema that matches visible content."
+          },
+          {
+            "severity": "warning",
+            "title": "Thin rendered content on /search",
+            "page": "",
+            "evidence": "248 rendered words found.",
+            "fix": "Add useful page-specific detail, proof, examples, and next steps."
+          },
+          {
+            "severity": "notice",
+            "title": "Apple touch icon missing on /search",
+            "page": "",
+            "evidence": "No apple-touch-icon link found.",
+            "fix": "Add an Apple touch icon."
+          },
+          {
+            "severity": "notice",
+            "title": "Structured data opportunity on /search",
+            "page": "",
+            "evidence": "No JSON-LD structured data found.",
+            "fix": "Add truthful schema that matches visible content."
+          },
+          {
+            "severity": "warning",
+            "title": "Thin rendered content on /auth/login",
+            "page": "",
+            "evidence": "211 rendered words found.",
+            "fix": "Add useful page-specific detail, proof, examples, and next steps."
+          },
+          {
+            "severity": "notice",
+            "title": "Apple touch icon missing on /auth/login",
+            "page": "",
+            "evidence": "No apple-touch-icon link found.",
+            "fix": "Add an Apple touch icon."
+          },
+          {
+            "severity": "notice",
+            "title": "Structured data opportunity on /auth/login",
+            "page": "",
+            "evidence": "No JSON-LD structured data found.",
+            "fix": "Add truthful schema that matches visible content."
+          }
+        ]
+      }
+    },
+    {
+      "project": "Site Rep",
+      "url": "https://siterep.net/",
+      "kind": "marketing",
+      "audit": true,
+      "source": "siterep wrangler routes",
+      "note": "",
+      "preflight": {
+        "ok": true,
+        "status": 200,
+        "finalUrl": "https://siterep.net/",
+        "contentType": "text/html",
+        "bytes": 7139,
+        "title": "Site Rep | Source-backed website rep",
+        "ms": 688
+      },
+      "status": "audited",
+      "report": {
+        "id": "siterep-net-6101c7c6-3ffc-4617-8ee0-e53f558dca63",
+        "reportUrl": "https://seofixkit.com/beta/reports/siterep-net-6101c7c6-3ffc-4617-8ee0-e53f558dca63",
+        "url": "https://siterep.net/",
+        "score": 94,
+        "pages": 3,
+        "findings": 6,
+        "guardedFalsePositives": 0,
+        "severityCounts": {
+          "notice": 6
+        },
+        "topIssues": [
+          {
+            "severity": "notice",
+            "title": "Apple touch icon missing on home",
+            "page": "",
+            "evidence": "No apple-touch-icon link found.",
+            "fix": "Add an Apple touch icon."
+          },
+          {
+            "severity": "notice",
+            "title": "Structured data opportunity on home",
+            "page": "",
+            "evidence": "No JSON-LD structured data found.",
+            "fix": "Add truthful schema that matches visible content."
+          },
+          {
+            "severity": "notice",
+            "title": "Apple touch icon missing on /privacy",
+            "page": "",
+            "evidence": "No apple-touch-icon link found.",
+            "fix": "Add an Apple touch icon."
+          },
+          {
+            "severity": "notice",
+            "title": "Structured data opportunity on /privacy",
+            "page": "",
+            "evidence": "No JSON-LD structured data found.",
+            "fix": "Add truthful schema that matches visible content."
+          },
+          {
+            "severity": "notice",
+            "title": "Apple touch icon missing on /terms",
+            "page": "",
+            "evidence": "No apple-touch-icon link found.",
+            "fix": "Add an Apple touch icon."
+          },
+          {
+            "severity": "notice",
+            "title": "Structured data opportunity on /terms",
+            "page": "",
+            "evidence": "No JSON-LD structured data found.",
+            "fix": "Add truthful schema that matches visible content."
+          }
+        ]
+      }
+    },
+    {
+      "project": "TinyStudio",
+      "url": "https://tinystudio.io/",
+      "kind": "marketing",
+      "audit": true,
+      "source": "website-manager-api wrangler routes",
+      "note": "",
+      "preflight": {
+        "ok": true,
+        "status": 200,
+        "finalUrl": "https://tinystudio.io/",
+        "contentType": "text/html; charset=utf-8",
+        "bytes": 39695,
+        "title": "TinyStudio - Private website previews before launch",
+        "ms": 448
+      },
+      "status": "audited",
+      "report": {
+        "id": "tinystudio-io-d22a3fbc-9472-4b97-946d-eca27f8a1f1b",
+        "reportUrl": "https://seofixkit.com/beta/reports/tinystudio-io-d22a3fbc-9472-4b97-946d-eca27f8a1f1b",
+        "url": "https://tinystudio.io/",
+        "score": 75,
+        "pages": 6,
+        "findings": 5,
+        "guardedFalsePositives": 0,
+        "severityCounts": {
+          "warning": 5
+        },
+        "topIssues": [
+          {
+            "severity": "warning",
+            "title": "Thin rendered content on /support",
+            "page": "",
+            "evidence": "75 rendered words found.",
+            "fix": "Add useful page-specific detail, proof, examples, and next steps."
+          },
+          {
+            "severity": "warning",
+            "title": "Thin rendered content on /pilot",
+            "page": "",
+            "evidence": "219 rendered words found.",
+            "fix": "Add useful page-specific detail, proof, examples, and next steps."
+          },
+          {
+            "severity": "warning",
+            "title": "Thin rendered content on /privacy",
+            "page": "",
+            "evidence": "137 rendered words found.",
+            "fix": "Add useful page-specific detail, proof, examples, and next steps."
+          },
+          {
+            "severity": "warning",
+            "title": "Thin rendered content on /terms",
+            "page": "",
+            "evidence": "107 rendered words found.",
+            "fix": "Add useful page-specific detail, proof, examples, and next steps."
+          },
+          {
+            "severity": "warning",
+            "title": "Thin rendered content on /data-deletion",
+            "page": "",
+            "evidence": "114 rendered words found.",
+            "fix": "Add useful page-specific detail, proof, examples, and next steps."
+          }
+        ]
+      }
+    },
+    {
+      "project": "Tiny Studio portfolio",
+      "url": "https://tinystudio.in/",
+      "kind": "marketing",
+      "audit": true,
+      "source": "live public domain and iCloud domain file",
+      "note": "",
+      "preflight": {
+        "ok": true,
+        "status": 200,
+        "finalUrl": "https://tinystudio.in/",
+        "contentType": "text/html; charset=utf-8",
+        "bytes": 12850,
+        "title": "Tiny Studio | Promptly, Drishti, and 0509",
+        "ms": 786
+      },
+      "status": "audited",
+      "report": {
+        "id": "tinystudio-in-89b87696-d7bb-4caf-b414-062cdede2fed",
+        "reportUrl": "https://seofixkit.com/beta/reports/tinystudio-in-89b87696-d7bb-4caf-b414-062cdede2fed",
+        "url": "https://tinystudio.in/",
+        "score": 53,
+        "pages": 6,
+        "findings": 19,
+        "guardedFalsePositives": 0,
+        "severityCounts": {
+          "notice": 12,
+          "warning": 7
+        },
+        "topIssues": [
+          {
+            "severity": "notice",
+            "title": "Apple touch icon missing on home",
+            "page": "",
+            "evidence": "No apple-touch-icon link found.",
+            "fix": "Add an Apple touch icon."
+          },
+          {
+            "severity": "notice",
+            "title": "Structured data opportunity on home",
+            "page": "",
+            "evidence": "No JSON-LD structured data found.",
+            "fix": "Add truthful schema that matches visible content."
+          },
+          {
+            "severity": "warning",
+            "title": "Heading hierarchy needs cleanup on /support",
+            "page": "",
+            "evidence": "Heading jumps from H1 to H3.",
+            "fix": "Use one H1, then move section headings through H2 and H3 without skipping levels."
+          },
+          {
+            "severity": "notice",
+            "title": "Apple touch icon missing on /support",
+            "page": "",
+            "evidence": "No apple-touch-icon link found.",
+            "fix": "Add an Apple touch icon."
+          },
+          {
+            "severity": "notice",
+            "title": "Structured data opportunity on /support",
+            "page": "",
+            "evidence": "No JSON-LD structured data found.",
+            "fix": "Add truthful schema that matches visible content."
+          },
+          {
+            "severity": "warning",
+            "title": "Heading hierarchy needs cleanup on /contact",
+            "page": "",
+            "evidence": "Heading jumps from H1 to H3.",
+            "fix": "Use one H1, then move section headings through H2 and H3 without skipping levels."
+          },
+          {
+            "severity": "notice",
+            "title": "Apple touch icon missing on /contact",
+            "page": "",
+            "evidence": "No apple-touch-icon link found.",
+            "fix": "Add an Apple touch icon."
+          },
+          {
+            "severity": "notice",
+            "title": "Structured data opportunity on /contact",
+            "page": "",
+            "evidence": "No JSON-LD structured data found.",
+            "fix": "Add truthful schema that matches visible content."
+          }
+        ]
+      }
+    },
+    {
+      "project": "Inish",
+      "url": "https://inish.in/",
+      "kind": "personal",
+      "audit": true,
+      "source": "live public domain and iCloud domain file",
+      "note": "",
+      "preflight": {
+        "ok": true,
+        "status": 200,
+        "finalUrl": "https://inish.in/",
+        "contentType": "text/html; charset=utf-8",
+        "bytes": 22132,
+        "title": "inish.in",
+        "ms": 975
+      },
+      "status": "audited",
+      "report": {
+        "id": "inish-in-48891f4a-ca91-43df-a370-c993527ba4cd",
+        "reportUrl": "https://seofixkit.com/beta/reports/inish-in-48891f4a-ca91-43df-a370-c993527ba4cd",
+        "url": "https://inish.in/",
+        "score": 76,
+        "pages": 1,
+        "findings": 5,
+        "guardedFalsePositives": 0,
+        "severityCounts": {
+          "critical": 1,
+          "warning": 2,
+          "notice": 2
+        },
+        "topIssues": [
+          {
+            "severity": "critical",
+            "title": "Missing or weak title on home",
+            "page": "",
+            "evidence": "Current title: \"inish.in\"",
+            "fix": "Add a unique, descriptive title for this page."
+          },
+          {
+            "severity": "warning",
+            "title": "Missing canonical URL on home",
+            "page": "",
+            "evidence": "No rendered rel=canonical tag found.",
+            "fix": "Add a canonical tag that points to the preferred URL."
+          },
+          {
+            "severity": "warning",
+            "title": "Social share image incomplete on home",
+            "page": "",
+            "evidence": "og:image: missing; twitter:image: missing",
+            "fix": "Add 1200x630 Open Graph and Twitter images."
+          },
+          {
+            "severity": "notice",
+            "title": "Apple touch icon missing on home",
+            "page": "",
+            "evidence": "No apple-touch-icon link found.",
+            "fix": "Add an Apple touch icon."
+          },
+          {
+            "severity": "notice",
+            "title": "Structured data opportunity on home",
+            "page": "",
+            "evidence": "No JSON-LD structured data found.",
+            "fix": "Add truthful schema that matches visible content."
+          }
+        ]
+      }
+    },
+    {
+      "project": "TinyStudio app",
+      "url": "https://app.tinystudio.io/",
+      "kind": "app-login",
+      "audit": false,
+      "source": "website-manager-api wrangler routes",
+      "note": "Operational app shell; preflight only unless explicitly auditing app metadata.",
+      "preflight": {
+        "ok": true,
+        "status": 200,
+        "finalUrl": "https://app.tinystudio.io/login",
+        "contentType": "text/html; charset=utf-8",
+        "bytes": 3279,
+        "title": "Website Manager Login",
+        "ms": 1125
+      },
+      "status": "skipped",
+      "reason": "Operational app shell; preflight only unless explicitly auditing app metadata."
+    },
+    {
+      "project": "TinyStudio API",
+      "url": "https://api.tinystudio.io/",
+      "kind": "api",
+      "audit": false,
+      "source": "website-manager-api wrangler routes",
+      "note": "API host, not a public SEO target.",
+      "preflight": {
+        "ok": true,
+        "status": 200,
+        "finalUrl": "https://api.tinystudio.io/",
+        "contentType": "application/json; charset=utf-8",
+        "bytes": 5524,
+        "title": "",
+        "ms": 329
+      },
+      "status": "skipped",
+      "reason": "API host, not a public SEO target."
+    }
+  ],
+  "repeatedIssues": [
+    {
+      "issue": "Apple touch icon missing",
+      "count": 11,
+      "projects": [
+        "SEO Fix Kit",
+        "0509",
+        "Site Rep",
+        "Tiny Studio portfolio",
+        "Inish"
+      ],
+      "severities": {
+        "notice": 11
+      }
+    },
+    {
+      "issue": "Structured data opportunity",
+      "count": 11,
+      "projects": [
+        "SEO Fix Kit",
+        "0509",
+        "Site Rep",
+        "Tiny Studio portfolio",
+        "Inish"
+      ],
+      "severities": {
+        "notice": 11
+      }
+    },
+    {
+      "issue": "Thin rendered content",
+      "count": 9,
+      "projects": [
+        "SEO Fix Kit",
+        "0509",
+        "TinyStudio"
+      ],
+      "severities": {
+        "warning": 9
+      }
+    },
+    {
+      "issue": "Images missing alt text",
+      "count": 6,
+      "projects": [
+        "SEO Fix Kit",
+        "AI Converter"
+      ],
+      "severities": {
+        "warning": 6
+      }
+    },
+    {
+      "issue": "Missing canonical URL",
+      "count": 2,
+      "projects": [
+        "SEO Fix Kit",
+        "Inish"
+      ],
+      "severities": {
+        "warning": 2
+      }
+    },
+    {
+      "issue": "Social share image incomplete",
+      "count": 2,
+      "projects": [
+        "SEO Fix Kit",
+        "Inish"
+      ],
+      "severities": {
+        "warning": 2
+      }
+    },
+    {
+      "issue": "Heading hierarchy needs cleanup",
+      "count": 2,
+      "projects": [
+        "Tiny Studio portfolio"
+      ],
+      "severities": {
+        "warning": 2
+      }
+    }
+  ],
+  "recommendation": {
+    "offer": "SEO Fix Pack",
+    "price": "$99 beta",
+    "scope": "Fix the top proven metadata, canonical, social preview, schema, and crawlability issues on one site.",
+    "reason": "7 projects produced 63 actionable findings. 4 repeated revenue-relevant issue patterns appeared across the batch."
+  }
+}

@@ -12,6 +12,7 @@
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "cf:dry-run": "npm run build && wrangler deploy --dry-run",
+    "ops:audit-owned": "node scripts/run-live-audit-batch.mjs",
     "test:audit": "node server/audit/smoke-test.js",
     "check": "npm run test:audit && npm run build"
   },
