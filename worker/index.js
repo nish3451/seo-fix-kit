@@ -23,7 +23,7 @@ export default {
           runtime: "cloudflare-worker",
           browserRun: Boolean(env.BROWSER),
           waitlistDb: Boolean(env.WAITLIST_DB),
-          version: "0.3.0"
+          version: "0.4.0"
         });
       }
 
@@ -284,8 +284,13 @@ async function runPrivateAudit(request, env) {
     return json({ error: publicUrlCheck.error }, 400);
   }
 
+  const quota = await auditQuotaStatus(request, env);
+  if (!quota.ok) {
+    return jsonNoStore({ error: quota.error, resetAt: quota.resetAt }, 429);
+  }
+
   const report = await auditUrl(targetUrl, env, {
-    maxPages: Math.min(Math.max(Number(body.maxPages || 4), 1), 6),
+    maxPages: clampPageLimit(body.maxPages || 10),
     appOrigin: new URL(request.url).origin
   });
   const saved = await saveAuditReport(report, request, env);
@@ -384,7 +389,8 @@ async function auditUrl(inputUrl, env, options = {}) {
   const startedAt = Date.now();
   const startUrl = normalizeUrl(inputUrl);
   const origin = new URL(startUrl).origin;
-  const maxPages = options.maxPages || 3;
+  let crawlOrigin = origin;
+  const maxPages = clampPageLimit(options.maxPages || 10);
 
   const robots =
     origin === options.appOrigin
@@ -408,10 +414,13 @@ async function auditUrl(inputUrl, env, options = {}) {
       const page = await inspectPage(nextUrl, browser);
       if (!page.isHtml) continue;
       pages.push(page);
+      if (pages.length === 1 && page.rendered?.finalUrl) {
+        crawlOrigin = new URL(page.rendered.finalUrl).origin;
+      }
 
       for (const link of page.rendered.internalLinks) {
         const href = stripHash(link.href);
-        if (!href.startsWith(origin)) continue;
+        if (!href.startsWith(crawlOrigin)) continue;
         if (
           isLikelyHtmlUrl(href) &&
           !visited.has(href) &&
@@ -433,7 +442,8 @@ async function auditUrl(inputUrl, env, options = {}) {
     sitemap
   });
   const score = scoreFindings(findings);
-  const summary = summarize(findings, pages);
+  const pageSummaries = buildPageSummaries(pages, findings, startUrl);
+  const summary = summarize(findings, pages, maxPages);
   const repairPlan = buildRepairPlan(findings);
   const fixPack = buildFixPack(pages[0], origin, findings);
 
@@ -448,6 +458,7 @@ async function auditUrl(inputUrl, env, options = {}) {
     warnings: [],
     docs: DOCS,
     pages,
+    pageSummaries,
     findings,
     repairPlan,
     repairBrief: buildRepairBrief({
@@ -465,11 +476,17 @@ async function auditUrl(inputUrl, env, options = {}) {
 async function inspectPage(url, browser) {
   const staticFetch = await fetchText(url);
   const isHtml = isHtmlResponse(staticFetch, url);
-  const staticFacts = extractStaticFacts(staticFetch.body || "", url, staticFetch);
-  const rendered = isHtml ? await extractRenderedFacts(browser, url) : staticFacts;
+  const finalUrl = staticFetch.url || url;
+  const finalUrlCheck = publicAuditUrlStatus(finalUrl);
+  const safeToRender = finalUrlCheck.ok;
+  const staticFacts = extractStaticFacts(staticFetch.body || "", finalUrl, staticFetch);
+  const rendered = isHtml && safeToRender ? await extractRenderedFacts(browser, finalUrl) : staticFacts;
 
   return {
     url,
+    finalUrl,
+    redirected: stripHash(finalUrl) !== stripHash(url),
+    renderSkippedReason: isHtml && !safeToRender ? finalUrlCheck.error || "Final URL left the audited origin." : "",
     status: staticFetch.status,
     ok: staticFetch.ok,
     contentType: staticFetch.contentType,
@@ -540,6 +557,15 @@ async function extractRenderedFacts(browser, url) {
         robots: metaByName("robots"),
         canonical: absolute(document.querySelector('link[rel="canonical"]')?.getAttribute("href")),
         lang: document.documentElement.getAttribute("lang") || null,
+        viewport: metaByName("viewport"),
+        charset: document.characterSet || null,
+        doctype: document.doctype ? document.doctype.name : null,
+        hreflangs: [...document.querySelectorAll('link[rel="alternate"][hreflang]')].map(
+          (node) => ({
+            hreflang: node.getAttribute("hreflang"),
+            href: absolute(node.getAttribute("href"))
+          })
+        ),
         h1s: headings.filter((heading) => heading.level === "h1").map((h) => h.text),
         headings,
         links,
@@ -625,6 +651,18 @@ function extractStaticFacts(html, url, fetchResult = {}) {
     robots: meta(head, "name", "robots"),
     canonical: absolute(linkRel(head, "canonical"), base.href),
     lang: html.match(/<html\b[^>]*lang=["']([^"']+)["']/i)?.[1] || null,
+    viewport: meta(head, "name", "viewport"),
+    charset:
+      html.match(/<meta\b[^>]*charset=["']?([^"'\s/>]+)/i)?.[1] ||
+      (meta(head, "http-equiv", "content-type") || "").match(/charset=([^;]+)/i)?.[1] ||
+      null,
+    doctype: html.trimStart().toLowerCase().startsWith("<!doctype html") ? "html" : null,
+    hreflangs: [...head.matchAll(/<link\b(?=[^>]*rel=["'][^"']*alternate[^"']*["'])(?=[^>]*hreflang=["']([^"']+)["'])(?=[^>]*href=["']([^"']+)["'])[^>]*>/gi)].map(
+      (match) => ({
+        hreflang: match[1],
+        href: absolute(match[2], base.href)
+      })
+    ),
     h1s: headings.filter((heading) => heading.level === "h1").map((h) => h.text),
     headings,
     links,
@@ -654,17 +692,40 @@ function extractStaticFacts(html, url, fetchResult = {}) {
 
 function buildFindings({ pages, startUrl, robots, sitemap }) {
   const findings = [];
-  const add = (finding) =>
+  let activePage = null;
+  const add = (finding) => {
+    const pageFields = activePage
+      ? {
+          pageUrl: activePage.url,
+          finalUrl: activePage.finalUrl || activePage.rendered?.finalUrl || activePage.url,
+          pageLabel: pathLabel(activePage.url, startUrl)
+        }
+      : {};
     findings.push({
       id: `${finding.type}-${findings.length + 1}`,
       confidence: finding.confidence || "verified",
+      ...pageFields,
       ...finding
     });
+  };
 
   for (const page of pages) {
+    activePage = page;
     const rendered = page.rendered;
     const staticFacts = page.static;
     const label = pathLabel(page.url, startUrl);
+
+    if (page.redirected || stripHash(rendered.finalUrl || page.finalUrl || page.url) !== stripHash(page.url)) {
+      add({
+        type: "issue",
+        severity: "notice",
+        title: `URL redirects before rendering on ${label}`,
+        why: "Redirects are normal, but audit evidence should show the final URL search engines and users reach.",
+        evidence: `Requested ${page.url}; final URL ${rendered.finalUrl || page.finalUrl}.`,
+        fix: "Make sure canonicals, internal links, and sitemaps point at the final preferred URL.",
+        confidence: "needs-review"
+      });
+    }
 
     if (staticFacts.h1s.length === 0 && rendered.h1s.length > 0) {
       add({
@@ -773,6 +834,19 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
       });
     }
 
+    const hierarchyIssue = headingHierarchyIssue(rendered.headings || []);
+    if (hierarchyIssue) {
+      add({
+        type: "issue",
+        severity: "warning",
+        title: `Heading hierarchy needs cleanup on ${label}`,
+        why: "Headings should describe the page outline in order so users, assistive tech, and crawlers can understand the structure.",
+        evidence: hierarchyIssue,
+        fix: "Use one H1, then move section headings through H2 and H3 without skipping levels.",
+        confidence: "needs-review"
+      });
+    }
+
     if (rendered.wordCount < 250) {
       add({
         type: "issue",
@@ -808,6 +882,54 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
         fix: "Add a canonical tag that points to the preferred URL.",
         source: DOCS.javascript,
         snippet: `<link rel="canonical" href="${page.url}" />`
+      });
+    }
+
+    if (!rendered.viewport) {
+      add({
+        type: "issue",
+        severity: "warning",
+        title: `Viewport meta tag missing on ${label}`,
+        why: "Mobile pages need a viewport tag so layouts render at the intended width.",
+        evidence: "No rendered viewport meta tag found.",
+        fix: "Add a responsive viewport meta tag.",
+        snippet: '<meta name="viewport" content="width=device-width, initial-scale=1" />'
+      });
+    }
+
+    if (!rendered.lang) {
+      add({
+        type: "issue",
+        severity: "notice",
+        title: `HTML language missing on ${label}`,
+        why: "The lang attribute helps browsers, translation tools, and assistive tech understand the page language.",
+        evidence: "No lang attribute found on the rendered html element.",
+        fix: 'Add a truthful language code such as <html lang="en">.',
+        snippet: '<html lang="en">'
+      });
+    }
+
+    if (!rendered.charset) {
+      add({
+        type: "issue",
+        severity: "notice",
+        title: `Character encoding missing on ${label}`,
+        why: "A charset declaration prevents text rendering surprises.",
+        evidence: "No rendered charset could be confirmed.",
+        fix: "Declare UTF-8 in the document head.",
+        snippet: '<meta charset="utf-8" />'
+      });
+    }
+
+    if (!rendered.doctype) {
+      add({
+        type: "issue",
+        severity: "notice",
+        title: `HTML doctype missing on ${label}`,
+        why: "A doctype keeps browsers out of quirks mode.",
+        evidence: "No HTML doctype was found before rendering.",
+        fix: "Start the document with <!doctype html>.",
+        snippet: "<!doctype html>"
       });
     }
 
@@ -873,6 +995,7 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
       });
     }
   }
+  activePage = null;
 
   if (!robots.ok) {
     add({
@@ -908,11 +1031,15 @@ function buildRepairPlan(findings) {
       priority: index + 1,
       severity: finding.severity,
       title: finding.title,
+      pageUrl: finding.pageUrl || null,
+      pageLabel: finding.pageLabel || null,
       proof: finding.evidence,
       fix: finding.fix,
       confidence: finding.confidence || "verified",
       source: finding.source || null,
       snippet: finding.snippet || null,
+      estimatedEffort: estimatedEffort(finding),
+      workType: workType(finding),
       acceptance: acceptanceCheck(finding)
     }));
 }
@@ -1036,6 +1163,21 @@ function acceptanceCheck(finding) {
   if (title.includes("structured data")) {
     return "JSON-LD validates and matches content that is visible on the page.";
   }
+  if (title.includes("viewport")) {
+    return "The rendered head includes a mobile-friendly viewport meta tag.";
+  }
+  if (title.includes("language")) {
+    return "The rendered html element has the correct lang attribute.";
+  }
+  if (title.includes("encoding")) {
+    return "The rendered document declares UTF-8 character encoding.";
+  }
+  if (title.includes("doctype")) {
+    return "The HTML document starts in standards mode with <!doctype html>.";
+  }
+  if (title.includes("redirect")) {
+    return "Canonicals, sitemap URLs, and internal links point at the final preferred URL.";
+  }
   if (title.includes("robots.txt")) {
     return "GET /robots.txt returns 200 and references the sitemap.";
   }
@@ -1086,10 +1228,36 @@ function buildSchemaSnippet(url, facts) {
 
 async function fetchText(url) {
   try {
-    const response = await fetch(url, {
-      redirect: "follow",
-      headers: { "user-agent": "SEOFixKit/0.3 (+https://seo-fix-kit.local)" }
-    });
+    let currentUrl = url;
+    let response = null;
+    for (let redirectCount = 0; redirectCount < 6; redirectCount += 1) {
+      const status = publicAuditUrlStatus(currentUrl);
+      if (!status.ok) {
+        return {
+          ok: false,
+          status: null,
+          url: currentUrl,
+          contentType: "",
+          body: "",
+          error: status.error
+        };
+      }
+
+      response = await fetch(currentUrl, {
+        redirect: "manual",
+        headers: { "user-agent": "SEOFixKit/0.4 (+https://seofixkit.com; evidence-backed SEO audit)" }
+      });
+
+      if (![301, 302, 303, 307, 308].includes(response.status)) break;
+      const location = response.headers.get("location");
+      if (!location) break;
+      currentUrl = new URL(location, currentUrl).href;
+    }
+
+    if (!response) {
+      throw new Error("No response returned.");
+    }
+
     const contentType = response.headers.get("content-type") || "";
     const body =
       contentType.includes("text") ||
@@ -1097,7 +1265,7 @@ async function fetchText(url) {
       contentType.includes("xml")
         ? await readTextLimited(response, MAX_HTML_BYTES)
         : "";
-    return { ok: response.ok, status: response.status, url: response.url, contentType, body };
+    return { ok: response.ok, status: response.status, url: response.url || currentUrl, contentType, body };
   } catch (error) {
     return { ok: false, status: null, url, contentType: "", body: "", error: error.message };
   }
@@ -1154,9 +1322,43 @@ async function readTextLimited(response, maxBytes) {
   return new TextDecoder().decode(merged);
 }
 
-function summarize(findings, pages) {
+function buildPageSummaries(pages, findings, startUrl) {
+  return pages.map((page) => {
+    const pageFindings = findings.filter(
+      (finding) => finding.pageUrl === page.url && finding.severity !== "good"
+    );
+    const guards = findings.filter(
+      (finding) => finding.pageUrl === page.url && finding.severity === "good"
+    );
+    const facts = page.rendered || {};
+    const staticFacts = page.static || {};
+    return {
+      url: page.url,
+      path: pathLabel(page.url, startUrl),
+      status: page.status,
+      finalUrl: facts.finalUrl || page.finalUrl || page.url,
+      score: scoreFindings(pageFindings),
+      critical: pageFindings.filter((finding) => finding.severity === "critical").length,
+      warnings: pageFindings.filter((finding) => finding.severity === "warning").length,
+      notices: pageFindings.filter((finding) => finding.severity === "notice").length,
+      guards: guards.length,
+      title: facts.title || "",
+      h1: facts.h1s?.[0] || "",
+      wordCount: facts.wordCount || 0,
+      internalLinks: facts.internalLinks?.length || 0,
+      schemaTypes: facts.schemaTypes || [],
+      staticWordCount: staticFacts.wordCount || 0,
+      staticH1: staticFacts.h1s?.[0] || "",
+      staticInternalLinks: staticFacts.internalLinks?.length || 0
+    };
+  });
+}
+
+function summarize(findings, pages, maxPages = pages.length) {
   return {
     pagesScanned: pages.length,
+    maxPages,
+    crawlLimitHit: pages.length >= maxPages,
     critical: findings.filter((finding) => finding.severity === "critical").length,
     warnings: findings.filter((finding) => finding.severity === "warning").length,
     notices: findings.filter((finding) => finding.severity === "notice").length,
@@ -1173,6 +1375,43 @@ function scoreFindings(findings) {
     if (finding.severity === "notice") score -= 1;
   }
   return Math.max(0, Math.min(100, score));
+}
+
+function headingHierarchyIssue(headings = []) {
+  if (!headings.length) return "";
+  const levels = headings.map((heading) => Number(String(heading.level).replace("h", "")));
+  if (levels[0] !== 1) {
+    return `First rendered heading is H${levels[0]} instead of H1.`;
+  }
+  for (let index = 1; index < levels.length; index += 1) {
+    if (levels[index] - levels[index - 1] > 1) {
+      return `Heading jumps from H${levels[index - 1]} to H${levels[index]}.`;
+    }
+  }
+  return "";
+}
+
+function estimatedEffort(finding) {
+  const title = finding.title.toLowerCase();
+  if (title.includes("robots") || title.includes("sitemap")) return "15-30 min";
+  if (title.includes("title") || title.includes("description") || title.includes("canonical")) return "5-15 min";
+  if (title.includes("social") || title.includes("schema") || title.includes("viewport")) return "15-45 min";
+  if (title.includes("thin") || title.includes("internal links") || title.includes("heading")) return "30-90 min";
+  return "15-30 min";
+}
+
+function workType(finding) {
+  const title = finding.title.toLowerCase();
+  if (title.includes("title") || title.includes("description") || title.includes("thin") || title.includes("alt")) {
+    return "content";
+  }
+  if (title.includes("schema") || title.includes("canonical") || title.includes("viewport") || title.includes("social")) {
+    return "code";
+  }
+  if (title.includes("robots") || title.includes("sitemap") || title.includes("redirect")) {
+    return "technical";
+  }
+  return "review";
 }
 
 function attr(html, name) {
@@ -1214,6 +1453,12 @@ function normalizeEmail(input) {
   if (email.length > 254) return "";
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "";
   return email;
+}
+
+function clampPageLimit(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 10;
+  return Math.min(Math.max(Math.round(parsed), 1), 10);
 }
 
 function cleanText(input, maxLength) {
@@ -1258,6 +1503,51 @@ function betaAccessStatus(request, env, body = {}) {
 
 function betaAccessResponse(access) {
   return jsonNoStore({ error: access.error }, access.status);
+}
+
+async function auditQuotaStatus(request, env) {
+  if (!env.WAITLIST_DB) {
+    return { ok: false, error: "Report storage is not configured." };
+  }
+
+  const now = new Date();
+  const windowStart = now.toISOString().slice(0, 13);
+  const resetAt = new Date(now);
+  resetAt.setUTCMinutes(0, 0, 0);
+  resetAt.setUTCHours(resetAt.getUTCHours() + 1);
+  const ip =
+    request.headers.get("cf-connecting-ip") ||
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    "unknown";
+  const bucket = `audit:${windowStart}:${ip}`;
+  const limit = 12;
+
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT count FROM audit_usage WHERE bucket = ? LIMIT 1`
+  )
+    .bind(bucket)
+    .first();
+
+  if (Number(row?.count || 0) >= limit) {
+    return {
+      ok: false,
+      error: "Audit limit reached for this hour. Try again later.",
+      resetAt: resetAt.toISOString()
+    };
+  }
+
+  const updatedAt = now.toISOString();
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO audit_usage (bucket, count, window_start, updated_at)
+     VALUES (?, 1, ?, ?)
+     ON CONFLICT(bucket) DO UPDATE SET
+      count = audit_usage.count + 1,
+      updated_at = excluded.updated_at`
+  )
+    .bind(bucket, windowStart, updatedAt)
+    .run();
+
+  return { ok: true, remaining: Math.max(0, limit - Number(row?.count || 0) - 1) };
 }
 
 function publicAuditUrlStatus(value) {

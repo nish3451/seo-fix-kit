@@ -8,7 +8,7 @@
     { "pattern": "seofixkit.com", "custom_domain": true },
     { "pattern": "www.seofixkit.com", "custom_domain": true }
   ],
-  "compatibility_date": "2026-05-19",
+  "compatibility_date": "2026-05-20",
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true,

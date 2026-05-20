@@ -17,7 +17,7 @@ app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/api/health", (req, res) => {
-  res.json({ ok: true, service: "seo-fix-kit", version: "0.3.0" });
+  res.json({ ok: true, service: "seo-fix-kit", version: "0.4.0" });
 });
 
 app.post("/api/waitlist", (req, res) => {
@@ -103,7 +103,7 @@ app.post("/api/audit", async (req, res) => {
     }
 
     const report = await auditUrl(normalized, {
-      maxPages: Math.min(Math.max(Number(maxPages || 4), 1), 8)
+      maxPages: Math.min(Math.max(Number(maxPages || 10), 1), 10)
     });
     res.set("cache-control", "no-store").json(saveLocalReport(report, req));
   } catch (error) {

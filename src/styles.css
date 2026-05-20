@@ -248,6 +248,41 @@ h1 {
   color: var(--error);
 }
 
+.report-preview {
+  border: 1px solid rgba(251, 248, 239, 0.14);
+  border-radius: 8px;
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 24px;
+  max-width: 720px;
+  overflow: hidden;
+}
+
+.report-preview div {
+  background: rgba(7, 12, 10, 0.72);
+  padding: 14px;
+}
+
+.report-preview strong,
+.report-preview span {
+  display: block;
+}
+
+.report-preview strong {
+  color: var(--accent);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.report-preview span {
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.45;
+  margin-top: 8px;
+}
+
 .honeypot {
   height: 1px;
   left: -9999px;
@@ -451,6 +486,20 @@ h1 {
   max-width: 1240px;
 }
 
+.beta-hero-compact {
+  align-items: center;
+  margin: 38px auto 18px;
+}
+
+.beta-hero-compact h1 {
+  font-size: clamp(32px, 4vw, 54px);
+  max-width: 18ch;
+}
+
+.beta-hero-compact .audit-form {
+  margin-top: 0;
+}
+
 .audit-stage,
 .report-layout {
   margin: 0 auto;
@@ -460,6 +509,7 @@ h1 {
 .empty-state,
 .loading-state,
 .score-panel,
+.verdict-panel,
 .metric-strip,
 .finding-item,
 .fix-item,
@@ -519,6 +569,76 @@ h1 {
   padding: clamp(22px, 3vw, 34px);
 }
 
+.score-meta,
+.fix-tags {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.score-meta span,
+.fix-tags small {
+  border: 1px solid rgba(251, 248, 239, 0.12);
+  border-radius: 999px;
+  color: var(--ink-muted);
+  font-size: 11px;
+  font-weight: 760;
+  padding: 6px 9px;
+  text-transform: uppercase;
+}
+
+.verdict-panel {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.9fr);
+  padding: clamp(22px, 3vw, 34px);
+}
+
+.verdict-panel h2 {
+  font-size: clamp(28px, 3vw, 42px);
+  letter-spacing: 0;
+  line-height: 1;
+  margin: 0;
+}
+
+.verdict-panel p,
+.quiet-note {
+  color: var(--ink-soft);
+  line-height: 1.6;
+}
+
+.verdict-panel ol {
+  counter-reset: repair;
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.verdict-panel li {
+  background: rgba(7, 13, 10, 0.58);
+  border: 1px solid rgba(251, 248, 239, 0.1);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+}
+
+.verdict-panel li strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.verdict-panel li span {
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
 .score-panel h2 {
   font-size: clamp(32px, 4vw, 54px);
   line-height: 1;
@@ -553,7 +673,7 @@ h1 {
 .metric-strip {
   display: grid;
   gap: 1px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   overflow: hidden;
 }
 
@@ -586,6 +706,8 @@ h1 {
 
 .findings-section,
 .fix-section,
+.guard-section,
+.page-table-section,
 .proof-grid {
   display: grid;
   gap: 14px;
@@ -598,9 +720,14 @@ h1 {
 }
 
 .finding-list,
-.fix-list {
+.fix-list,
+.guard-list {
   display: grid;
   gap: 12px;
+}
+
+.guard-list {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .finding-item,
@@ -646,6 +773,56 @@ h1 {
   font-size: 18px;
   line-height: 1.25;
   margin: 0;
+}
+
+.finding-item.compact p,
+.finding-item.compact .code-block,
+.finding-item.compact .source-link {
+  display: none;
+}
+
+.source-link {
+  color: var(--accent);
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 820;
+  margin-top: 14px;
+}
+
+.page-table {
+  border: 1px solid rgba(251, 248, 239, 0.12);
+  border-radius: 8px;
+  overflow: auto;
+}
+
+.page-table-row {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(160px, 1.3fr) 70px 70px minmax(180px, 1fr) 80px 80px minmax(150px, 0.8fr);
+  min-width: 920px;
+  padding: 13px 16px;
+}
+
+.page-table-row + .page-table-row {
+  border-top: 1px solid rgba(251, 248, 239, 0.08);
+}
+
+.page-table-head {
+  background: rgba(251, 248, 239, 0.06);
+  color: var(--ink-muted);
+  font-size: 11px;
+  font-weight: 840;
+  text-transform: uppercase;
+}
+
+.page-table-row:not(.page-table-head) {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.page-table-row strong {
+  color: var(--accent);
 }
 
 .finding-item dl,
@@ -719,7 +896,9 @@ h1 {
 
 @media (max-width: 860px) {
   .beta-hero,
-  .loading-state {
+  .loading-state,
+  .verdict-panel,
+  .report-preview {
     grid-template-columns: 1fr;
   }
 

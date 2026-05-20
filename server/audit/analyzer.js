@@ -12,9 +12,10 @@ const GOOGLE_DOCS = {
 
 export async function auditUrl(inputUrl, options = {}) {
   const startedAt = Date.now();
-  const maxPages = options.maxPages || 4;
+  const maxPages = clampPageLimit(options.maxPages || 10);
   const startUrl = normalizeUrl(inputUrl);
   const origin = new URL(startUrl).origin;
+  let crawlOrigin = origin;
   const robots = await fetchText(`${origin}/robots.txt`);
   const sitemap = await fetchText(`${origin}/sitemap.xml`);
 
@@ -45,11 +46,14 @@ export async function auditUrl(inputUrl, options = {}) {
     const page = await inspectPage(normalized, browser);
     if (!page.isHtml) continue;
     pages.push(page);
+    if (pages.length === 1 && page.rendered?.finalUrl) {
+      crawlOrigin = new URL(page.rendered.finalUrl).origin;
+    }
 
     for (const link of page.rendered.internalLinks) {
       if (pages.length + queue.length >= maxPages) break;
       const href = stripHash(link.href);
-      if (!href.startsWith(origin)) continue;
+      if (!href.startsWith(crawlOrigin)) continue;
       if (isLikelyHtmlUrl(href) && !visited.has(href) && !queue.includes(href)) {
         queue.push(href);
       }
@@ -69,7 +73,8 @@ export async function auditUrl(inputUrl, options = {}) {
   });
 
   const score = scoreFindings(findings);
-  const summary = summarize(findings, pages);
+  const pageSummaries = buildPageSummaries(pages, findings, startUrl);
+  const summary = summarize(findings, pages, maxPages);
   const repairPlan = buildRepairPlan(findings);
   const fixPack = buildFixPack(pages[0], origin, findings);
 
@@ -84,6 +89,7 @@ export async function auditUrl(inputUrl, options = {}) {
     warnings,
     docs: GOOGLE_DOCS,
     pages,
+    pageSummaries,
     findings,
     repairPlan,
     repairBrief: buildRepairBrief({
@@ -101,13 +107,14 @@ export async function auditUrl(inputUrl, options = {}) {
 async function inspectPage(url, browser) {
   const staticFetch = await fetchText(url);
   const isHtml = isHtmlResponse(staticFetch, url);
-  const staticFacts = extractStaticFacts(staticFetch.body || "", url, staticFetch);
+  const finalUrl = staticFetch.url || url;
+  const staticFacts = extractStaticFacts(staticFetch.body || "", finalUrl, staticFetch);
   let renderedFacts = null;
   let renderedError = null;
 
   if (browser && isHtml) {
     try {
-      renderedFacts = await extractRenderedFacts(browser, url);
+      renderedFacts = await extractRenderedFacts(browser, finalUrl);
     } catch (error) {
       renderedError = error.message;
     }
@@ -121,6 +128,8 @@ async function inspectPage(url, browser) {
 
   return {
     url,
+    finalUrl,
+    redirected: stripHash(finalUrl) !== stripHash(url),
     status: staticFetch.status,
     ok: staticFetch.ok,
     contentType: staticFetch.contentType,
@@ -201,6 +210,14 @@ async function extractRenderedFacts(browser, url) {
       canonical: absolute(document.querySelector('link[rel="canonical"]')?.getAttribute("href")),
       lang: document.documentElement.getAttribute("lang") || null,
       viewport: metaByName("viewport"),
+      charset: document.characterSet || null,
+      doctype: document.doctype ? document.doctype.name : null,
+      hreflangs: [...document.querySelectorAll('link[rel="alternate"][hreflang]')].map(
+        (node) => ({
+          hreflang: node.getAttribute("hreflang"),
+          href: absolute(node.getAttribute("href"))
+        })
+      ),
       h1s: headings.filter((heading) => heading.level === "h1").map((h) => h.text),
       headings,
       links,
@@ -300,6 +317,19 @@ function extractStaticFacts(html, url, fetchResult = {}) {
     canonical: absolute($('link[rel="canonical"]').attr("href")),
     lang: $("html").attr("lang") || null,
     viewport: metaByName("viewport"),
+    charset:
+      $("meta[charset]").attr("charset") ||
+      ($('meta[http-equiv="content-type"]').attr("content") || "").match(/charset=([^;]+)/i)?.[1] ||
+      null,
+    doctype: (html || "").trimStart().toLowerCase().startsWith("<!doctype html")
+      ? "html"
+      : null,
+    hreflangs: $('link[rel="alternate"][hreflang]')
+      .toArray()
+      .map((node) => ({
+        hreflang: $(node).attr("hreflang") || "",
+        href: absolute($(node).attr("href"))
+      })),
     h1s: headings.filter((heading) => heading.level === "h1").map((h) => h.text),
     headings,
     links,
@@ -331,11 +361,20 @@ function buildFindings({ pages, startUrl, robots, sitemap, renderedAvailable }) 
   const findings = [];
   const home = pages[0];
   if (!home) return findings;
+  let activePage = null;
 
   const add = (finding) => {
+    const pageFields = activePage
+      ? {
+          pageUrl: activePage.url,
+          finalUrl: activePage.finalUrl || activePage.rendered?.finalUrl || activePage.url,
+          pageLabel: pathLabel(activePage.url, startUrl)
+        }
+      : {};
     findings.push({
       id: `${finding.type}-${findings.length + 1}`,
       confidence: finding.confidence || "verified",
+      ...pageFields,
       ...finding
     });
   };
@@ -355,8 +394,21 @@ function buildFindings({ pages, startUrl, robots, sitemap, renderedAvailable }) 
   }
 
   for (const page of pages) {
+    activePage = page;
     const { rendered, static: staticFacts } = page;
     const label = pathLabel(page.url, startUrl);
+
+    if (page.redirected || stripHash(rendered.finalUrl || page.finalUrl || page.url) !== stripHash(page.url)) {
+      add({
+        type: "issue",
+        severity: "notice",
+        title: `URL redirects before rendering on ${label}`,
+        why: "Redirects are normal, but audit evidence should show the final URL search engines and users reach.",
+        evidence: `Requested ${page.url}; final URL ${rendered.finalUrl || page.finalUrl}.`,
+        fix: "Make sure canonicals, internal links, and sitemaps point at the final preferred URL.",
+        confidence: "needs-review"
+      });
+    }
 
     if (staticFacts.h1s.length === 0 && rendered.h1s.length > 0) {
       add({
@@ -468,6 +520,19 @@ function buildFindings({ pages, startUrl, robots, sitemap, renderedAvailable }) 
       });
     }
 
+    const hierarchyIssue = headingHierarchyIssue(rendered.headings || []);
+    if (hierarchyIssue) {
+      add({
+        type: "issue",
+        severity: "warning",
+        title: `Heading hierarchy needs cleanup on ${label}`,
+        why: "Headings should describe the page outline in order so users, assistive tech, and crawlers can understand the structure.",
+        evidence: hierarchyIssue,
+        fix: "Use one H1, then move section headings through H2 and H3 without skipping levels.",
+        confidence: "needs-review"
+      });
+    }
+
     if (rendered.wordCount < 250) {
       add({
         type: "issue",
@@ -503,6 +568,54 @@ function buildFindings({ pages, startUrl, robots, sitemap, renderedAvailable }) 
         fix: "Add a canonical tag that points to the preferred URL.",
         source: GOOGLE_DOCS.javascript,
         snippet: `<link rel="canonical" href="${page.url}" />`
+      });
+    }
+
+    if (!rendered.viewport) {
+      add({
+        type: "issue",
+        severity: "warning",
+        title: `Viewport meta tag missing on ${label}`,
+        why: "Mobile pages need a viewport tag so layouts render at the intended width.",
+        evidence: "No rendered viewport meta tag found.",
+        fix: "Add a responsive viewport meta tag.",
+        snippet: '<meta name="viewport" content="width=device-width, initial-scale=1" />'
+      });
+    }
+
+    if (!rendered.lang) {
+      add({
+        type: "issue",
+        severity: "notice",
+        title: `HTML language missing on ${label}`,
+        why: "The lang attribute helps browsers, translation tools, and assistive tech understand the page language.",
+        evidence: "No lang attribute found on the rendered html element.",
+        fix: 'Add a truthful language code such as <html lang="en">.',
+        snippet: '<html lang="en">'
+      });
+    }
+
+    if (!rendered.charset) {
+      add({
+        type: "issue",
+        severity: "notice",
+        title: `Character encoding missing on ${label}`,
+        why: "A charset declaration prevents text rendering surprises.",
+        evidence: "No rendered charset could be confirmed.",
+        fix: "Declare UTF-8 in the document head.",
+        snippet: '<meta charset="utf-8" />'
+      });
+    }
+
+    if (!rendered.doctype) {
+      add({
+        type: "issue",
+        severity: "notice",
+        title: `HTML doctype missing on ${label}`,
+        why: "A doctype keeps browsers out of quirks mode.",
+        evidence: "No HTML doctype was found before rendering.",
+        fix: "Start the document with <!doctype html>.",
+        snippet: "<!doctype html>"
       });
     }
 
@@ -568,6 +681,7 @@ function buildFindings({ pages, startUrl, robots, sitemap, renderedAvailable }) 
       });
     }
   }
+  activePage = null;
 
   if (!robots.ok) {
     add({
@@ -603,11 +717,15 @@ function buildRepairPlan(findings) {
       priority: index + 1,
       severity: finding.severity,
       title: finding.title,
+      pageUrl: finding.pageUrl || null,
+      pageLabel: finding.pageLabel || null,
       proof: finding.evidence,
       fix: finding.fix,
       confidence: finding.confidence || "verified",
       source: finding.source || null,
       snippet: finding.snippet || null,
+      estimatedEffort: estimatedEffort(finding),
+      workType: workType(finding),
       acceptance: acceptanceCheck(finding)
     }));
 }
@@ -733,6 +851,21 @@ function acceptanceCheck(finding) {
   if (title.includes("structured data")) {
     return "JSON-LD validates and matches content that is visible on the page.";
   }
+  if (title.includes("viewport")) {
+    return "The rendered head includes a mobile-friendly viewport meta tag.";
+  }
+  if (title.includes("language")) {
+    return "The rendered html element has the correct lang attribute.";
+  }
+  if (title.includes("encoding")) {
+    return "The rendered document declares UTF-8 character encoding.";
+  }
+  if (title.includes("doctype")) {
+    return "The HTML document starts in standards mode with <!doctype html>.";
+  }
+  if (title.includes("redirect")) {
+    return "Canonicals, sitemap URLs, and internal links point at the final preferred URL.";
+  }
   if (title.includes("robots.txt")) {
     return "GET /robots.txt returns 200 and references the sitemap.";
   }
@@ -794,7 +927,39 @@ ${JSON.stringify(
 </script>`;
 }
 
-function summarize(findings, pages) {
+function buildPageSummaries(pages, findings, startUrl) {
+  return pages.map((page) => {
+    const pageFindings = findings.filter(
+      (finding) => finding.pageUrl === page.url && finding.severity !== "good"
+    );
+    const guards = findings.filter(
+      (finding) => finding.pageUrl === page.url && finding.severity === "good"
+    );
+    const facts = page.rendered || {};
+    const staticFacts = page.static || {};
+    return {
+      url: page.url,
+      path: pathLabel(page.url, startUrl),
+      status: page.status,
+      finalUrl: facts.finalUrl || page.finalUrl || page.url,
+      score: scoreFindings(pageFindings),
+      critical: pageFindings.filter((finding) => finding.severity === "critical").length,
+      warnings: pageFindings.filter((finding) => finding.severity === "warning").length,
+      notices: pageFindings.filter((finding) => finding.severity === "notice").length,
+      guards: guards.length,
+      title: facts.title || "",
+      h1: facts.h1s?.[0] || "",
+      wordCount: facts.wordCount || 0,
+      internalLinks: facts.internalLinks?.length || 0,
+      schemaTypes: facts.schemaTypes || [],
+      staticWordCount: staticFacts.wordCount || 0,
+      staticH1: staticFacts.h1s?.[0] || "",
+      staticInternalLinks: staticFacts.internalLinks?.length || 0
+    };
+  });
+}
+
+function summarize(findings, pages, maxPages = pages.length) {
   const counts = findings.reduce(
     (acc, finding) => {
       acc[finding.severity] = (acc[finding.severity] || 0) + 1;
@@ -805,12 +970,51 @@ function summarize(findings, pages) {
   );
   return {
     pagesScanned: pages.length,
+    maxPages,
+    crawlLimitHit: pages.length >= maxPages,
     critical: counts.critical || 0,
     warnings: counts.warning || 0,
     notices: counts.notice || 0,
     guardedFalsePositives: counts.good || 0,
     totalFindings: counts.total
   };
+}
+
+function headingHierarchyIssue(headings = []) {
+  if (!headings.length) return "";
+  const levels = headings.map((heading) => Number(heading.level.replace("h", "")));
+  if (levels[0] !== 1) {
+    return `First rendered heading is H${levels[0]} instead of H1.`;
+  }
+  for (let index = 1; index < levels.length; index += 1) {
+    if (levels[index] - levels[index - 1] > 1) {
+      return `Heading jumps from H${levels[index - 1]} to H${levels[index]}.`;
+    }
+  }
+  return "";
+}
+
+function estimatedEffort(finding) {
+  const title = finding.title.toLowerCase();
+  if (title.includes("robots") || title.includes("sitemap")) return "15-30 min";
+  if (title.includes("title") || title.includes("description") || title.includes("canonical")) return "5-15 min";
+  if (title.includes("social") || title.includes("schema") || title.includes("viewport")) return "15-45 min";
+  if (title.includes("thin") || title.includes("internal links") || title.includes("heading")) return "30-90 min";
+  return "15-30 min";
+}
+
+function workType(finding) {
+  const title = finding.title.toLowerCase();
+  if (title.includes("title") || title.includes("description") || title.includes("thin") || title.includes("alt")) {
+    return "content";
+  }
+  if (title.includes("schema") || title.includes("canonical") || title.includes("viewport") || title.includes("social")) {
+    return "code";
+  }
+  if (title.includes("robots") || title.includes("sitemap") || title.includes("redirect")) {
+    return "technical";
+  }
+  return "review";
 }
 
 function scoreFindings(findings) {
@@ -886,6 +1090,12 @@ function normalizeUrl(input) {
   const url = new URL(withProtocol);
   url.hash = "";
   return url.href;
+}
+
+function clampPageLimit(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 10;
+  return Math.min(Math.max(Math.round(parsed), 1), 10);
 }
 
 function stripHash(value) {

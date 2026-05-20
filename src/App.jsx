@@ -106,6 +106,21 @@ function WaitlistPage() {
             {message || "We’ll only use this email for SEO Fix Kit outreach."}
           </p>
         </form>
+
+        <div className="report-preview" aria-label="SEO Fix Kit report preview">
+          <div>
+            <strong>Issue</strong>
+            <span>Static crawler says the homepage has no H1.</span>
+          </div>
+          <div>
+            <strong>Proof</strong>
+            <span>Rendered DOM shows “AI Converter for private file conversion.”</span>
+          </div>
+          <div>
+            <strong>Fix</strong>
+            <span>Do nothing. The finding is a false positive.</span>
+          </div>
+        </div>
       </section>
 
       <footer className="site-footer">
@@ -176,7 +191,7 @@ function BetaApp() {
           "content-type": "application/json",
           "x-beta-password": password
         },
-        body: JSON.stringify({ url: targetUrl, maxPages: 4 })
+        body: JSON.stringify({ url: targetUrl, maxPages: 10 })
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -206,6 +221,8 @@ function BetaApp() {
     setReport(null);
     window.history.replaceState(null, "", "/beta");
   }
+
+  const showingReport = Boolean(report && auditStatus === "success");
 
   if (!isAuthed) {
     return (
@@ -246,10 +263,15 @@ function BetaApp() {
     <main className="beta-shell">
       <BetaTop onLock={lock} />
 
-      <section className="beta-hero" aria-labelledby="beta-workspace-title">
+      <section
+        className={`beta-hero ${showingReport ? "beta-hero-compact" : ""}`}
+        aria-labelledby="beta-workspace-title"
+      >
         <div>
           <p className="beta-eyebrow">Audit workspace</p>
-          <h1 id="beta-workspace-title">Find the SEO problem. Prove it. Generate the fix.</h1>
+          <h1 id="beta-workspace-title">
+            {showingReport ? "Proof-backed SEO audit" : "Find the SEO problem. Prove it. Generate the fix."}
+          </h1>
         </div>
         <form className="audit-form" onSubmit={runAudit}>
           <label htmlFor="audit-url">Website URL</label>
@@ -347,7 +369,15 @@ function ReportView({ report, password }) {
     [report]
   );
   const topFixes = report.repairPlan || [];
+  const pageSummaries = report.pageSummaries || summarizePages(report.pages || [], report.findings || [], report.url);
   const shareUrl = report.reportUrl || `${window.location.origin}${report.reportPath || window.location.pathname}`;
+  const topThree = topFixes.slice(0, 3);
+  const scannedAt = report.scannedAt
+    ? new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short"
+      }).format(new Date(report.scannedAt))
+    : "just now";
 
   return (
     <div className="report-layout">
@@ -356,6 +386,11 @@ function ReportView({ report, password }) {
           <p className="beta-eyebrow">Saved report</p>
           <h2>{new URL(report.url).hostname}</h2>
           <p>{report.url}</p>
+          <div className="score-meta">
+            <span>{scannedAt}</span>
+            <span>Rendered browser scan</span>
+            <span>{report.summary?.crawlLimitHit ? "Crawl limit reached" : "Crawl completed"}</span>
+          </div>
         </div>
         <div
           className="score-ring"
@@ -368,10 +403,30 @@ function ReportView({ report, password }) {
       </section>
 
       <section className="metric-strip" aria-label="Audit summary">
-        <Metric label="Pages" value={report.summary?.pagesScanned || 0} />
+        <Metric label="Pages" value={`${report.summary?.pagesScanned || 0}/${report.summary?.maxPages || 10}`} />
         <Metric label="Critical" value={report.summary?.critical || 0} />
         <Metric label="Warnings" value={report.summary?.warnings || 0} />
+        <Metric label="Notices" value={report.summary?.notices || 0} />
         <Metric label="Proof guards" value={report.summary?.guardedFalsePositives || 0} />
+      </section>
+
+      <section className="verdict-panel">
+        <div>
+          <p className="beta-eyebrow">Verified repair brief</p>
+          <h2>{topFixes.length ? "Fix the proven issues first." : "No priority repairs found."}</h2>
+          <p>
+            SEO Fix Kit compares raw HTML with the rendered page, then only queues fixes with visible proof.
+            This is the anti-noise layer: no duplicate H1s, no busywork, no static-crawler panic.
+          </p>
+        </div>
+        <ol>
+          {(topThree.length ? topThree : [{ title: "Keep monitoring", fix: "Re-run after content or template changes.", estimatedEffort: "5 min" }]).map((fix) => (
+            <li key={`${fix.priority || "ok"}-${fix.title}`}>
+              <strong>{fix.title}</strong>
+              <span>{fix.estimatedEffort || "15-30 min"} · {fix.workType || "review"}</span>
+            </li>
+          ))}
+        </ol>
       </section>
 
       <section className="report-actions">
@@ -389,27 +444,57 @@ function ReportView({ report, password }) {
         </a>
       </section>
 
+      <section className="guard-section">
+        <div className="section-heading">
+          <p className="beta-eyebrow">Proof guards</p>
+          <h2>False positives we refused to create</h2>
+        </div>
+        {guarded.length ? (
+          <div className="guard-list">
+            {guarded.slice(0, 6).map((finding) => (
+              <FindingItem key={finding.id} finding={finding} compact />
+            ))}
+          </div>
+        ) : (
+          <p className="quiet-note">No static-vs-rendered false positives were detected in this crawl.</p>
+        )}
+      </section>
+
+      <section className="page-table-section">
+        <div className="section-heading">
+          <p className="beta-eyebrow">Site-wide crawl</p>
+          <h2>Every page we checked</h2>
+        </div>
+        <PageSummaryTable pages={pageSummaries} />
+      </section>
+
       <section className="findings-section">
         <div className="section-heading">
           <p className="beta-eyebrow">What is wrong</p>
           <h2>{issues.length ? "Fix these first" : "No priority repairs found"}</h2>
         </div>
         <div className="finding-list">
-          {(issues.length ? issues : guarded).slice(0, 8).map((finding) => (
-            <FindingItem key={finding.id} finding={finding} />
+          {issues.slice(0, 10).map((finding) => (
+            <FindingItem
+              key={finding.id}
+              finding={finding}
+              plan={topFixes.find((fix) => fix.title === finding.title)}
+            />
           ))}
+          {!issues.length && <p className="quiet-note">No critical or warning issues found in this crawl.</p>}
         </div>
       </section>
 
       <section className="fix-section">
         <div className="section-heading">
-          <p className="beta-eyebrow">Generate the fix</p>
-          <h2>Developer repair plan</h2>
+          <p className="beta-eyebrow">Repair queue</p>
+          <h2>Copy the fix, ship it, rerun</h2>
         </div>
         <div className="fix-list">
-          {topFixes.slice(0, 6).map((fix) => (
+          {topFixes.slice(0, 8).map((fix) => (
             <FixItem key={`${fix.priority}-${fix.title}`} fix={fix} />
           ))}
+          {!topFixes.length && <p className="quiet-note">Nothing needs a repair snippet right now.</p>}
         </div>
       </section>
 
@@ -431,15 +516,25 @@ function Metric({ label, value }) {
   );
 }
 
-function FindingItem({ finding }) {
+function FindingItem({ finding, plan, compact = false }) {
   return (
-    <article className={`finding-item ${finding.severity}`}>
+    <article className={`finding-item ${finding.severity} ${compact ? "compact" : ""}`}>
       <div>
         <span>{finding.severity}</span>
         <h3>{finding.title}</h3>
       </div>
-      <p>{finding.why}</p>
+      {!compact && <p>{finding.why}</p>}
       <dl>
+        {finding.pageLabel && (
+          <div>
+            <dt>Page</dt>
+            <dd>{finding.pageLabel}</dd>
+          </div>
+        )}
+        <div>
+          <dt>Confidence</dt>
+          <dd>{finding.confidence || "verified"}</dd>
+        </div>
         <div>
           <dt>Proof</dt>
           <dd>{finding.evidence}</dd>
@@ -448,7 +543,18 @@ function FindingItem({ finding }) {
           <dt>Fix</dt>
           <dd>{finding.fix}</dd>
         </div>
+        {plan?.acceptance && (
+          <div>
+            <dt>Acceptance</dt>
+            <dd>{plan.acceptance}</dd>
+          </div>
+        )}
       </dl>
+      {finding.source && (
+        <a className="source-link" href={finding.source} target="_blank" rel="noreferrer">
+          Google source
+        </a>
+      )}
       {finding.snippet && <CodeBlock code={finding.snippet} />}
     </article>
   );
@@ -461,7 +567,13 @@ function FixItem({ fix }) {
         <span>#{fix.priority}</span>
         <h3>{fix.title}</h3>
       </div>
+      <div className="fix-tags">
+        <small>{fix.estimatedEffort || "15-30 min"}</small>
+        <small>{fix.workType || "review"}</small>
+        <small>{fix.confidence || "verified"}</small>
+      </div>
       <p>{fix.fix}</p>
+      {fix.pageLabel && <p className="proof-line">Page: {fix.pageLabel}</p>}
       <p className="proof-line">Proof: {fix.proof}</p>
       <p className="proof-line">Acceptance: {fix.acceptance}</p>
       {fix.snippet && <CodeBlock code={fix.snippet} />}
@@ -471,11 +583,16 @@ function FixItem({ fix }) {
 
 function PageProof({ page }) {
   const facts = page.rendered || {};
+  const staticFacts = page.static || {};
   return (
     <article className="page-proof">
-      <p className="beta-eyebrow">Rendered proof</p>
+      <p className="beta-eyebrow">Static vs rendered proof</p>
       <h3>{page.url}</h3>
       <dl>
+        <div>
+          <dt>Status</dt>
+          <dd>{page.status || "unknown"} {page.redirected ? `· final ${facts.finalUrl || page.finalUrl}` : ""}</dd>
+        </div>
         <div>
           <dt>Title</dt>
           <dd>{facts.title || "missing"}</dd>
@@ -486,11 +603,11 @@ function PageProof({ page }) {
         </div>
         <div>
           <dt>Words</dt>
-          <dd>{facts.wordCount ?? "unknown"}</dd>
+          <dd>{staticFacts.wordCount ?? "unknown"} static → {facts.wordCount ?? "unknown"} rendered</dd>
         </div>
         <div>
           <dt>Internal links</dt>
-          <dd>{facts.internalLinks?.length ?? 0}</dd>
+          <dd>{staticFacts.internalLinks?.length ?? 0} static → {facts.internalLinks?.length ?? 0} rendered</dd>
         </div>
         <div>
           <dt>Schema</dt>
@@ -499,6 +616,75 @@ function PageProof({ page }) {
       </dl>
     </article>
   );
+}
+
+function PageSummaryTable({ pages }) {
+  return (
+    <div className="page-table" role="table" aria-label="Crawled pages">
+      <div className="page-table-row page-table-head" role="row">
+        <span>Page</span>
+        <span>Score</span>
+        <span>Issues</span>
+        <span>H1</span>
+        <span>Words</span>
+        <span>Links</span>
+        <span>Schema</span>
+      </div>
+      {pages.map((page) => (
+        <div className="page-table-row" role="row" key={page.url}>
+          <span title={page.url}>{page.path || new URL(page.url).pathname || "/"}</span>
+          <strong>{page.score}</strong>
+          <span>{page.critical + page.warnings + page.notices}</span>
+          <span>{page.h1 || "missing"}</span>
+          <span>{page.wordCount}</span>
+          <span>{page.internalLinks}</span>
+          <span>{page.schemaTypes?.join(", ") || "none"}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function summarizePages(pages, findings, startUrl) {
+  return pages.map((page) => {
+    const pageFindings = findings.filter(
+      (finding) => finding.pageUrl === page.url && finding.severity !== "good"
+    );
+    const facts = page.rendered || {};
+    const staticFacts = page.static || {};
+    return {
+      url: page.url,
+      path: pathLabel(page.url, startUrl),
+      score: Math.max(
+        0,
+        100 -
+          pageFindings.reduce((sum, finding) => {
+            if (finding.severity === "critical") return sum + 12;
+            if (finding.severity === "warning") return sum + 5;
+            if (finding.severity === "notice") return sum + 1;
+            return sum;
+          }, 0)
+      ),
+      critical: pageFindings.filter((finding) => finding.severity === "critical").length,
+      warnings: pageFindings.filter((finding) => finding.severity === "warning").length,
+      notices: pageFindings.filter((finding) => finding.severity === "notice").length,
+      h1: facts.h1s?.[0] || "",
+      wordCount: facts.wordCount || 0,
+      internalLinks: facts.internalLinks?.length || 0,
+      schemaTypes: facts.schemaTypes || [],
+      staticWordCount: staticFacts.wordCount || 0
+    };
+  });
+}
+
+function pathLabel(url, startUrl) {
+  try {
+    const parsed = new URL(url);
+    if (startUrl && new URL(startUrl).pathname === parsed.pathname) return "home";
+    return parsed.pathname || "/";
+  } catch {
+    return url;
+  }
 }
 
 function CodeBlock({ code }) {

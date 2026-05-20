@@ -13,13 +13,16 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Rendered-page audit with Playwright.
 - Static HTML vs rendered DOM comparison.
 - Evidence-backed findings.
+- 10-page private beta crawl with per-page scores and page proof.
+- False-positive guard section for static-vs-rendered mismatches.
 - Exact fix snippets for common SEO repairs.
-- Copyable developer repair brief with priority, proof, acceptance checks, and snippets.
+- Copyable developer repair brief with priority, effort, proof, acceptance checks, and snippets.
 - Founder-friendly React interface.
 - Cloudflare Worker target using Workers Static Assets and Browser Run.
 - Locked coming-soon homepage with `/api/waitlist` backed by D1.
 - Hidden `/beta` private audit workbench protected by `BETA_ACCESS_PASSWORD`.
 - Saved private report URLs backed by D1 `audit_reports`.
+- Hourly D1-backed audit quota for the private beta API.
 
 ## Run locally
 
@@ -66,6 +69,8 @@ Apply D1 migrations after creating or changing the waitlist schema:
 ```bash
 wrangler d1 migrations apply seofixkit_waitlist --remote
 ```
+
+Migration `0004_audit_usage.sql` adds the private beta audit quota table.
 
 The protected lead export requires the `ADMIN_EXPORT_TOKEN` Worker secret. The private beta audit app requires the `BETA_ACCESS_PASSWORD` Worker secret.
 

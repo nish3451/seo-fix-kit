@@ -27,6 +27,14 @@ if (!Array.isArray(report.repairPlan) || typeof report.repairBrief !== "string")
   throw new Error("Repair handoff fields are missing.");
 }
 
+if (!Array.isArray(report.pageSummaries) || report.pageSummaries.length !== report.pages.length) {
+  throw new Error("Page summary table data is missing.");
+}
+
+if (!report.summary || report.summary.maxPages < report.summary.pagesScanned) {
+  throw new Error("Crawl limit summary is missing.");
+}
+
 if (!report.repairBrief.includes("# SEO Fix Kit repair brief")) {
   throw new Error("Repair brief is not copyable Markdown.");
 }
