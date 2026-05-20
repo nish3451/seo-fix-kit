@@ -1,5 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="SEO Fix Kit">
-  <rect width="64" height="64" rx="12" fill="#171714"/>
-  <rect x="22" width="20" height="64" fill="#0c6b4f"/>
-  <text x="32" y="39" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="800" fill="#fff">SFK</text>
+  <rect width="64" height="64" rx="14" fill="#fbf8ef"/>
+  <path d="M27 39.5a12.5 12.5 0 1 0 0-25 12.5 12.5 0 0 0 0 25Z" fill="none" stroke="#0f7a56" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m36.4 36.4 10.6 10.6" fill="none" stroke="#0b120f" stroke-width="6.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m21.3 27.4 4 4 8.3-9.3" fill="none" stroke="#0b120f" stroke-width="4.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M17 46h18M17 52h29" fill="none" stroke="#6c6253" stroke-width="3.2" stroke-linecap="round"/>
 </svg>
