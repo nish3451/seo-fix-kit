@@ -31,28 +31,24 @@ export default {
         return joinWaitlist(request, env);
       }
 
+      if (url.pathname === "/api/beta/login" && request.method === "POST") {
+        return betaLogin(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/reports/")) {
+        return getSavedReport(request, env);
+      }
+
       if (url.pathname === "/admin/leads.csv") {
         return exportLeadsCsv(request, env);
       }
 
       if (url.pathname === "/api/audit" && request.method === "POST") {
-        return json(
-          {
-            error: "SEO Fix Kit is locked for private beta.",
-            waitlist: `${url.origin}/`
-          },
-          423
-        );
+        return runPrivateAudit(request, env);
       }
 
       if (url.pathname === "/api/demo-audit") {
-        return json(
-          {
-            error: "SEO Fix Kit is locked for private beta.",
-            waitlist: `${url.origin}/`
-          },
-          423
-        );
+        return runPrivateDemoAudit(request, env);
       }
 
       if (url.pathname === "/fixture/rendered-page") {
@@ -96,6 +92,12 @@ export default {
         return new Response(privacyHtml(url.origin), {
           headers: { "content-type": "text/html; charset=utf-8" }
         });
+      }
+
+      if (url.pathname === "/beta" || url.pathname.startsWith("/beta/")) {
+        const indexUrl = new URL("/", request.url);
+        const response = await env.ASSETS.fetch(new Request(indexUrl, request));
+        return withPrivateHeaders(response);
       }
 
       if (
@@ -254,6 +256,128 @@ async function exportLeadsCsv(request, env) {
       "content-type": "text/csv; charset=utf-8"
     }
   });
+}
+
+async function betaLogin(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const access = betaAccessStatus(request, env, body);
+  if (!access.ok) return betaAccessResponse(access);
+  return jsonNoStore({ ok: true, status: "unlocked" });
+}
+
+async function runPrivateAudit(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const access = betaAccessStatus(request, env, body);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) {
+    return json({ error: "Report storage is not configured." }, 503);
+  }
+
+  let targetUrl = "";
+  try {
+    targetUrl = normalizeUrl(body.url || "");
+  } catch {
+    return json({ error: "Enter a valid public website URL." }, 400);
+  }
+  const publicUrlCheck = publicAuditUrlStatus(targetUrl);
+  if (!publicUrlCheck.ok) {
+    return json({ error: publicUrlCheck.error }, 400);
+  }
+
+  const report = await auditUrl(targetUrl, env, {
+    maxPages: Math.min(Math.max(Number(body.maxPages || 4), 1), 6),
+    appOrigin: new URL(request.url).origin
+  });
+  const saved = await saveAuditReport(report, request, env);
+  return jsonNoStore(saved);
+}
+
+async function runPrivateDemoAudit(request, env) {
+  const access = betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) {
+    return json({ error: "Report storage is not configured." }, 503);
+  }
+
+  const origin = new URL(request.url).origin;
+  const report = await auditUrl(`${origin}/fixture/rendered-page`, env, {
+    maxPages: 1,
+    appOrigin: origin
+  });
+  const saved = await saveAuditReport(report, request, env);
+  return jsonNoStore(saved);
+}
+
+async function saveAuditReport(report, request, env) {
+  const origin = new URL(request.url).origin;
+  const id = makePrivateReportId(report.url);
+  const now = new Date().toISOString();
+  const saved = {
+    ...report,
+    id,
+    reportPath: `/beta/reports/${id}`,
+    reportUrl: `${origin}/beta/reports/${id}`
+  };
+
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO audit_reports
+      (id, url, origin, score, summary_json, report_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      id,
+      saved.url,
+      saved.origin,
+      saved.score,
+      JSON.stringify(saved.summary || {}),
+      JSON.stringify(saved),
+      now,
+      now
+    )
+    .run();
+
+  return saved;
+}
+
+async function getSavedReport(request, env) {
+  const access = betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) {
+    return json({ error: "Report storage is not configured." }, 503);
+  }
+
+  const url = new URL(request.url);
+  const relative = decodeURIComponent(url.pathname.slice("/api/reports/".length));
+  const wantsBrief = relative.endsWith("/brief.md");
+  const id = wantsBrief ? relative.slice(0, -"/brief.md".length) : relative;
+  if (!isSafeReportId(id)) {
+    return json({ error: "Report not found." }, 404);
+  }
+
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT report_json FROM audit_reports WHERE id = ? LIMIT 1`
+  )
+    .bind(id)
+    .first();
+  if (!row?.report_json) {
+    return json({ error: "Report not found." }, 404);
+  }
+
+  const report = JSON.parse(row.report_json);
+  report.reportUrl = `${url.origin}${report.reportPath || `/beta/reports/${id}`}`;
+
+  if (wantsBrief) {
+    return new Response(report.repairBrief || "# SEO Fix Kit repair brief\n", {
+      headers: {
+        "cache-control": "no-store",
+        "content-disposition": `attachment; filename="seofixkit-${id}.md"`,
+        "content-type": "text/markdown; charset=utf-8",
+        "x-robots-tag": "noindex, nofollow"
+      }
+    });
+  }
+
+  return jsonNoStore(report);
 }
 
 async function auditUrl(inputUrl, env, options = {}) {
@@ -1110,6 +1234,94 @@ function isAdminAuthorized(request, env) {
   return constantTimeEqual(token, expected);
 }
 
+function betaAccessStatus(request, env, body = {}) {
+  const expected = String(env.BETA_ACCESS_PASSWORD || "");
+  if (!expected) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Private beta password is not configured."
+    };
+  }
+
+  const supplied = String(body.password || request.headers.get("x-beta-password") || "");
+  if (!constantTimeEqual(supplied, expected)) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Private beta password required."
+    };
+  }
+
+  return { ok: true };
+}
+
+function betaAccessResponse(access) {
+  return jsonNoStore({ error: access.error }, access.status);
+}
+
+function publicAuditUrlStatus(value) {
+  let parsed = null;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return { ok: false, error: "Enter a valid public website URL." };
+  }
+
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    return { ok: false, error: "Only public http and https URLs can be audited." };
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal") ||
+    isPrivateHostname(host)
+  ) {
+    return { ok: false, error: "Use a public website URL, not a private or local address." };
+  }
+
+  return { ok: true };
+}
+
+function isPrivateHostname(host) {
+  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const parts = ipv4.slice(1).map(Number);
+    if (parts.some((part) => part < 0 || part > 255)) return true;
+    const [a, b] = parts;
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 198 && (b === 18 || b === 19)) ||
+      a >= 224
+    );
+  }
+
+  return host === "::1" || host.startsWith("[") || host.endsWith(".invalid");
+}
+
+function makePrivateReportId(url) {
+  const host = new URL(url).hostname
+    .replace(/^www\./, "")
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 42)
+    .toLowerCase();
+  return `${host || "report"}-${crypto.randomUUID()}`;
+}
+
+function isSafeReportId(value) {
+  return /^[a-z0-9][a-z0-9.-]{12,120}$/i.test(value);
+}
+
 function constantTimeEqual(left, right) {
   const leftBytes = new TextEncoder().encode(String(left || ""));
   const rightBytes = new TextEncoder().encode(String(right || ""));
@@ -1192,6 +1404,28 @@ function json(value, status = 200) {
   return new Response(JSON.stringify(value, null, 2), {
     status,
     headers: { "content-type": "application/json; charset=utf-8" }
+  });
+}
+
+function jsonNoStore(value, status = 200) {
+  return new Response(JSON.stringify(value, null, 2), {
+    status,
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "application/json; charset=utf-8",
+      "x-robots-tag": "noindex, nofollow"
+    }
+  });
+}
+
+function withPrivateHeaders(response) {
+  const headers = new Headers(response.headers);
+  headers.set("cache-control", "no-store");
+  headers.set("x-robots-tag", "noindex, nofollow");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
   });
 }
 

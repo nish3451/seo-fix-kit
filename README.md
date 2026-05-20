@@ -18,6 +18,8 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Founder-friendly React interface.
 - Cloudflare Worker target using Workers Static Assets and Browser Run.
 - Locked coming-soon homepage with `/api/waitlist` backed by D1.
+- Hidden `/beta` private audit workbench protected by `BETA_ACCESS_PASSWORD`.
+- Saved private report URLs backed by D1 `audit_reports`.
 
 ## Run locally
 
@@ -41,7 +43,9 @@ Cloudflare cannot run the local Express + Chromium server directly. The deployab
 - React UI served by Workers Static Assets from `dist/`
 - `/api/waitlist` handled by `worker/index.js` and stored in D1
 - `/admin/leads.csv` exports waitlist leads when called with the admin export token
-- `/api/audit` is currently locked on the public Worker
+- `/beta` serves the private workbench with `noindex` and `no-store` headers
+- `/api/audit` runs only with the beta password header
+- `/api/reports/:id` and `/api/reports/:id/brief.md` return saved private reports
 - rendered checks powered by Cloudflare Browser Run through the `BROWSER` binding
 - `/llms.txt` and same-URL Markdown for `/` kept truthful to the visible product
 
@@ -63,7 +67,7 @@ Apply D1 migrations after creating or changing the waitlist schema:
 wrangler d1 migrations apply seofixkit_waitlist --remote
 ```
 
-The protected lead export requires the `ADMIN_EXPORT_TOKEN` Worker secret.
+The protected lead export requires the `ADMIN_EXPORT_TOKEN` Worker secret. The private beta audit app requires the `BETA_ACCESS_PASSWORD` Worker secret.
 
 ## Custom domain
 
