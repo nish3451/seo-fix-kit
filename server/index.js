@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { auditUrl } from "./audit/analyzer.js";
 
@@ -12,12 +12,17 @@ const rootDir = path.resolve(__dirname, "..");
 const app = express();
 const port = Number(process.env.PORT || 8787);
 const auditReports = new Map();
+const betaSessions = new Map();
+const VERSION = "0.5.0";
+const SESSION_COOKIE = "sfk_beta_session";
+const BETA_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
+const REPORT_RETENTION_DAYS = 30;
 
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/api/health", (req, res) => {
-  res.json({ ok: true, service: "seo-fix-kit", version: "0.4.0" });
+  res.json({ ok: true, service: "seo-fix-kit", version: VERSION });
 });
 
 app.post("/api/waitlist", (req, res) => {
@@ -34,18 +39,56 @@ app.post("/api/waitlist", (req, res) => {
 });
 
 app.post("/api/beta/login", (req, res) => {
-  if (!isBetaAuthorized(req, req.body?.password)) {
+  const ownerEmail = normalizeEmail(req.body?.email);
+  if (!ownerEmail) {
+    res.status(400).json({ error: "Enter your beta email address." });
+    return;
+  }
+
+  if (!isBetaPasswordValid(req.body?.password)) {
     res.status(401).json({ error: "Private beta password required." });
     return;
   }
-  res.set("cache-control", "no-store").json({ ok: true, status: "unlocked" });
+
+  const session = createLocalSession(req, ownerEmail);
+  res
+    .set("cache-control", "no-store")
+    .set("set-cookie", sessionCookie(req, session.token, BETA_SESSION_TTL_SECONDS))
+    .json({ ok: true, status: "unlocked", ownerEmail, expiresAt: session.expiresAt });
+});
+
+app.get("/api/beta/session", (req, res) => {
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res
+      .status(401)
+      .set("cache-control", "no-store")
+      .set("set-cookie", clearSessionCookie(req))
+      .json({ error: "Private beta session required." });
+    return;
+  }
+  res.set("cache-control", "no-store").json({
+    ok: true,
+    status: "active",
+    ownerEmail: access.ownerEmail,
+    expiresAt: access.expiresAt
+  });
+});
+
+app.post("/api/beta/logout", (req, res) => {
+  const token = betaSessionTokenFromRequest(req);
+  if (token) betaSessions.delete(sha256Hex(token));
+  res
+    .set("cache-control", "no-store")
+    .set("set-cookie", clearSessionCookie(req))
+    .json({ ok: true, status: "locked" });
 });
 
 app.get("/admin/leads.csv", (req, res) => {
   const expected = process.env.ADMIN_EXPORT_TOKEN || "";
   const auth = req.get("authorization") || "";
   const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
-  const token = bearer || req.query.token || "";
+  const token = bearer;
 
   if (!expected || token !== expected) {
     res.status(401).type("text").send("Unauthorized");
@@ -63,14 +106,15 @@ app.get("/admin/leads.csv", (req, res) => {
 
 app.get("/api/demo-audit", async (req, res) => {
   try {
-    if (!isBetaAuthorized(req)) {
-      res.status(401).json({ error: "Private beta password required." });
+    const access = localBetaAccess(req);
+    if (!access.ok) {
+      res.status(401).json({ error: "Private beta session required." });
       return;
     }
     const report = await auditUrl(`http://127.0.0.1:${port}/fixture/rendered-page`, {
       maxPages: 1
     });
-    res.set("cache-control", "no-store").json(saveLocalReport(report, req));
+    res.set("cache-control", "no-store").json(saveLocalReport(report, req, access));
   } catch (error) {
     res.status(500).json({
       error: error.message || "The demo audit failed."
@@ -80,8 +124,9 @@ app.get("/api/demo-audit", async (req, res) => {
 
 app.post("/api/audit", async (req, res) => {
   try {
-    if (!isBetaAuthorized(req, req.body?.password)) {
-      res.status(401).json({ error: "Private beta password required." });
+    const access = localBetaAccess(req);
+    if (!access.ok) {
+      res.status(401).json({ error: "Private beta session required." });
       return;
     }
     const { url, maxPages } = req.body || {};
@@ -105,7 +150,7 @@ app.post("/api/audit", async (req, res) => {
     const report = await auditUrl(normalized, {
       maxPages: Math.min(Math.max(Number(maxPages || 10), 1), 10)
     });
-    res.set("cache-control", "no-store").json(saveLocalReport(report, req));
+    res.set("cache-control", "no-store").json(saveLocalReport(report, req, access));
   } catch (error) {
     res.status(500).json({
       error: error.message || "The audit failed. Try another URL."
@@ -114,12 +159,13 @@ app.post("/api/audit", async (req, res) => {
 });
 
 app.get("/api/reports/:id/brief.md", (req, res) => {
-  if (!isBetaAuthorized(req)) {
-    res.status(401).type("text").send("Private beta password required.");
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res.status(401).type("text").send("Private beta session required.");
     return;
   }
   const report = auditReports.get(req.params.id);
-  if (!report) {
+  if (!report || (report.owner?.email && report.owner.email !== access.ownerEmail)) {
     res.status(404).type("text").send("Report not found.");
     return;
   }
@@ -134,12 +180,13 @@ app.get("/api/reports/:id/brief.md", (req, res) => {
 });
 
 app.get("/api/reports/:id", (req, res) => {
-  if (!isBetaAuthorized(req)) {
-    res.status(401).json({ error: "Private beta password required." });
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res.status(401).json({ error: "Private beta session required." });
     return;
   }
   const report = auditReports.get(req.params.id);
-  if (!report) {
+  if (!report || (report.owner?.email && report.owner.email !== access.ownerEmail)) {
     res.status(404).json({ error: "Report not found." });
     return;
   }
@@ -205,20 +252,86 @@ app.listen(port, "127.0.0.1", () => {
   console.log(`SEO Fix Kit server running at http://127.0.0.1:${port}`);
 });
 
-function isBetaAuthorized(req, bodyPassword = "") {
+function isBetaPasswordValid(bodyPassword = "") {
   const expected = process.env.BETA_ACCESS_PASSWORD || "local-beta";
-  const supplied = String(bodyPassword || req.get("x-beta-password") || "");
+  const supplied = String(bodyPassword || "");
   return constantTimeEqual(supplied, expected);
 }
 
-function saveLocalReport(report, req) {
+function localBetaAccess(req) {
+  const token = betaSessionTokenFromRequest(req);
+  if (!token) return { ok: false };
+
+  const sessionHash = sha256Hex(token);
+  const session = betaSessions.get(sessionHash);
+  if (!session || session.expiresAt <= new Date().toISOString()) {
+    betaSessions.delete(sessionHash);
+    return { ok: false };
+  }
+
+  session.lastSeenAt = new Date().toISOString();
+  return {
+    ok: true,
+    ownerEmail: session.ownerEmail,
+    sessionHash,
+    expiresAt: session.expiresAt
+  };
+}
+
+function createLocalSession(req, ownerEmail) {
+  const token = randomBytes(32).toString("hex");
+  const sessionHash = sha256Hex(token);
+  const now = new Date().toISOString();
+  const expiresAt = isoSecondsFromNow(BETA_SESSION_TTL_SECONDS);
+  betaSessions.set(sessionHash, {
+    ownerEmail,
+    createdAt: now,
+    expiresAt,
+    lastSeenAt: now,
+    userAgent: cleanText(req.get("user-agent") || "", 500)
+  });
+  return { token, expiresAt };
+}
+
+function betaSessionTokenFromRequest(req) {
+  return req.get("x-beta-session") || cookieValue(req, SESSION_COOKIE);
+}
+
+function sessionCookie(req, token, maxAge) {
+  const secure = req.protocol === "https" ? "; Secure" : "";
+  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
+}
+
+function clearSessionCookie(req) {
+  const secure = req?.protocol === "https" ? "; Secure" : "";
+  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure}`;
+}
+
+function cookieValue(req, name) {
+  const cookie = req.get("cookie") || "";
+  for (const part of cookie.split(";")) {
+    const [rawKey, ...rawValue] = part.trim().split("=");
+    if (rawKey === name) return decodeURIComponent(rawValue.join("=") || "");
+  }
+  return "";
+}
+
+function saveLocalReport(report, req, access) {
   const id = makePrivateReportId(report.url);
   const origin = `http://${req.get("host")}`;
+  const expiresAt = isoDaysFromNow(REPORT_RETENTION_DAYS);
   const saved = {
     ...report,
     id,
     reportPath: `/beta/reports/${id}`,
-    reportUrl: `${origin}/beta/reports/${id}`
+    reportUrl: `${origin}/beta/reports/${id}`,
+    owner: {
+      email: access.ownerEmail
+    },
+    retention: {
+      expiresAt,
+      days: REPORT_RETENTION_DAYS
+    }
   };
   auditReports.set(id, saved);
   return saved;
@@ -240,6 +353,33 @@ function normalizeUrl(input) {
   const url = new URL(withProtocol);
   url.hash = "";
   return url.href;
+}
+
+function normalizeEmail(input) {
+  const email = String(input || "").trim().toLowerCase();
+  if (email.length > 254) return "";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "";
+  return email;
+}
+
+function cleanText(input, maxLength) {
+  return String(input || "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function isoSecondsFromNow(seconds) {
+  return new Date(Date.now() + seconds * 1000).toISOString();
+}
+
+function isoDaysFromNow(days) {
+  return isoSecondsFromNow(days * 24 * 60 * 60);
+}
+
+function sha256Hex(value) {
+  return createHash("sha256").update(String(value || "")).digest("hex");
 }
 
 function publicAuditUrlStatus(value) {

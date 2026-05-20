@@ -446,6 +446,12 @@ h1 {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
+.gate-form > input {
+  margin-bottom: 16px;
+  width: 100%;
+}
+
+.gate-form > input,
 .gate-row input,
 .audit-row input {
   background: rgba(7, 12, 10, 0.78);
@@ -455,6 +461,13 @@ h1 {
   min-height: 58px;
   min-width: 0;
   padding: 0 16px;
+}
+
+.session-note {
+  color: var(--ink-muted);
+  font-size: 14px;
+  font-weight: 720;
+  margin: 10px 0 0;
 }
 
 .gate-row button,

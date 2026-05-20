@@ -10,12 +10,20 @@ const DOCS = {
 };
 
 const MAX_HTML_BYTES = 1_000_000;
+const VERSION = "0.5.0";
+const SESSION_COOKIE = "sfk_beta_session";
+const BETA_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
+const REPORT_RETENTION_DAYS = 30;
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     try {
+      if (env.WAITLIST_DB && (url.pathname.startsWith("/api/") || url.pathname.startsWith("/admin/"))) {
+        ctx?.waitUntil?.(cleanupExpiredRows(env));
+      }
+
       if (url.pathname === "/api/health") {
         return json({
           ok: true,
@@ -23,7 +31,7 @@ export default {
           runtime: "cloudflare-worker",
           browserRun: Boolean(env.BROWSER),
           waitlistDb: Boolean(env.WAITLIST_DB),
-          version: "0.4.0"
+          version: VERSION
         });
       }
 
@@ -33,6 +41,14 @@ export default {
 
       if (url.pathname === "/api/beta/login" && request.method === "POST") {
         return betaLogin(request, env);
+      }
+
+      if (url.pathname === "/api/beta/session" && request.method === "GET") {
+        return betaSession(request, env);
+      }
+
+      if (url.pathname === "/api/beta/logout" && request.method === "POST") {
+        return betaLogout(request, env);
       }
 
       if (url.pathname.startsWith("/api/reports/")) {
@@ -141,6 +157,11 @@ async function joinWaitlist(request, env) {
   const email = normalizeEmail(body.email);
   if (!email) {
     return json({ error: "Enter a valid email address." }, 400);
+  }
+
+  const quota = await waitlistQuotaStatus(request, env);
+  if (!quota.ok) {
+    return jsonNoStore({ error: quota.error, resetAt: quota.resetAt }, 429);
   }
 
   const now = new Date().toISOString();
@@ -259,15 +280,67 @@ async function exportLeadsCsv(request, env) {
 }
 
 async function betaLogin(request, env) {
+  if (!env.WAITLIST_DB) {
+    return json({ error: "Private beta sessions are not configured." }, 503);
+  }
+
   const body = await request.json().catch(() => ({}));
-  const access = betaAccessStatus(request, env, body);
+  const loginQuota = await loginQuotaStatus(request, env);
+  if (!loginQuota.ok) {
+    return jsonNoStore({ error: loginQuota.error, resetAt: loginQuota.resetAt }, 429);
+  }
+
+  const ownerEmail = normalizeEmail(body.email);
+  if (!ownerEmail) {
+    return json({ error: "Enter your beta email address." }, 400);
+  }
+
+  const access = betaPasswordAccessStatus(request, env, body);
   if (!access.ok) return betaAccessResponse(access);
-  return jsonNoStore({ ok: true, status: "unlocked" });
+
+  const session = await createBetaSession(request, env, ownerEmail);
+  const response = jsonNoStore({
+    ok: true,
+    status: "unlocked",
+    ownerEmail,
+    expiresAt: session.expiresAt
+  });
+  response.headers.append("set-cookie", session.cookie);
+  return response;
+}
+
+async function betaSession(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  return jsonNoStore({
+    ok: true,
+    status: "active",
+    ownerEmail: access.ownerEmail,
+    expiresAt: access.expiresAt
+  });
+}
+
+async function betaLogout(request, env) {
+  const token = betaSessionTokenFromRequest(request);
+  if (token && env.WAITLIST_DB) {
+    const tokenHash = await sha256Hex(token);
+    await env.WAITLIST_DB.prepare(
+      `UPDATE beta_sessions
+       SET revoked_at = ?, last_seen_at = ?
+       WHERE token_hash = ?`
+    )
+      .bind(new Date().toISOString(), new Date().toISOString(), tokenHash)
+      .run();
+  }
+
+  const response = jsonNoStore({ ok: true, status: "locked" });
+  response.headers.append("set-cookie", clearSessionCookie(request));
+  return response;
 }
 
 async function runPrivateAudit(request, env) {
   const body = await request.json().catch(() => ({}));
-  const access = betaAccessStatus(request, env, body);
+  const access = await betaAccessStatus(request, env);
   if (!access.ok) return betaAccessResponse(access);
   if (!env.WAITLIST_DB) {
     return json({ error: "Report storage is not configured." }, 503);
@@ -284,7 +357,7 @@ async function runPrivateAudit(request, env) {
     return json({ error: publicUrlCheck.error }, 400);
   }
 
-  const quota = await auditQuotaStatus(request, env);
+  const quota = await auditQuotaStatus(request, env, access, targetUrl);
   if (!quota.ok) {
     return jsonNoStore({ error: quota.error, resetAt: quota.resetAt }, 429);
   }
@@ -293,12 +366,12 @@ async function runPrivateAudit(request, env) {
     maxPages: clampPageLimit(body.maxPages || 10),
     appOrigin: new URL(request.url).origin
   });
-  const saved = await saveAuditReport(report, request, env);
+  const saved = await saveAuditReport(report, request, env, access);
   return jsonNoStore(saved);
 }
 
 async function runPrivateDemoAudit(request, env) {
-  const access = betaAccessStatus(request, env);
+  const access = await betaAccessStatus(request, env);
   if (!access.ok) return betaAccessResponse(access);
   if (!env.WAITLIST_DB) {
     return json({ error: "Report storage is not configured." }, 503);
@@ -309,25 +382,34 @@ async function runPrivateDemoAudit(request, env) {
     maxPages: 1,
     appOrigin: origin
   });
-  const saved = await saveAuditReport(report, request, env);
+  const saved = await saveAuditReport(report, request, env, access);
   return jsonNoStore(saved);
 }
 
-async function saveAuditReport(report, request, env) {
+async function saveAuditReport(report, request, env, access) {
   const origin = new URL(request.url).origin;
   const id = makePrivateReportId(report.url);
   const now = new Date().toISOString();
+  const expiresAt = isoDaysFromNow(REPORT_RETENTION_DAYS);
+  const targetHost = new URL(report.url).hostname.toLowerCase();
   const saved = {
     ...report,
     id,
     reportPath: `/beta/reports/${id}`,
-    reportUrl: `${origin}/beta/reports/${id}`
+    reportUrl: `${origin}/beta/reports/${id}`,
+    owner: {
+      email: access.ownerEmail
+    },
+    retention: {
+      expiresAt,
+      days: REPORT_RETENTION_DAYS
+    }
   };
 
   await env.WAITLIST_DB.prepare(
     `INSERT INTO audit_reports
-      (id, url, origin, score, summary_json, report_json, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      (id, url, origin, score, summary_json, report_json, created_at, updated_at, owner_email, owner_session_hash, target_host, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
     .bind(
       id,
@@ -337,7 +419,11 @@ async function saveAuditReport(report, request, env) {
       JSON.stringify(saved.summary || {}),
       JSON.stringify(saved),
       now,
-      now
+      now,
+      access.ownerEmail,
+      access.sessionHash,
+      targetHost,
+      expiresAt
     )
     .run();
 
@@ -345,7 +431,7 @@ async function saveAuditReport(report, request, env) {
 }
 
 async function getSavedReport(request, env) {
-  const access = betaAccessStatus(request, env);
+  const access = await betaAccessStatus(request, env);
   if (!access.ok) return betaAccessResponse(access);
   if (!env.WAITLIST_DB) {
     return json({ error: "Report storage is not configured." }, 503);
@@ -360,11 +446,18 @@ async function getSavedReport(request, env) {
   }
 
   const row = await env.WAITLIST_DB.prepare(
-    `SELECT report_json FROM audit_reports WHERE id = ? LIMIT 1`
+    `SELECT report_json, owner_email, expires_at FROM audit_reports WHERE id = ? LIMIT 1`
   )
     .bind(id)
     .first();
   if (!row?.report_json) {
+    return json({ error: "Report not found." }, 404);
+  }
+  if (row.expires_at && row.expires_at <= new Date().toISOString()) {
+    await env.WAITLIST_DB.prepare(`DELETE FROM audit_reports WHERE id = ?`).bind(id).run();
+    return json({ error: "Report expired." }, 404);
+  }
+  if (row.owner_email && row.owner_email !== access.ownerEmail) {
     return json({ error: "Report not found." }, 404);
   }
 
@@ -1245,7 +1338,7 @@ async function fetchText(url) {
 
       response = await fetch(currentUrl, {
         redirect: "manual",
-        headers: { "user-agent": "SEOFixKit/0.4 (+https://seofixkit.com; evidence-backed SEO audit)" }
+        headers: { "user-agent": `SEOFixKit/${VERSION} (+https://seofixkit.com; evidence-backed SEO audit)` }
       });
 
       if (![301, 302, 303, 307, 308].includes(response.status)) break;
@@ -1475,11 +1568,11 @@ function isAdminAuthorized(request, env) {
 
   const auth = request.headers.get("authorization") || "";
   const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
-  const token = bearer || new URL(request.url).searchParams.get("token") || "";
+  const token = bearer;
   return constantTimeEqual(token, expected);
 }
 
-function betaAccessStatus(request, env, body = {}) {
+function betaPasswordAccessStatus(request, env, body = {}) {
   const expected = String(env.BETA_ACCESS_PASSWORD || "");
   if (!expected) {
     return {
@@ -1489,7 +1582,7 @@ function betaAccessStatus(request, env, body = {}) {
     };
   }
 
-  const supplied = String(body.password || request.headers.get("x-beta-password") || "");
+  const supplied = String(body.password || "");
   if (!constantTimeEqual(supplied, expected)) {
     return {
       ok: false,
@@ -1501,53 +1594,284 @@ function betaAccessStatus(request, env, body = {}) {
   return { ok: true };
 }
 
-function betaAccessResponse(access) {
-  return jsonNoStore({ error: access.error }, access.status);
+async function betaAccessStatus(request, env) {
+  if (!env.WAITLIST_DB) {
+    return {
+      ok: false,
+      status: 503,
+      error: "Private beta sessions are not configured."
+    };
+  }
+
+  const token = betaSessionTokenFromRequest(request);
+  if (!token) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Private beta session required."
+    };
+  }
+
+  const tokenHash = await sha256Hex(token);
+  const now = new Date().toISOString();
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT token_hash, owner_email, expires_at, revoked_at
+     FROM beta_sessions
+     WHERE token_hash = ?
+     LIMIT 1`
+  )
+    .bind(tokenHash)
+    .first();
+
+  if (!row?.token_hash || row.revoked_at || row.expires_at <= now) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Private beta session expired."
+    };
+  }
+
+  await env.WAITLIST_DB.prepare(
+    `UPDATE beta_sessions SET last_seen_at = ? WHERE token_hash = ?`
+  )
+    .bind(now, tokenHash)
+    .run();
+
+  return {
+    ok: true,
+    ownerEmail: row.owner_email,
+    sessionHash: row.token_hash,
+    expiresAt: row.expires_at
+  };
 }
 
-async function auditQuotaStatus(request, env) {
+function betaAccessResponse(access) {
+  const response = jsonNoStore({ error: access.error }, access.status);
+  if (access.status === 401) {
+    response.headers.append("set-cookie", clearSessionCookie());
+  }
+  return response;
+}
+
+async function auditQuotaStatus(request, env, access, targetUrl) {
   if (!env.WAITLIST_DB) {
     return { ok: false, error: "Report storage is not configured." };
   }
 
   const now = new Date();
-  const windowStart = now.toISOString().slice(0, 13);
-  const resetAt = new Date(now);
-  resetAt.setUTCMinutes(0, 0, 0);
-  resetAt.setUTCHours(resetAt.getUTCHours() + 1);
+  const hour = hourWindow(now);
+  const day = dayWindow(now);
+  const ipHash = await requestIpHash(request);
+  const targetHost = new URL(targetUrl).hostname.toLowerCase();
+  const sessionKey = access.sessionHash.slice(0, 24);
+  const targetKey = targetHost.replace(/[^a-z0-9.-]/gi, "").slice(0, 120);
+
+  return checkQuotaSet(env, [
+    {
+      bucket: `audit:ip:${hour.key}:${ipHash}`,
+      limit: 12,
+      windowStart: hour.key,
+      resetAt: hour.resetAt,
+      error: "Audit limit reached for this network this hour. Try again later."
+    },
+    {
+      bucket: `audit:session-hour:${hour.key}:${sessionKey}`,
+      limit: 8,
+      windowStart: hour.key,
+      resetAt: hour.resetAt,
+      error: "Audit limit reached for this beta session this hour. Try again later."
+    },
+    {
+      bucket: `audit:session-day:${day.key}:${sessionKey}`,
+      limit: 30,
+      windowStart: day.key,
+      resetAt: day.resetAt,
+      error: "Daily beta audit limit reached. Try again tomorrow."
+    },
+    {
+      bucket: `audit:target:${hour.key}:${targetKey}`,
+      limit: 4,
+      windowStart: hour.key,
+      resetAt: hour.resetAt,
+      error: "That site has been audited several times this hour. Try again later."
+    }
+  ]);
+}
+
+async function waitlistQuotaStatus(request, env) {
+  const hour = hourWindow(new Date());
+  const ipHash = await requestIpHash(request);
+  return checkQuotaSet(env, [
+    {
+      bucket: `waitlist:ip:${hour.key}:${ipHash}`,
+      limit: 20,
+      windowStart: hour.key,
+      resetAt: hour.resetAt,
+      error: "Too many waitlist attempts from this network. Try again later."
+    }
+  ]);
+}
+
+async function loginQuotaStatus(request, env) {
+  const hour = hourWindow(new Date());
+  const ipHash = await requestIpHash(request);
+  return checkQuotaSet(env, [
+    {
+      bucket: `login:ip:${hour.key}:${ipHash}`,
+      limit: 20,
+      windowStart: hour.key,
+      resetAt: hour.resetAt,
+      error: "Too many login attempts from this network. Try again later."
+    }
+  ]);
+}
+
+async function checkQuotaSet(env, checks) {
+  const rows = await Promise.all(
+    checks.map((check) =>
+      env.WAITLIST_DB.prepare(`SELECT count FROM audit_usage WHERE bucket = ? LIMIT 1`)
+        .bind(check.bucket)
+        .first()
+    )
+  );
+
+  for (let index = 0; index < checks.length; index += 1) {
+    const count = Number(rows[index]?.count || 0);
+    if (count >= checks[index].limit) {
+      return {
+        ok: false,
+        error: checks[index].error,
+        resetAt: checks[index].resetAt.toISOString()
+      };
+    }
+  }
+
+  const updatedAt = new Date().toISOString();
+  await Promise.all(
+    checks.map((check) =>
+      env.WAITLIST_DB.prepare(
+        `INSERT INTO audit_usage (bucket, count, window_start, updated_at)
+         VALUES (?, 1, ?, ?)
+         ON CONFLICT(bucket) DO UPDATE SET
+          count = audit_usage.count + 1,
+          updated_at = excluded.updated_at`
+      )
+        .bind(check.bucket, check.windowStart, updatedAt)
+        .run()
+    )
+  );
+
+  return { ok: true };
+}
+
+async function createBetaSession(request, env, ownerEmail) {
+  const token = randomToken();
+  const tokenHash = await sha256Hex(token);
+  const now = new Date().toISOString();
+  const expiresAt = isoSecondsFromNow(BETA_SESSION_TTL_SECONDS);
+  const ipHash = await requestIpHash(request);
+  const userAgent = cleanText(request.headers.get("user-agent") || "", 500);
+
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO beta_sessions
+      (token_hash, owner_email, created_at, expires_at, last_seen_at, ip_hash, user_agent)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(tokenHash, ownerEmail, now, expiresAt, now, ipHash, userAgent)
+    .run();
+
+  return {
+    expiresAt,
+    cookie: sessionCookie(request, token, BETA_SESSION_TTL_SECONDS)
+  };
+}
+
+function betaSessionTokenFromRequest(request) {
+  const headerToken = request.headers.get("x-beta-session") || "";
+  if (headerToken) return headerToken.trim();
+  return cookieValue(request, SESSION_COOKIE);
+}
+
+function sessionCookie(request, token, maxAge) {
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
+}
+
+function clearSessionCookie(request) {
+  const secure = request && new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure}`;
+}
+
+function cookieValue(request, name) {
+  const cookie = request.headers.get("cookie") || "";
+  for (const part of cookie.split(";")) {
+    const [rawKey, ...rawValue] = part.trim().split("=");
+    if (rawKey === name) {
+      return decodeURIComponent(rawValue.join("=") || "");
+    }
+  }
+  return "";
+}
+
+function randomToken() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function requestIpHash(request) {
   const ip =
     request.headers.get("cf-connecting-ip") ||
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     "unknown";
-  const bucket = `audit:${windowStart}:${ip}`;
-  const limit = 12;
+  return (await sha256Hex(ip)).slice(0, 32);
+}
 
-  const row = await env.WAITLIST_DB.prepare(
-    `SELECT count FROM audit_usage WHERE bucket = ? LIMIT 1`
-  )
-    .bind(bucket)
-    .first();
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(String(value || ""))
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
 
-  if (Number(row?.count || 0) >= limit) {
-    return {
-      ok: false,
-      error: "Audit limit reached for this hour. Try again later.",
-      resetAt: resetAt.toISOString()
-    };
-  }
+function hourWindow(now) {
+  const resetAt = new Date(now);
+  resetAt.setUTCMinutes(0, 0, 0);
+  resetAt.setUTCHours(resetAt.getUTCHours() + 1);
+  return {
+    key: now.toISOString().slice(0, 13),
+    resetAt
+  };
+}
 
-  const updatedAt = now.toISOString();
-  await env.WAITLIST_DB.prepare(
-    `INSERT INTO audit_usage (bucket, count, window_start, updated_at)
-     VALUES (?, 1, ?, ?)
-     ON CONFLICT(bucket) DO UPDATE SET
-      count = audit_usage.count + 1,
-      updated_at = excluded.updated_at`
-  )
-    .bind(bucket, windowStart, updatedAt)
-    .run();
+function dayWindow(now) {
+  const resetAt = new Date(now);
+  resetAt.setUTCHours(0, 0, 0, 0);
+  resetAt.setUTCDate(resetAt.getUTCDate() + 1);
+  return {
+    key: now.toISOString().slice(0, 10),
+    resetAt
+  };
+}
 
-  return { ok: true, remaining: Math.max(0, limit - Number(row?.count || 0) - 1) };
+function isoSecondsFromNow(seconds) {
+  return new Date(Date.now() + seconds * 1000).toISOString();
+}
+
+function isoDaysFromNow(days) {
+  return isoSecondsFromNow(days * 24 * 60 * 60);
+}
+
+async function cleanupExpiredRows(env) {
+  const now = new Date().toISOString();
+  await env.WAITLIST_DB.batch([
+    env.WAITLIST_DB.prepare(`DELETE FROM audit_reports WHERE expires_at IS NOT NULL AND expires_at < ?`).bind(now),
+    env.WAITLIST_DB.prepare(`DELETE FROM beta_sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),
+    env.WAITLIST_DB.prepare(`DELETE FROM audit_usage WHERE updated_at < ?`).bind(isoSecondsFromNow(-7 * 24 * 60 * 60))
+  ]);
 }
 
 function publicAuditUrlStatus(value) {

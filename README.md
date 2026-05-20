@@ -20,9 +20,11 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Founder-friendly React interface.
 - Cloudflare Worker target using Workers Static Assets and Browser Run.
 - Locked coming-soon homepage with `/api/waitlist` backed by D1.
-- Hidden `/beta` private audit workbench protected by `BETA_ACCESS_PASSWORD`.
-- Saved private report URLs backed by D1 `audit_reports`.
-- Hourly D1-backed audit quota for the private beta API.
+- Hidden `/beta` private audit workbench protected by email + beta password login.
+- Expiring beta sessions backed by D1 `beta_sessions`.
+- Saved private report URLs backed by D1 `audit_reports`, tied to the beta owner email.
+- 30-day report retention with cleanup for expired reports, sessions, and quota buckets.
+- D1-backed abuse controls across login, waitlist, network, session, daily, and target-site audit buckets.
 
 ## Run locally
 
@@ -47,8 +49,10 @@ Cloudflare cannot run the local Express + Chromium server directly. The deployab
 - `/api/waitlist` handled by `worker/index.js` and stored in D1
 - `/admin/leads.csv` exports waitlist leads when called with the admin export token
 - `/beta` serves the private workbench with `noindex` and `no-store` headers
-- `/api/audit` runs only with the beta password header
-- `/api/reports/:id` and `/api/reports/:id/brief.md` return saved private reports
+- `/api/beta/login` exchanges beta email + password for an expiring private session cookie
+- `/api/beta/session` checks the current beta session, and `/api/beta/logout` revokes it
+- `/api/audit` runs only with a valid beta session
+- `/api/reports/:id` and `/api/reports/:id/brief.md` return saved private reports only to the report owner
 - rendered checks powered by Cloudflare Browser Run through the `BROWSER` binding
 - `/llms.txt` and same-URL Markdown for `/` kept truthful to the visible product
 
@@ -70,9 +74,9 @@ Apply D1 migrations after creating or changing the waitlist schema:
 wrangler d1 migrations apply seofixkit_waitlist --remote
 ```
 
-Migration `0004_audit_usage.sql` adds the private beta audit quota table.
+Migration `0004_audit_usage.sql` adds the private beta quota table. Migration `0005_beta_controls.sql` adds beta sessions, report ownership, target-host indexing, and report expiry.
 
-The protected lead export requires the `ADMIN_EXPORT_TOKEN` Worker secret. The private beta audit app requires the `BETA_ACCESS_PASSWORD` Worker secret.
+The protected lead export requires the `ADMIN_EXPORT_TOKEN` Worker secret and must be called with an `Authorization: Bearer ...` header. The private beta login requires the `BETA_ACCESS_PASSWORD` Worker secret.
 
 ## Custom domain
 

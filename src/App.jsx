@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
-const BETA_PASSWORD_KEY = "seofixkit_beta_password";
+const BETA_SESSION_KEY = "seofixkit_beta_unlocked";
+const BETA_EMAIL_KEY = "seofixkit_beta_email";
 
 export default function App() {
   if (window.location.pathname.startsWith("/beta")) {
@@ -133,11 +134,14 @@ function WaitlistPage() {
 
 function BetaApp() {
   const reportId = reportIdFromPath();
-  const [password, setPassword] = useState(
-    () => window.sessionStorage.getItem(BETA_PASSWORD_KEY) || ""
+  const [ownerEmail, setOwnerEmail] = useState(
+    () => window.sessionStorage.getItem(BETA_EMAIL_KEY) || ""
   );
-  const [loginPassword, setLoginPassword] = useState(password);
-  const [isAuthed, setIsAuthed] = useState(Boolean(password));
+  const [loginEmail, setLoginEmail] = useState(ownerEmail);
+  const [loginPassword, setLoginPassword] = useState("");
+  const [isAuthed, setIsAuthed] = useState(
+    () => window.sessionStorage.getItem(BETA_SESSION_KEY) === "1"
+  );
   const [loginStatus, setLoginStatus] = useState("idle");
   const [loginMessage, setLoginMessage] = useState("");
   const [targetUrl, setTargetUrl] = useState("https://aiconverter.app/");
@@ -146,12 +150,19 @@ function BetaApp() {
   const [report, setReport] = useState(null);
 
   useEffect(() => {
+    if (window.sessionStorage.getItem(BETA_SESSION_KEY) === "1" || reportId) {
+      refreshSession(setIsAuthed, setOwnerEmail);
+    }
+  }, [reportId]);
+
+  useEffect(() => {
     if (!isAuthed || !reportId) return;
-    loadReport(reportId, password, setReport, setAuditStatus, setAuditMessage, () => {
+    loadReport(reportId, setReport, setAuditStatus, setAuditMessage, () => {
       setIsAuthed(false);
-      window.sessionStorage.removeItem(BETA_PASSWORD_KEY);
+      window.sessionStorage.removeItem(BETA_SESSION_KEY);
+      window.sessionStorage.removeItem(BETA_EMAIL_KEY);
     });
-  }, [isAuthed, password, reportId]);
+  }, [isAuthed, reportId]);
 
   async function login(event) {
     event.preventDefault();
@@ -161,17 +172,20 @@ function BetaApp() {
     try {
       const response = await fetch("/api/beta/login", {
         method: "POST",
+        credentials: "same-origin",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ password: loginPassword })
+        body: JSON.stringify({ email: loginEmail, password: loginPassword })
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(payload.error || "Private beta password required.");
       }
-      window.sessionStorage.setItem(BETA_PASSWORD_KEY, loginPassword);
-      setPassword(loginPassword);
+      window.sessionStorage.setItem(BETA_SESSION_KEY, "1");
+      window.sessionStorage.setItem(BETA_EMAIL_KEY, payload.ownerEmail || loginEmail);
+      setOwnerEmail(payload.ownerEmail || loginEmail);
       setIsAuthed(true);
       setLoginStatus("success");
+      setLoginPassword("");
     } catch (error) {
       setLoginStatus("error");
       setLoginMessage(error.message || "Could not unlock private beta.");
@@ -187,9 +201,9 @@ function BetaApp() {
     try {
       const response = await fetch("/api/audit", {
         method: "POST",
+        credentials: "same-origin",
         headers: {
-          "content-type": "application/json",
-          "x-beta-password": password
+          "content-type": "application/json"
         },
         body: JSON.stringify({ url: targetUrl, maxPages: 10 })
       });
@@ -204,9 +218,10 @@ function BetaApp() {
         window.history.replaceState(null, "", payload.reportPath);
       }
     } catch (error) {
-      if (error.message.toLowerCase().includes("password")) {
+      if (error.message.toLowerCase().includes("session") || error.message.toLowerCase().includes("password")) {
         setIsAuthed(false);
-        window.sessionStorage.removeItem(BETA_PASSWORD_KEY);
+        window.sessionStorage.removeItem(BETA_SESSION_KEY);
+        window.sessionStorage.removeItem(BETA_EMAIL_KEY);
       }
       setAuditStatus("error");
       setAuditMessage(error.message || "The audit failed. Try another URL.");
@@ -214,8 +229,11 @@ function BetaApp() {
   }
 
   function lock() {
-    window.sessionStorage.removeItem(BETA_PASSWORD_KEY);
-    setPassword("");
+    fetch("/api/beta/logout", { method: "POST", credentials: "same-origin" }).catch(() => {});
+    window.sessionStorage.removeItem(BETA_SESSION_KEY);
+    window.sessionStorage.removeItem(BETA_EMAIL_KEY);
+    setOwnerEmail("");
+    setLoginEmail("");
     setLoginPassword("");
     setIsAuthed(false);
     setReport(null);
@@ -236,6 +254,17 @@ function BetaApp() {
             repair brief a developer can ship from.
           </p>
           <form className="gate-form" onSubmit={login}>
+            <label htmlFor="beta-email">Email</label>
+            <input
+              autoComplete="email"
+              id="beta-email"
+              inputMode="email"
+              onChange={(event) => setLoginEmail(event.target.value)}
+              placeholder="you@example.com"
+              required
+              type="email"
+              value={loginEmail}
+            />
             <label htmlFor="beta-password">Password</label>
             <div className="gate-row">
               <input
@@ -272,6 +301,7 @@ function BetaApp() {
           <h1 id="beta-workspace-title">
             {showingReport ? "Proof-backed SEO audit" : "Find the SEO problem. Prove it. Generate the fix."}
           </h1>
+          {ownerEmail && <p className="session-note">Private beta session: {ownerEmail}</p>}
         </div>
         <form className="audit-form" onSubmit={runAudit}>
           <label htmlFor="audit-url">Website URL</label>
@@ -297,7 +327,7 @@ function BetaApp() {
         {auditStatus === "loading" && <LoadingAuditState message={auditMessage} />}
         {auditStatus === "error" && <ErrorAuditState message={auditMessage} />}
         {report && auditStatus === "success" && (
-          <ReportView report={report} password={password} />
+          <ReportView report={report} />
         )}
       </section>
     </main>
@@ -359,7 +389,7 @@ function ErrorAuditState({ message }) {
   );
 }
 
-function ReportView({ report, password }) {
+function ReportView({ report }) {
   const issues = useMemo(
     () => (report.findings || []).filter((finding) => finding.severity !== "good"),
     [report]
@@ -378,6 +408,12 @@ function ReportView({ report, password }) {
         timeStyle: "short"
       }).format(new Date(report.scannedAt))
     : "just now";
+  const expiresAt = report.retention?.expiresAt
+    ? new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short"
+      }).format(new Date(report.retention.expiresAt))
+    : "";
 
   return (
     <div className="report-layout">
@@ -390,6 +426,8 @@ function ReportView({ report, password }) {
             <span>{scannedAt}</span>
             <span>Rendered browser scan</span>
             <span>{report.summary?.crawlLimitHit ? "Crawl limit reached" : "Crawl completed"}</span>
+            {report.owner?.email && <span>Owner: {report.owner.email}</span>}
+            {expiresAt && <span>Expires: {expiresAt}</span>}
           </div>
         </div>
         <div
@@ -436,8 +474,8 @@ function ReportView({ report, password }) {
           className="action-link"
           href={`/api/reports/${report.id}/brief.md`}
           onClick={(event) => {
-            event.preventDefault();
-            fetchBrief(report.id, password);
+          event.preventDefault();
+            fetchBrief(report.id);
           }}
         >
           Download brief
@@ -706,12 +744,37 @@ function CopyButton({ label, value }) {
   );
 }
 
-async function loadReport(id, password, setReport, setStatus, setMessage, onUnauthorized) {
+async function refreshSession(setIsAuthed, setOwnerEmail) {
+  try {
+    const response = await fetch("/api/beta/session", {
+      credentials: "same-origin"
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      window.sessionStorage.removeItem(BETA_SESSION_KEY);
+      window.sessionStorage.removeItem(BETA_EMAIL_KEY);
+      setOwnerEmail("");
+      setIsAuthed(false);
+      return;
+    }
+    window.sessionStorage.setItem(BETA_SESSION_KEY, "1");
+    window.sessionStorage.setItem(BETA_EMAIL_KEY, payload.ownerEmail || "");
+    setOwnerEmail(payload.ownerEmail || "");
+    setIsAuthed(true);
+  } catch {
+    window.sessionStorage.removeItem(BETA_SESSION_KEY);
+    window.sessionStorage.removeItem(BETA_EMAIL_KEY);
+    setOwnerEmail("");
+    setIsAuthed(false);
+  }
+}
+
+async function loadReport(id, setReport, setStatus, setMessage, onUnauthorized) {
   setStatus("loading");
   setMessage("Loading saved report.");
   try {
     const response = await fetch(`/api/reports/${encodeURIComponent(id)}`, {
-      headers: { "x-beta-password": password }
+      credentials: "same-origin"
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -727,9 +790,9 @@ async function loadReport(id, password, setReport, setStatus, setMessage, onUnau
   }
 }
 
-async function fetchBrief(id, password) {
+async function fetchBrief(id) {
   const response = await fetch(`/api/reports/${encodeURIComponent(id)}/brief.md`, {
-    headers: { "x-beta-password": password }
+    credentials: "same-origin"
   });
   if (!response.ok) return;
   const blob = await response.blob();
