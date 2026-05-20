@@ -10,12 +10,24 @@ const DOCS = {
 };
 
 const MAX_HTML_BYTES = 1_000_000;
-const VERSION = "0.5.0";
+const VERSION = "0.6.0";
 const SESSION_COOKIE = "sfk_beta_session";
 const BETA_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const REPORT_RETENTION_DAYS = 30;
+const DEFAULT_INVITE_TTL_DAYS = 14;
+const FIX_PACK_OFFER = {
+  name: "SEO Fix Pack",
+  priceLabel: "$99 beta",
+  description: "One proof-backed repair pass for this report plus one rerun after fixes."
+};
 
 export default {
+  async scheduled(_event, env, ctx) {
+    if (env.WAITLIST_DB) {
+      ctx.waitUntil(cleanupExpiredRows(env));
+    }
+  },
+
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
@@ -51,8 +63,20 @@ export default {
         return betaLogout(request, env);
       }
 
+      if (url.pathname === "/api/beta/fix-request" && request.method === "POST") {
+        return requestFixPack(request, env);
+      }
+
       if (url.pathname.startsWith("/api/reports/")) {
         return getSavedReport(request, env);
+      }
+
+      if (url.pathname === "/admin/summary") {
+        return getAdminSummary(request, env);
+      }
+
+      if (url.pathname === "/admin/invites" && request.method === "POST") {
+        return createInvite(request, env);
       }
 
       if (url.pathname === "/admin/leads.csv") {
@@ -221,7 +245,8 @@ async function exportLeadsCsv(request, env) {
     return new Response("Waitlist storage is not configured.", { status: 503 });
   }
 
-  if (!isAdminAuthorized(request, env)) {
+  const admin = await adminAccessStatus(request, env, "export-leads");
+  if (!admin.ok) {
     return new Response("Unauthorized", {
       status: 401,
       headers: {
@@ -230,6 +255,7 @@ async function exportLeadsCsv(request, env) {
       }
     });
   }
+  await logAdminAction(request, env, "export-leads", true, admin.actorEmail);
 
   const { results } = await env.WAITLIST_DB.prepare(
     `SELECT
@@ -279,30 +305,170 @@ async function exportLeadsCsv(request, env) {
   });
 }
 
+async function getAdminSummary(request, env) {
+  const admin = await adminAccessStatus(request, env, "view-summary");
+  if (!admin.ok) return jsonNoStore({ error: "Unauthorized" }, 401);
+  if (!env.WAITLIST_DB) return json({ error: "Admin storage is not configured." }, 503);
+  await logAdminAction(request, env, "view-summary", true, admin.actorEmail);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const soon = isoDaysFromNow(7);
+  const [
+    waitlist,
+    invites,
+    sessions,
+    audits,
+    auditsToday,
+    expiring,
+    fixRequests,
+    recentAudits,
+    issuePatterns,
+    recentInvites
+  ] = await Promise.all([
+    countRows(env, "waitlist_leads"),
+    countRows(env, "beta_invites"),
+    countRows(env, "beta_sessions", "revoked_at IS NULL AND expires_at > ?", [new Date().toISOString()]),
+    countRows(env, "audit_reports"),
+    countRows(env, "audit_reports", "created_at >= ?", [`${today}T00:00:00.000Z`]),
+    countRows(env, "audit_reports", "expires_at IS NOT NULL AND expires_at <= ?", [soon]),
+    countRows(env, "fix_requests"),
+    env.WAITLIST_DB.prepare(
+      `SELECT id, url, target_host, owner_email, score, summary_json, created_at, expires_at
+       FROM audit_reports
+       ORDER BY created_at DESC
+       LIMIT 20`
+    ).all(),
+    env.WAITLIST_DB.prepare(
+      `SELECT report_json
+       FROM audit_reports
+       ORDER BY created_at DESC
+       LIMIT 50`
+    ).all(),
+    env.WAITLIST_DB.prepare(
+      `SELECT id, owner_email, label, status, max_uses, used_count, expires_at, created_at
+       FROM beta_invites
+       ORDER BY created_at DESC
+       LIMIT 20`
+    ).all()
+  ]);
+
+  return jsonNoStore({
+    ok: true,
+    metrics: {
+      waitlist,
+      invites,
+      activeSessions: sessions,
+      audits,
+      auditsToday,
+      reportsExpiringSoon: expiring,
+      fixRequests
+    },
+    offer: FIX_PACK_OFFER,
+    recentAudits: (recentAudits.results || []).map((row) => {
+      const summary = parseJson(row.summary_json, {});
+      return {
+        id: row.id,
+        url: row.url,
+        targetHost: row.target_host,
+        ownerEmail: row.owner_email,
+        score: row.score,
+        pagesScanned: summary.pagesScanned || 0,
+        totalFindings: summary.totalFindings || 0,
+        guardedFalsePositives: summary.guardedFalsePositives || 0,
+        reportPath: `/beta/reports/${row.id}`,
+        createdAt: row.created_at,
+        expiresAt: row.expires_at
+      };
+    }),
+    issuePatterns: summarizeIssuePatterns(issuePatterns.results || []),
+    invites: (recentInvites.results || []).map((invite) => ({
+      id: invite.id,
+      ownerEmail: invite.owner_email,
+      label: invite.label,
+      status: invite.status,
+      maxUses: invite.max_uses,
+      usedCount: invite.used_count,
+      expiresAt: invite.expires_at,
+      createdAt: invite.created_at
+    }))
+  });
+}
+
+async function createInvite(request, env) {
+  const admin = await adminAccessStatus(request, env, "create-invite");
+  if (!admin.ok) return jsonNoStore({ error: "Unauthorized" }, 401);
+  if (!env.WAITLIST_DB) return json({ error: "Invite storage is not configured." }, 503);
+
+  const body = await request.json().catch(() => ({}));
+  const ownerEmail = normalizeEmail(body.email || body.ownerEmail);
+  if (!ownerEmail) return json({ error: "Enter a valid invite email." }, 400);
+
+  const code = cleanInviteCode(body.code || randomInviteCode());
+  if (!code) return json({ error: "Invite code must be at least 8 letters or numbers." }, 400);
+
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  const codeHash = await sha256Hex(code);
+  const maxUses = Math.min(Math.max(Number(body.maxUses || 1), 1), 10);
+  const expiresAt = body.expiresAt || isoDaysFromNow(Number(body.ttlDays || DEFAULT_INVITE_TTL_DAYS));
+  const label = cleanText(body.label || "Private beta invite", 120);
+
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO beta_invites
+      (id, code_hash, owner_email, label, status, max_uses, used_count, created_at, expires_at, created_by)
+     VALUES (?, ?, ?, ?, 'active', ?, 0, ?, ?, ?)`
+  )
+    .bind(id, codeHash, ownerEmail, label, maxUses, now, expiresAt, admin.actorEmail)
+    .run();
+  await logAdminAction(request, env, "create-invite", true, admin.actorEmail, ownerEmail);
+
+  return jsonNoStore({
+    ok: true,
+    invite: {
+      id,
+      ownerEmail,
+      code,
+      label,
+      maxUses,
+      usedCount: 0,
+      expiresAt,
+      url: `${new URL(request.url).origin}/beta?email=${encodeURIComponent(ownerEmail)}&invite=${encodeURIComponent(code)}`
+    }
+  });
+}
+
 async function betaLogin(request, env) {
   if (!env.WAITLIST_DB) {
     return json({ error: "Private beta sessions are not configured." }, 503);
   }
 
   const body = await request.json().catch(() => ({}));
-  const loginQuota = await loginQuotaStatus(request, env);
-  if (!loginQuota.ok) {
-    return jsonNoStore({ error: loginQuota.error, resetAt: loginQuota.resetAt }, 429);
-  }
-
   const ownerEmail = normalizeEmail(body.email);
   if (!ownerEmail) {
     return json({ error: "Enter your beta email address." }, 400);
   }
 
-  const access = betaPasswordAccessStatus(request, env, body);
-  if (!access.ok) return betaAccessResponse(access);
+  const rawInviteCode = cleanInviteCode(body.inviteCode || body.password || "");
+  const inviteCodeHash = rawInviteCode ? await sha256Hex(rawInviteCode) : "";
+  const loginQuota = await loginQuotaStatus(request, env, ownerEmail, inviteCodeHash);
+  if (!loginQuota.ok) {
+    return jsonNoStore({ error: loginQuota.error, resetAt: loginQuota.resetAt }, 429);
+  }
 
-  const session = await createBetaSession(request, env, ownerEmail);
+  const invite = await inviteAccessStatus(request, env, ownerEmail, rawInviteCode, inviteCodeHash);
+  if (!invite.ok) return betaAccessResponse(invite);
+
+  const session = await createBetaSession(request, env, {
+    ownerEmail,
+    inviteId: invite.inviteId,
+    accessMode: invite.accessMode
+  });
   const response = jsonNoStore({
     ok: true,
     status: "unlocked",
     ownerEmail,
+    inviteId: invite.inviteId,
+    accessMode: invite.accessMode,
     expiresAt: session.expiresAt
   });
   response.headers.append("set-cookie", session.cookie);
@@ -316,6 +482,8 @@ async function betaSession(request, env) {
     ok: true,
     status: "active",
     ownerEmail: access.ownerEmail,
+    inviteId: access.inviteId,
+    accessMode: access.accessMode,
     expiresAt: access.expiresAt
   });
 }
@@ -370,6 +538,67 @@ async function runPrivateAudit(request, env) {
   return jsonNoStore(saved);
 }
 
+async function requestFixPack(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Fix request storage is not configured." }, 503);
+
+  const body = await request.json().catch(() => ({}));
+  const reportId = cleanText(body.reportId || "", 140);
+  if (!isSafeReportId(reportId)) return json({ error: "Report not found." }, 404);
+
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT id, url, target_host, owner_email, owner_invite_id, score, summary_json, report_json, expires_at
+     FROM audit_reports
+     WHERE id = ?
+     LIMIT 1`
+  )
+    .bind(reportId)
+    .first();
+  if (!row?.id || row.owner_email !== access.ownerEmail) return json({ error: "Report not found." }, 404);
+  if (
+    row.owner_invite_id &&
+    access.accessMode !== "founder-override" &&
+    row.owner_invite_id !== access.inviteId
+  ) {
+    return json({ error: "Report not found." }, 404);
+  }
+  if (row.expires_at && row.expires_at <= new Date().toISOString()) return json({ error: "Report expired." }, 404);
+
+  const summary = parseJson(row.summary_json, {});
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  const note = cleanText(body.note || "", 1000);
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO fix_requests
+      (id, report_id, owner_email, target_url, target_host, score, issue_count, status, note, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)`
+  )
+    .bind(
+      id,
+      row.id,
+      access.ownerEmail,
+      row.url,
+      row.target_host || new URL(row.url).hostname.toLowerCase(),
+      row.score,
+      Number(summary.totalFindings || 0),
+      note,
+      now,
+      now
+    )
+    .run();
+
+  return jsonNoStore({
+    ok: true,
+    request: {
+      id,
+      status: "new",
+      offer: FIX_PACK_OFFER,
+      createdAt: now
+    }
+  });
+}
+
 async function runPrivateDemoAudit(request, env) {
   const access = await betaAccessStatus(request, env);
   if (!access.ok) return betaAccessResponse(access);
@@ -398,7 +627,9 @@ async function saveAuditReport(report, request, env, access) {
     reportPath: `/beta/reports/${id}`,
     reportUrl: `${origin}/beta/reports/${id}`,
     owner: {
-      email: access.ownerEmail
+      email: access.ownerEmail,
+      inviteId: access.inviteId || null,
+      accessMode: access.accessMode || "invite"
     },
     retention: {
       expiresAt,
@@ -408,8 +639,8 @@ async function saveAuditReport(report, request, env, access) {
 
   await env.WAITLIST_DB.prepare(
     `INSERT INTO audit_reports
-      (id, url, origin, score, summary_json, report_json, created_at, updated_at, owner_email, owner_session_hash, target_host, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (id, url, origin, score, summary_json, report_json, created_at, updated_at, owner_email, owner_session_hash, target_host, expires_at, owner_invite_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
     .bind(
       id,
@@ -423,7 +654,8 @@ async function saveAuditReport(report, request, env, access) {
       access.ownerEmail,
       access.sessionHash,
       targetHost,
-      expiresAt
+      expiresAt,
+      access.inviteId || null
     )
     .run();
 
@@ -446,7 +678,7 @@ async function getSavedReport(request, env) {
   }
 
   const row = await env.WAITLIST_DB.prepare(
-    `SELECT report_json, owner_email, expires_at FROM audit_reports WHERE id = ? LIMIT 1`
+    `SELECT report_json, owner_email, owner_invite_id, expires_at FROM audit_reports WHERE id = ? LIMIT 1`
   )
     .bind(id)
     .first();
@@ -458,6 +690,13 @@ async function getSavedReport(request, env) {
     return json({ error: "Report expired." }, 404);
   }
   if (row.owner_email && row.owner_email !== access.ownerEmail) {
+    return json({ error: "Report not found." }, 404);
+  }
+  if (
+    row.owner_invite_id &&
+    access.accessMode !== "founder-override" &&
+    row.owner_invite_id !== access.inviteId
+  ) {
     return json({ error: "Report not found." }, 404);
   }
 
@@ -1548,6 +1787,19 @@ function normalizeEmail(input) {
   return email;
 }
 
+function cleanInviteCode(input) {
+  const code = String(input || "").trim();
+  if (code.length < 8 || code.length > 120) return "";
+  if (!/^[A-Za-z0-9_-]+$/.test(code)) return "";
+  return code;
+}
+
+function randomInviteCode() {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 function clampPageLimit(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 10;
@@ -1572,28 +1824,6 @@ function isAdminAuthorized(request, env) {
   return constantTimeEqual(token, expected);
 }
 
-function betaPasswordAccessStatus(request, env, body = {}) {
-  const expected = String(env.BETA_ACCESS_PASSWORD || "");
-  if (!expected) {
-    return {
-      ok: false,
-      status: 503,
-      error: "Private beta password is not configured."
-    };
-  }
-
-  const supplied = String(body.password || "");
-  if (!constantTimeEqual(supplied, expected)) {
-    return {
-      ok: false,
-      status: 401,
-      error: "Private beta password required."
-    };
-  }
-
-  return { ok: true };
-}
-
 async function betaAccessStatus(request, env) {
   if (!env.WAITLIST_DB) {
     return {
@@ -1615,7 +1845,7 @@ async function betaAccessStatus(request, env) {
   const tokenHash = await sha256Hex(token);
   const now = new Date().toISOString();
   const row = await env.WAITLIST_DB.prepare(
-    `SELECT token_hash, owner_email, expires_at, revoked_at
+    `SELECT token_hash, owner_email, invite_id, expires_at, revoked_at
      FROM beta_sessions
      WHERE token_hash = ?
      LIMIT 1`
@@ -1640,6 +1870,8 @@ async function betaAccessStatus(request, env) {
   return {
     ok: true,
     ownerEmail: row.owner_email,
+    inviteId: row.invite_id || null,
+    accessMode: row.invite_id ? "invite" : "founder-override",
     sessionHash: row.token_hash,
     expiresAt: row.expires_at
   };
@@ -1712,10 +1944,10 @@ async function waitlistQuotaStatus(request, env) {
   ]);
 }
 
-async function loginQuotaStatus(request, env) {
+async function loginQuotaStatus(request, env, ownerEmail = "", inviteCodeHash = "") {
   const hour = hourWindow(new Date());
   const ipHash = await requestIpHash(request);
-  return checkQuotaSet(env, [
+  const checks = [
     {
       bucket: `login:ip:${hour.key}:${ipHash}`,
       limit: 20,
@@ -1723,7 +1955,78 @@ async function loginQuotaStatus(request, env) {
       resetAt: hour.resetAt,
       error: "Too many login attempts from this network. Try again later."
     }
-  ]);
+  ];
+  if (ownerEmail) {
+    checks.push({
+      bucket: `login:email:${hour.key}:${await sha256Hex(ownerEmail)}`,
+      limit: 10,
+      windowStart: hour.key,
+      resetAt: hour.resetAt,
+      error: "Too many login attempts for this email. Try again later."
+    });
+  }
+  if (inviteCodeHash) {
+    checks.push({
+      bucket: `login:invite:${hour.key}:${inviteCodeHash.slice(0, 32)}`,
+      limit: 10,
+      windowStart: hour.key,
+      resetAt: hour.resetAt,
+      error: "Too many login attempts for this invite. Try again later."
+    });
+  }
+  return checkQuotaSet(env, checks);
+}
+
+async function inviteAccessStatus(request, env, ownerEmail, inviteCode, inviteCodeHash) {
+  if (!inviteCode) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Private beta invite code required."
+    };
+  }
+
+  const founderPassword = String(env.BETA_ACCESS_PASSWORD || "");
+  if (founderPassword && constantTimeEqual(inviteCode, founderPassword)) {
+    return { ok: true, inviteId: null, accessMode: "founder-override" };
+  }
+
+  const now = new Date().toISOString();
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT id, owner_email, status, max_uses, used_count, expires_at
+     FROM beta_invites
+     WHERE code_hash = ?
+     LIMIT 1`
+  )
+    .bind(inviteCodeHash)
+    .first();
+
+  if (!row?.id || row.status !== "active") {
+    return { ok: false, status: 401, error: "Private beta invite not found." };
+  }
+  if (row.owner_email !== ownerEmail) {
+    return { ok: false, status: 401, error: "This invite is tied to another email." };
+  }
+  if (row.expires_at && row.expires_at <= now) {
+    return { ok: false, status: 401, error: "Private beta invite expired." };
+  }
+  if (Number(row.used_count || 0) >= Number(row.max_uses || 1)) {
+    return { ok: false, status: 401, error: "Private beta invite has already been used." };
+  }
+
+  const ipHash = await requestIpHash(request);
+  await env.WAITLIST_DB.prepare(
+    `UPDATE beta_invites
+     SET used_count = used_count + 1,
+      used_at = ?,
+      last_used_ip_hash = ?,
+      status = CASE WHEN used_count + 1 >= max_uses THEN 'used' ELSE status END
+     WHERE id = ?`
+  )
+    .bind(now, ipHash, row.id)
+    .run();
+
+  return { ok: true, inviteId: row.id, accessMode: "invite" };
 }
 
 async function checkQuotaSet(env, checks) {
@@ -1764,7 +2067,89 @@ async function checkQuotaSet(env, checks) {
   return { ok: true };
 }
 
-async function createBetaSession(request, env, ownerEmail) {
+async function adminAccessStatus(request, env, action) {
+  const ok = isAdminAuthorized(request, env);
+  const actorEmail =
+    cleanText(request.headers.get("cf-access-authenticated-user-email") || "", 254) ||
+    "bearer-admin";
+  if (!ok) {
+    await logAdminAction(request, env, action, false, actorEmail);
+    return { ok: false, actorEmail };
+  }
+  return { ok: true, actorEmail };
+}
+
+async function logAdminAction(request, env, action, success, actorEmail = "", detail = "") {
+  if (!env.WAITLIST_DB) return;
+  try {
+    await env.WAITLIST_DB.prepare(
+      `INSERT INTO admin_audit_log
+        (id, action, success, actor_email, ip_hash, user_agent, detail, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+      .bind(
+        crypto.randomUUID(),
+        cleanText(action, 80),
+        success ? 1 : 0,
+        cleanText(actorEmail, 254),
+        await requestIpHash(request),
+        cleanText(request.headers.get("user-agent") || "", 500),
+        cleanText(detail, 500),
+        new Date().toISOString()
+      )
+      .run();
+  } catch {
+    // Admin logging must not break the protected action itself.
+  }
+}
+
+async function countRows(env, table, where = "", bindings = []) {
+  const sql = `SELECT COUNT(*) AS count FROM ${table}${where ? ` WHERE ${where}` : ""}`;
+  const statement = env.WAITLIST_DB.prepare(sql);
+  const row = bindings.length ? await statement.bind(...bindings).first() : await statement.first();
+  return Number(row?.count || 0);
+}
+
+function summarizeIssuePatterns(rows) {
+  const counts = new Map();
+  for (const row of rows) {
+    const report = parseJson(row.report_json, {});
+    for (const finding of report.findings || []) {
+      if (finding.severity === "good") continue;
+      const key = issuePatternKey(finding.title || "Unknown issue");
+      const current = counts.get(key) || {
+        title: key,
+        count: 0,
+        critical: 0,
+        warnings: 0,
+        notices: 0
+      };
+      current.count += 1;
+      if (finding.severity === "critical") current.critical += 1;
+      if (finding.severity === "warning") current.warnings += 1;
+      if (finding.severity === "notice") current.notices += 1;
+      counts.set(key, current);
+    }
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count).slice(0, 12);
+}
+
+function issuePatternKey(title) {
+  return String(title || "Unknown issue")
+    .replace(/\son\s(home|\/[^\s]+)/i, "")
+    .replace(/\sneeds cleanup.*/i, " needs cleanup")
+    .trim();
+}
+
+function parseJson(value, fallback) {
+  try {
+    return JSON.parse(value || "");
+  } catch {
+    return fallback;
+  }
+}
+
+async function createBetaSession(request, env, access) {
   const token = randomToken();
   const tokenHash = await sha256Hex(token);
   const now = new Date().toISOString();
@@ -1774,10 +2159,10 @@ async function createBetaSession(request, env, ownerEmail) {
 
   await env.WAITLIST_DB.prepare(
     `INSERT INTO beta_sessions
-      (token_hash, owner_email, created_at, expires_at, last_seen_at, ip_hash, user_agent)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+      (token_hash, owner_email, created_at, expires_at, last_seen_at, ip_hash, user_agent, invite_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(tokenHash, ownerEmail, now, expiresAt, now, ipHash, userAgent)
+    .bind(tokenHash, access.ownerEmail, now, expiresAt, now, ipHash, userAgent, access.inviteId || null)
     .run();
 
   return {

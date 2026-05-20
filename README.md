@@ -20,11 +20,14 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Founder-friendly React interface.
 - Cloudflare Worker target using Workers Static Assets and Browser Run.
 - Locked coming-soon homepage with `/api/waitlist` backed by D1.
-- Hidden `/beta` private audit workbench protected by email + beta password login.
+- Hidden `/beta` private audit workbench protected by email + invite code login.
 - Expiring beta sessions backed by D1 `beta_sessions`.
-- Saved private report URLs backed by D1 `audit_reports`, tied to the beta owner email.
+- Admin-created beta invite codes backed by D1 `beta_invites`; the shared beta password is only a founder override.
+- Saved private report URLs backed by D1 `audit_reports`, tied to the beta owner email and invite where available.
 - 30-day report retention with cleanup for expired reports, sessions, and quota buckets.
 - D1-backed abuse controls across login, waitlist, network, session, daily, and target-site audit buckets.
+- `/beta/admin` ops dashboard for waitlist, invites, audits, repeated issue patterns, and fix requests.
+- SEO Fix Pack quote request CTA inside reports when real fixes exist.
 
 ## Run locally
 
@@ -47,12 +50,14 @@ Cloudflare cannot run the local Express + Chromium server directly. The deployab
 
 - React UI served by Workers Static Assets from `dist/`
 - `/api/waitlist` handled by `worker/index.js` and stored in D1
-- `/admin/leads.csv` exports waitlist leads when called with the admin export token
+- `/admin/summary` powers the private ops dashboard, and `/admin/leads.csv` exports waitlist leads when called with the admin export token
+- `/admin/invites` creates invite codes for specific emails
 - `/beta` serves the private workbench with `noindex` and `no-store` headers
-- `/api/beta/login` exchanges beta email + password for an expiring private session cookie
+- `/api/beta/login` exchanges beta email + invite code for an expiring private session cookie
 - `/api/beta/session` checks the current beta session, and `/api/beta/logout` revokes it
 - `/api/audit` runs only with a valid beta session
 - `/api/reports/:id` and `/api/reports/:id/brief.md` return saved private reports only to the report owner
+- `/api/beta/fix-request` records interest in the one-site SEO Fix Pack
 - rendered checks powered by Cloudflare Browser Run through the `BROWSER` binding
 - `/llms.txt` and same-URL Markdown for `/` kept truthful to the visible product
 
@@ -74,9 +79,9 @@ Apply D1 migrations after creating or changing the waitlist schema:
 wrangler d1 migrations apply seofixkit_waitlist --remote
 ```
 
-Migration `0004_audit_usage.sql` adds the private beta quota table. Migration `0005_beta_controls.sql` adds beta sessions, report ownership, target-host indexing, and report expiry.
+Migration `0004_audit_usage.sql` adds the private beta quota table. Migration `0005_beta_controls.sql` adds beta sessions, report ownership, target-host indexing, and report expiry. Migration `0006_ops_funnel.sql` adds invite codes, invite-bound ownership, fix requests, and admin audit logging.
 
-The protected lead export requires the `ADMIN_EXPORT_TOKEN` Worker secret and must be called with an `Authorization: Bearer ...` header. The private beta login requires the `BETA_ACCESS_PASSWORD` Worker secret.
+The protected admin APIs require the `ADMIN_EXPORT_TOKEN` Worker secret and must be called with an `Authorization: Bearer ...` header. The private beta login uses invite codes; `BETA_ACCESS_PASSWORD` remains as a founder override only.
 
 ## Custom domain
 

@@ -470,6 +470,14 @@ h1 {
   margin: 10px 0 0;
 }
 
+.gate-link {
+  color: var(--accent);
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 780;
+  margin-top: 12px;
+}
+
 .gate-row button,
 .audit-row button,
 .action-link {
@@ -488,6 +496,12 @@ h1 {
 .action-link {
   align-items: center;
   font-size: 14px;
+}
+
+.paid-action {
+  background: var(--accent);
+  border-color: rgba(152, 240, 204, 0.55);
+  color: #06100c;
 }
 
 .beta-hero {
@@ -717,6 +731,163 @@ h1 {
   padding: 8px 0;
 }
 
+.paid-panel,
+.admin-panel {
+  background: rgba(251, 248, 239, 0.055);
+  border: 1px solid rgba(251, 248, 239, 0.12);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.paid-panel {
+  align-items: center;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+
+.paid-panel h3,
+.admin-panel h2,
+.paid-ops-panel h2 {
+  font-size: clamp(22px, 2.4vw, 32px);
+  line-height: 1.05;
+  margin: 0;
+}
+
+.paid-panel p,
+.admin-panel p {
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+
+.admin-shell {
+  display: grid;
+  gap: 18px;
+  margin: 54px auto 0;
+  max-width: 1240px;
+}
+
+.admin-heading {
+  align-items: end;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 520px);
+}
+
+.admin-heading h1 {
+  font-size: clamp(42px, 7vw, 76px);
+  line-height: 0.94;
+  margin: 0;
+}
+
+.admin-token-form,
+.invite-form {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-token-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.admin-token-form label {
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 800;
+  grid-column: 1 / -1;
+  text-transform: uppercase;
+}
+
+.admin-token-form input,
+.invite-form input {
+  background: rgba(7, 12, 10, 0.78);
+  border: 1px solid rgba(251, 248, 239, 0.18);
+  border-radius: 8px;
+  color: var(--ink);
+  min-height: 46px;
+  min-width: 0;
+  padding: 0 14px;
+}
+
+.admin-metrics {
+  margin-top: 0;
+}
+
+.admin-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+}
+
+.ops-table,
+.pattern-list,
+.invite-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.ops-row,
+.pattern-list div,
+.invite-list div,
+.invite-result {
+  background: rgba(7, 13, 10, 0.58);
+  border: 1px solid rgba(251, 248, 239, 0.1);
+  border-radius: 8px;
+  color: var(--ink-soft);
+}
+
+.ops-row {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(140px, 1fr) minmax(180px, 1fr) 64px 110px;
+  padding: 12px 14px;
+}
+
+.ops-row strong {
+  color: var(--accent);
+}
+
+.pattern-list div,
+.invite-list div,
+.invite-result {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+}
+
+.pattern-list strong,
+.invite-list strong,
+.invite-result strong,
+.paid-ops-panel strong {
+  color: var(--ink);
+}
+
+.pattern-list span,
+.invite-list span {
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.invite-result button {
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 820;
+  justify-self: start;
+  padding: 0;
+}
+
+.invite-result code {
+  color: var(--ink-soft);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .findings-section,
 .fix-section,
 .guard-section,
@@ -911,12 +1082,21 @@ h1 {
   .beta-hero,
   .loading-state,
   .verdict-panel,
-  .report-preview {
+  .report-preview,
+  .admin-heading,
+  .admin-grid,
+  .paid-panel {
     grid-template-columns: 1fr;
   }
 
+  .paid-panel {
+    align-items: stretch;
+    display: grid;
+  }
+
   .gate-row,
-  .audit-row {
+  .audit-row,
+  .admin-token-form {
     grid-template-columns: 1fr;
   }
 

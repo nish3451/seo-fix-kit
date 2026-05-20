@@ -13,10 +13,16 @@ const app = express();
 const port = Number(process.env.PORT || 8787);
 const auditReports = new Map();
 const betaSessions = new Map();
-const VERSION = "0.5.0";
+const fixRequests = [];
+const VERSION = "0.6.0";
 const SESSION_COOKIE = "sfk_beta_session";
 const BETA_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const REPORT_RETENTION_DAYS = 30;
+const FIX_PACK_OFFER = {
+  name: "SEO Fix Pack",
+  priceLabel: "$99 beta",
+  description: "One proof-backed repair pass for this report plus one rerun after fixes."
+};
 
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
@@ -39,14 +45,14 @@ app.post("/api/waitlist", (req, res) => {
 });
 
 app.post("/api/beta/login", (req, res) => {
-  const ownerEmail = normalizeEmail(req.body?.email);
+  const ownerEmail = normalizeEmail(req.body?.email || req.body?.ownerEmail);
   if (!ownerEmail) {
     res.status(400).json({ error: "Enter your beta email address." });
     return;
   }
 
-  if (!isBetaPasswordValid(req.body?.password)) {
-    res.status(401).json({ error: "Private beta password required." });
+  if (!isBetaPasswordValid(req.body?.inviteCode || req.body?.password)) {
+    res.status(401).json({ error: "Private beta invite code required." });
     return;
   }
 
@@ -55,6 +61,30 @@ app.post("/api/beta/login", (req, res) => {
     .set("cache-control", "no-store")
     .set("set-cookie", sessionCookie(req, session.token, BETA_SESSION_TTL_SECONDS))
     .json({ ok: true, status: "unlocked", ownerEmail, expiresAt: session.expiresAt });
+});
+
+app.post("/api/beta/fix-request", (req, res) => {
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res.status(401).json({ error: "Private beta session required." });
+    return;
+  }
+  const report = auditReports.get(String(req.body?.reportId || ""));
+  if (!report || report.owner?.email !== access.ownerEmail) {
+    res.status(404).json({ error: "Report not found." });
+    return;
+  }
+  const request = {
+    id: randomUUID(),
+    reportId: report.id,
+    ownerEmail: access.ownerEmail,
+    targetUrl: report.url,
+    status: "new",
+    offer: FIX_PACK_OFFER,
+    createdAt: new Date().toISOString()
+  };
+  fixRequests.push(request);
+  res.set("cache-control", "no-store").json({ ok: true, request });
 });
 
 app.get("/api/beta/session", (req, res) => {
@@ -102,6 +132,86 @@ app.get("/admin/leads.csv", (req, res) => {
     })
     .type("text/csv")
     .send("email,source,utm_source,utm_medium,utm_campaign,landing_path,created_at,updated_at\n");
+});
+
+app.get("/admin/summary", (req, res) => {
+  const expected = process.env.ADMIN_EXPORT_TOKEN || "local-admin";
+  const auth = req.get("authorization") || "";
+  const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+  if (bearer !== expected) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const reports = [...auditReports.values()].sort((a, b) => String(b.scannedAt).localeCompare(String(a.scannedAt)));
+  res.set("cache-control", "no-store").json({
+    ok: true,
+    metrics: {
+      waitlist: 0,
+      invites: 1,
+      activeSessions: betaSessions.size,
+      audits: reports.length,
+      auditsToday: reports.length,
+      reportsExpiringSoon: reports.filter((report) => report.retention?.expiresAt).length,
+      fixRequests: fixRequests.length
+    },
+    offer: FIX_PACK_OFFER,
+    recentAudits: reports.slice(0, 20).map((report) => ({
+      id: report.id,
+      url: report.url,
+      targetHost: new URL(report.url).hostname,
+      ownerEmail: report.owner?.email || "",
+      score: report.score,
+      pagesScanned: report.summary?.pagesScanned || 0,
+      totalFindings: report.summary?.totalFindings || 0,
+      guardedFalsePositives: report.summary?.guardedFalsePositives || 0,
+      reportPath: report.reportPath,
+      createdAt: report.scannedAt,
+      expiresAt: report.retention?.expiresAt
+    })),
+    issuePatterns: summarizeIssuePatterns(reports),
+    invites: [
+      {
+        id: "local-founder",
+        ownerEmail: "local@example.com",
+        label: "Local founder override",
+        status: "active",
+        maxUses: 999,
+        usedCount: betaSessions.size,
+        createdAt: new Date().toISOString(),
+        expiresAt: null
+      }
+    ]
+  });
+});
+
+app.post("/admin/invites", (req, res) => {
+  const expected = process.env.ADMIN_EXPORT_TOKEN || "local-admin";
+  const auth = req.get("authorization") || "";
+  const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+  if (bearer !== expected) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const ownerEmail = normalizeEmail(req.body?.email);
+  if (!ownerEmail) {
+    res.status(400).json({ error: "Enter a valid invite email." });
+    return;
+  }
+  const code = randomBytes(12).toString("hex");
+  res.set("cache-control", "no-store").json({
+    ok: true,
+    invite: {
+      id: randomUUID(),
+      ownerEmail,
+      code,
+      label: req.body?.label || "Local invite",
+      maxUses: Number(req.body?.maxUses || 1),
+      usedCount: 0,
+      expiresAt: isoDaysFromNow(14),
+      url: `http://127.0.0.1:${port}/beta?email=${encodeURIComponent(ownerEmail)}&invite=${code}`
+    }
+  });
 });
 
 app.get("/api/demo-audit", async (req, res) => {
@@ -335,6 +445,23 @@ function saveLocalReport(report, req, access) {
   };
   auditReports.set(id, saved);
   return saved;
+}
+
+function summarizeIssuePatterns(reports) {
+  const counts = new Map();
+  for (const report of reports) {
+    for (const finding of report.findings || []) {
+      if (finding.severity === "good") continue;
+      const title = String(finding.title || "Unknown issue").replace(/\son\s(home|\/[^\s]+)/i, "").trim();
+      const current = counts.get(title) || { title, count: 0, critical: 0, warnings: 0, notices: 0 };
+      current.count += 1;
+      if (finding.severity === "critical") current.critical += 1;
+      if (finding.severity === "warning") current.warnings += 1;
+      if (finding.severity === "notice") current.notices += 1;
+      counts.set(title, current);
+    }
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count).slice(0, 12);
 }
 
 function makePrivateReportId(url) {

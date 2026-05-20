@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 const BETA_SESSION_KEY = "seofixkit_beta_unlocked";
 const BETA_EMAIL_KEY = "seofixkit_beta_email";
+const ADMIN_TOKEN_KEY = "seofixkit_admin_token";
 
 export default function App() {
   if (window.location.pathname.startsWith("/beta")) {
@@ -134,11 +135,13 @@ function WaitlistPage() {
 
 function BetaApp() {
   const reportId = reportIdFromPath();
+  const isAdminRoute = window.location.pathname === "/beta/admin";
+  const inviteParams = new URLSearchParams(window.location.search);
   const [ownerEmail, setOwnerEmail] = useState(
-    () => window.sessionStorage.getItem(BETA_EMAIL_KEY) || ""
+    () => inviteParams.get("email") || window.sessionStorage.getItem(BETA_EMAIL_KEY) || ""
   );
-  const [loginEmail, setLoginEmail] = useState(ownerEmail);
-  const [loginPassword, setLoginPassword] = useState("");
+  const [loginEmail, setLoginEmail] = useState(ownerEmail || inviteParams.get("email") || "");
+  const [inviteCode, setInviteCode] = useState(inviteParams.get("invite") || "");
   const [isAuthed, setIsAuthed] = useState(
     () => window.sessionStorage.getItem(BETA_SESSION_KEY) === "1"
   );
@@ -148,12 +151,16 @@ function BetaApp() {
   const [auditStatus, setAuditStatus] = useState(reportId ? "loading" : "idle");
   const [auditMessage, setAuditMessage] = useState("");
   const [report, setReport] = useState(null);
+  const [adminToken, setAdminToken] = useState(() => window.sessionStorage.getItem(ADMIN_TOKEN_KEY) || "");
+  const [adminData, setAdminData] = useState(null);
+  const [adminStatus, setAdminStatus] = useState("idle");
+  const [adminMessage, setAdminMessage] = useState("");
 
   useEffect(() => {
-    if (window.sessionStorage.getItem(BETA_SESSION_KEY) === "1" || reportId) {
+    if (window.sessionStorage.getItem(BETA_SESSION_KEY) === "1" || reportId || isAdminRoute) {
       refreshSession(setIsAuthed, setOwnerEmail);
     }
-  }, [reportId]);
+  }, [reportId, isAdminRoute]);
 
   useEffect(() => {
     if (!isAuthed || !reportId) return;
@@ -174,18 +181,18 @@ function BetaApp() {
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: loginEmail, password: loginPassword })
+        body: JSON.stringify({ email: loginEmail, inviteCode })
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload.error || "Private beta password required.");
+        throw new Error(payload.error || "Private beta invite code required.");
       }
       window.sessionStorage.setItem(BETA_SESSION_KEY, "1");
       window.sessionStorage.setItem(BETA_EMAIL_KEY, payload.ownerEmail || loginEmail);
       setOwnerEmail(payload.ownerEmail || loginEmail);
       setIsAuthed(true);
       setLoginStatus("success");
-      setLoginPassword("");
+      setInviteCode("");
     } catch (error) {
       setLoginStatus("error");
       setLoginMessage(error.message || "Could not unlock private beta.");
@@ -218,7 +225,11 @@ function BetaApp() {
         window.history.replaceState(null, "", payload.reportPath);
       }
     } catch (error) {
-      if (error.message.toLowerCase().includes("session") || error.message.toLowerCase().includes("password")) {
+      if (
+        error.message.toLowerCase().includes("session") ||
+        error.message.toLowerCase().includes("password") ||
+        error.message.toLowerCase().includes("invite")
+      ) {
         setIsAuthed(false);
         window.sessionStorage.removeItem(BETA_SESSION_KEY);
         window.sessionStorage.removeItem(BETA_EMAIL_KEY);
@@ -234,7 +245,7 @@ function BetaApp() {
     window.sessionStorage.removeItem(BETA_EMAIL_KEY);
     setOwnerEmail("");
     setLoginEmail("");
-    setLoginPassword("");
+    setInviteCode("");
     setIsAuthed(false);
     setReport(null);
     window.history.replaceState(null, "", "/beta");
@@ -248,13 +259,13 @@ function BetaApp() {
         <BetaTop />
         <section className="gate-panel" aria-labelledby="beta-title">
           <p className="beta-eyebrow">Private beta</p>
-          <h1 id="beta-title">Unlock SEO Fix Kit</h1>
+          <h1 id="beta-title">Enter your beta invite</h1>
           <p>
             Run evidence-backed audits, save private reports, and generate the
             repair brief a developer can ship from.
           </p>
           <form className="gate-form" onSubmit={login}>
-            <label htmlFor="beta-email">Email</label>
+            <label htmlFor="beta-email">Invite email</label>
             <input
               autoComplete="email"
               id="beta-email"
@@ -265,15 +276,15 @@ function BetaApp() {
               type="email"
               value={loginEmail}
             />
-            <label htmlFor="beta-password">Password</label>
+            <label htmlFor="beta-password">Invite code</label>
             <div className="gate-row">
               <input
                 autoComplete="current-password"
                 id="beta-password"
-                onChange={(event) => setLoginPassword(event.target.value)}
+                onChange={(event) => setInviteCode(event.target.value)}
                 required
                 type="password"
-                value={loginPassword}
+                value={inviteCode}
               />
               <button disabled={loginStatus === "submitting"} type="submit">
                 {loginStatus === "submitting" ? "Checking" : "Enter"}
@@ -282,15 +293,38 @@ function BetaApp() {
             <p className={`form-message ${loginStatus}`} aria-live="polite">
               {loginMessage || "Public access stays locked until beta opens."}
             </p>
+            <a className="gate-link" href="/">
+              Need access? Join the waitlist
+            </a>
           </form>
         </section>
       </main>
     );
   }
 
+  if (isAdminRoute) {
+    return (
+      <main className="beta-shell">
+        <BetaTop onLock={lock} showOps />
+        <AdminDashboard
+          adminData={adminData}
+          adminMessage={adminMessage}
+          adminStatus={adminStatus}
+          adminToken={adminToken}
+          onLoad={() => loadAdmin(adminToken, setAdminData, setAdminStatus, setAdminMessage)}
+          onTokenChange={(value) => {
+            setAdminToken(value);
+            window.sessionStorage.setItem(ADMIN_TOKEN_KEY, value);
+          }}
+          onInviteCreated={() => loadAdmin(adminToken, setAdminData, setAdminStatus, setAdminMessage)}
+        />
+      </main>
+    );
+  }
+
   return (
     <main className="beta-shell">
-      <BetaTop onLock={lock} />
+      <BetaTop onLock={lock} showOps />
 
       <section
         className={`beta-hero ${showingReport ? "beta-hero-compact" : ""}`}
@@ -334,7 +368,7 @@ function BetaApp() {
   );
 }
 
-function BetaTop({ onLock }) {
+function BetaTop({ onLock, showOps = false }) {
   return (
     <header className="beta-top">
       <a className="brand-lockup" href="/" aria-label="SEO Fix Kit home">
@@ -343,6 +377,7 @@ function BetaTop({ onLock }) {
       </a>
       <nav>
         <a href="/">Public page</a>
+        {showOps && <a href="/beta/admin">Ops</a>}
         {onLock && (
           <button className="text-button" onClick={onLock} type="button">
             Lock
@@ -414,6 +449,7 @@ function ReportView({ report }) {
         timeStyle: "short"
       }).format(new Date(report.retention.expiresAt))
     : "";
+  const hasPriorityFixes = topFixes.length > 0;
 
   return (
     <div className="report-layout">
@@ -470,6 +506,7 @@ function ReportView({ report }) {
       <section className="report-actions">
         <CopyButton label="Copy report URL" value={shareUrl} />
         <CopyButton label="Copy developer brief" value={report.repairBrief || ""} />
+        <FixQuoteButton report={report} hasPriorityFixes={hasPriorityFixes} />
         <a
           className="action-link"
           href={`/api/reports/${report.id}/brief.md`}
@@ -534,6 +571,7 @@ function ReportView({ report }) {
           ))}
           {!topFixes.length && <p className="quiet-note">Nothing needs a repair snippet right now.</p>}
         </div>
+        <FixQuotePanel report={report} hasPriorityFixes={hasPriorityFixes} />
       </section>
 
       <section className="proof-grid">
@@ -744,6 +782,213 @@ function CopyButton({ label, value }) {
   );
 }
 
+function FixQuoteButton({ report, hasPriorityFixes }) {
+  const [status, setStatus] = useState("idle");
+
+  if (!hasPriorityFixes) {
+    return <button className="action-link" type="button" onClick={() => copyText(report.reportUrl || "")}>Monitor this site</button>;
+  }
+
+  return (
+    <button
+      className="action-link paid-action"
+      disabled={status === "submitting" || status === "success"}
+      onClick={async () => {
+        setStatus("submitting");
+        const ok = await requestFixQuote(report.id);
+        setStatus(ok ? "success" : "error");
+      }}
+      type="button"
+    >
+      {status === "success" ? "Quote requested" : status === "submitting" ? "Sending" : "Get this fixed"}
+    </button>
+  );
+}
+
+function FixQuotePanel({ report, hasPriorityFixes }) {
+  const [status, setStatus] = useState("idle");
+
+  return (
+    <aside className="paid-panel">
+      <div>
+        <p className="beta-eyebrow">{hasPriorityFixes ? "SEO Fix Pack" : "Monitoring"}</p>
+        <h3>{hasPriorityFixes ? "Send this repair brief for a paid fix quote." : "No paid fix needed from this scan."}</h3>
+        <p>
+          {hasPriorityFixes
+            ? "Beta offer: one proof-backed repair pass for this report, then one rerun after fixes. No ranking promises, just the proven repair queue."
+            : "Keep the private report and rerun after meaningful content or template changes."}
+        </p>
+      </div>
+      {hasPriorityFixes ? (
+        <button
+          className="action-link paid-action"
+          disabled={status === "submitting" || status === "success"}
+          onClick={async () => {
+            setStatus("submitting");
+            const ok = await requestFixQuote(report.id);
+            setStatus(ok ? "success" : "error");
+          }}
+          type="button"
+        >
+          {status === "success" ? "Request received" : status === "submitting" ? "Sending" : "Request fix quote"}
+        </button>
+      ) : (
+        <CopyButton label="Copy report URL" value={report.reportUrl || ""} />
+      )}
+    </aside>
+  );
+}
+
+function AdminDashboard({
+  adminData,
+  adminMessage,
+  adminStatus,
+  adminToken,
+  onInviteCreated,
+  onLoad,
+  onTokenChange
+}) {
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteLabel, setInviteLabel] = useState("");
+  const [inviteResult, setInviteResult] = useState(null);
+  const metrics = adminData?.metrics || {};
+
+  async function createInvite(event) {
+    event.preventDefault();
+    setInviteResult(null);
+    const result = await postAdminInvite(adminToken, {
+      email: inviteEmail,
+      label: inviteLabel || "Private beta invite"
+    });
+    setInviteResult(result);
+    if (result?.ok) {
+      setInviteEmail("");
+      setInviteLabel("");
+      onInviteCreated();
+    }
+  }
+
+  return (
+    <section className="admin-shell">
+      <div className="section-heading admin-heading">
+        <div>
+          <p className="beta-eyebrow">Admin</p>
+          <h1>Beta ops</h1>
+        </div>
+        <form className="admin-token-form" onSubmit={(event) => { event.preventDefault(); onLoad(); }}>
+          <label htmlFor="admin-token">Admin token</label>
+          <input
+            id="admin-token"
+            onChange={(event) => onTokenChange(event.target.value)}
+            placeholder="Bearer token"
+            type="password"
+            value={adminToken}
+          />
+          <button className="action-link" type="submit">
+            {adminStatus === "loading" ? "Loading" : "Load ops"}
+          </button>
+        </form>
+      </div>
+
+      {adminMessage && <p className={`form-message ${adminStatus}`}>{adminMessage}</p>}
+
+      <section className="metric-strip admin-metrics" aria-label="Beta ops summary">
+        <Metric label="Waitlist" value={metrics.waitlist || 0} />
+        <Metric label="Invites" value={metrics.invites || 0} />
+        <Metric label="Audits today" value={metrics.auditsToday || 0} />
+        <Metric label="Expiring" value={metrics.reportsExpiringSoon || 0} />
+        <Metric label="Fix requests" value={metrics.fixRequests || 0} />
+      </section>
+
+      <section className="admin-grid">
+        <div className="admin-panel">
+          <div className="section-heading">
+            <p className="beta-eyebrow">Recent audits</p>
+            <h2>What people are running</h2>
+          </div>
+          <div className="ops-table">
+            {(adminData?.recentAudits || []).map((audit) => (
+              <a className="ops-row" href={audit.reportPath} key={audit.id}>
+                <span>{audit.targetHost || new URL(audit.url).hostname}</span>
+                <span>{audit.ownerEmail || "unknown"}</span>
+                <strong>{audit.score}</strong>
+                <span>{audit.totalFindings} findings</span>
+              </a>
+            ))}
+            {!adminData?.recentAudits?.length && <p className="quiet-note">Load ops to see recent audits.</p>}
+          </div>
+        </div>
+
+        <div className="admin-panel">
+          <div className="section-heading">
+            <p className="beta-eyebrow">Invite codes</p>
+            <h2>Create a beta invite</h2>
+          </div>
+          <form className="invite-form" onSubmit={createInvite}>
+            <input
+              onChange={(event) => setInviteEmail(event.target.value)}
+              placeholder="founder@example.com"
+              required
+              type="email"
+              value={inviteEmail}
+            />
+            <input
+              onChange={(event) => setInviteLabel(event.target.value)}
+              placeholder="Label"
+              value={inviteLabel}
+            />
+            <button className="action-link paid-action" type="submit">
+              Create invite
+            </button>
+          </form>
+          {inviteResult?.invite?.url && (
+            <div className="invite-result">
+              <strong>Invite ready</strong>
+              <button type="button" onClick={() => copyText(inviteResult.invite.url)}>
+                Copy invite link
+              </button>
+              <code>{inviteResult.invite.url}</code>
+            </div>
+          )}
+          {inviteResult?.error && <p className="form-message error">{inviteResult.error}</p>}
+          <div className="invite-list">
+            {(adminData?.invites || []).slice(0, 6).map((invite) => (
+              <div key={invite.id}>
+                <strong>{invite.ownerEmail}</strong>
+                <span>{invite.status} · {invite.usedCount}/{invite.maxUses}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="admin-grid">
+        <div className="admin-panel">
+          <div className="section-heading">
+            <p className="beta-eyebrow">Repeated issue patterns</p>
+            <h2>What the product keeps finding</h2>
+          </div>
+          <div className="pattern-list">
+            {(adminData?.issuePatterns || []).map((pattern) => (
+              <div key={pattern.title}>
+                <strong>{pattern.title}</strong>
+                <span>{pattern.count} reports</span>
+              </div>
+            ))}
+            {!adminData?.issuePatterns?.length && <p className="quiet-note">No issue pattern data yet.</p>}
+          </div>
+        </div>
+        <div className="admin-panel paid-ops-panel">
+          <p className="beta-eyebrow">First paid offer</p>
+          <h2>{adminData?.offer?.name || "SEO Fix Pack"}</h2>
+          <strong>{adminData?.offer?.priceLabel || "$99 beta"}</strong>
+          <p>{adminData?.offer?.description || "One proof-backed repair pass plus one rerun after fixes."}</p>
+        </div>
+      </section>
+    </section>
+  );
+}
+
 async function refreshSession(setIsAuthed, setOwnerEmail) {
   try {
     const response = await fetch("/api/beta/session", {
@@ -804,6 +1049,58 @@ async function fetchBrief(id) {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+}
+
+async function requestFixQuote(reportId) {
+  try {
+    const response = await fetch("/api/beta/fix-request", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reportId })
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function loadAdmin(token, setAdminData, setAdminStatus, setAdminMessage) {
+  setAdminStatus("loading");
+  setAdminMessage("");
+  try {
+    const response = await fetch("/admin/summary", {
+      credentials: "same-origin",
+      headers: { authorization: `Bearer ${token}` }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Could not load ops.");
+    setAdminData(payload);
+    setAdminStatus("success");
+    setAdminMessage("Ops loaded.");
+  } catch (error) {
+    setAdminStatus("error");
+    setAdminMessage(error.message || "Could not load ops.");
+  }
+}
+
+async function postAdminInvite(token, body) {
+  try {
+    const response = await fetch("/admin/invites", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) return { ok: false, error: payload.error || "Could not create invite." };
+    return payload;
+  } catch (error) {
+    return { ok: false, error: error.message || "Could not create invite." };
+  }
 }
 
 function reportIdFromPath() {
