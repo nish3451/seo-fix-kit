@@ -70,6 +70,8 @@ export async function auditUrl(inputUrl, options = {}) {
 
   const score = scoreFindings(findings);
   const summary = summarize(findings, pages);
+  const repairPlan = buildRepairPlan(findings);
+  const fixPack = buildFixPack(pages[0], origin, findings);
 
   return {
     id: makeReportId(startUrl, startedAt),
@@ -83,7 +85,16 @@ export async function auditUrl(inputUrl, options = {}) {
     docs: GOOGLE_DOCS,
     pages,
     findings,
-    fixPack: buildFixPack(pages[0], origin)
+    repairPlan,
+    repairBrief: buildRepairBrief({
+      startUrl,
+      score,
+      summary,
+      pages,
+      findings,
+      repairPlan
+    }),
+    fixPack
   };
 }
 
@@ -395,7 +406,7 @@ function buildFindings({ pages, startUrl, robots, sitemap, renderedAvailable }) 
         evidence: rendered.title ? `Current title: "${rendered.title}"` : "No title found.",
         fix: "Add a unique, descriptive title for this page.",
         source: GOOGLE_DOCS.title,
-        snippet: `<title>${suggestTitle(page.url, rendered)}</title>`
+        snippet: `<title>${escapeHtml(suggestTitle(page.url, rendered))}</title>`
       });
     } else if (rendered.title.length > 65) {
       add({
@@ -406,7 +417,7 @@ function buildFindings({ pages, startUrl, robots, sitemap, renderedAvailable }) 
         evidence: `${rendered.title.length} characters: "${rendered.title}"`,
         fix: "Shorten the title and put the main page promise first.",
         source: GOOGLE_DOCS.title,
-        snippet: `<title>${trimSentence(rendered.title, 58)}</title>`
+        snippet: `<title>${escapeHtml(trimSentence(rendered.title, 58))}</title>`
       });
     }
 
@@ -419,7 +430,7 @@ function buildFindings({ pages, startUrl, robots, sitemap, renderedAvailable }) 
         evidence: "No meta description found in the rendered page.",
         fix: "Add a concise page-specific meta description.",
         source: GOOGLE_DOCS.snippets,
-        snippet: `<meta name="description" content="${suggestDescription(rendered)}" />`
+        snippet: `<meta name="description" content="${escapeHtml(suggestDescription(rendered))}" />`
       });
     } else if (rendered.description.length > 165 || rendered.description.length < 70) {
       add({
@@ -431,7 +442,7 @@ function buildFindings({ pages, startUrl, robots, sitemap, renderedAvailable }) 
         evidence: `${rendered.description.length} characters: "${rendered.description}"`,
         fix: "Rewrite it as one clear value proposition.",
         source: GOOGLE_DOCS.snippets,
-        snippet: `<meta name="description" content="${suggestDescription(rendered)}" />`
+        snippet: `<meta name="description" content="${escapeHtml(suggestDescription(rendered))}" />`
       });
     }
 
@@ -444,7 +455,7 @@ function buildFindings({ pages, startUrl, robots, sitemap, renderedAvailable }) 
         evidence: "No rendered H1 found.",
         fix: "Add one visible H1 that matches the page purpose.",
         source: GOOGLE_DOCS.javascript,
-        snippet: `<h1>${suggestTitle(page.url, rendered)}</h1>`
+        snippet: `<h1>${escapeHtml(suggestTitle(page.url, rendered))}</h1>`
       });
     } else if (rendered.h1s.length > 1) {
       add({
@@ -584,10 +595,88 @@ function buildFindings({ pages, startUrl, robots, sitemap, renderedAvailable }) 
   return findings;
 }
 
-function buildFixPack(home, origin) {
+function buildRepairPlan(findings) {
+  return findings
+    .filter((finding) => finding.severity !== "good")
+    .sort((a, b) => severityRank(a.severity) - severityRank(b.severity))
+    .map((finding, index) => ({
+      priority: index + 1,
+      severity: finding.severity,
+      title: finding.title,
+      proof: finding.evidence,
+      fix: finding.fix,
+      confidence: finding.confidence || "verified",
+      source: finding.source || null,
+      snippet: finding.snippet || null,
+      acceptance: acceptanceCheck(finding)
+    }));
+}
+
+function buildRepairBrief({ startUrl, score, summary, pages, findings, repairPlan }) {
+  const lines = [
+    "# SEO Fix Kit repair brief",
+    "",
+    `Site: ${startUrl}`,
+    `Scanned pages: ${summary.pagesScanned}`,
+    `Score: ${score}/100`,
+    `Issues: ${summary.critical} critical, ${summary.warnings} warnings, ${summary.notices} notices`,
+    `False positives avoided: ${summary.guardedFalsePositives}`,
+    ""
+  ];
+
+  if (!repairPlan.length) {
+    lines.push("## Fix order", "", "No critical repairs found in this scan.", "");
+  } else {
+    lines.push("## Fix order", "");
+    for (const item of repairPlan) {
+      lines.push(`${item.priority}. [${item.severity}] ${item.title}`);
+      lines.push(`   Proof: ${item.proof}`);
+      lines.push(`   Fix: ${item.fix}`);
+      lines.push(`   Acceptance check: ${item.acceptance}`);
+      if (item.snippet) {
+        lines.push("", "```html", fenceSafe(item.snippet), "```", "");
+      }
+    }
+  }
+
+  const guarded = findings.filter((finding) => finding.severity === "good");
+  if (guarded.length) {
+    lines.push("## Do not fix these false positives", "");
+    for (const finding of guarded) {
+      lines.push(`- ${finding.title}: ${finding.evidence}`);
+    }
+    lines.push("");
+  }
+
+  if (pages[0]?.rendered) {
+    const facts = pages[0].rendered;
+    lines.push("## Rendered proof snapshot", "");
+    lines.push(`- Rendered title: ${facts.title || "missing"}`);
+    lines.push(`- Rendered description: ${facts.description || "missing"}`);
+    lines.push(`- Rendered H1s: ${facts.h1s?.join(" | ") || "none"}`);
+    lines.push(`- Rendered word count: ${facts.wordCount ?? "unknown"}`);
+    lines.push(`- Rendered internal links: ${facts.internalLinks?.length ?? 0}`);
+    lines.push(`- Rendered schema types: ${facts.schemaTypes?.join(", ") || "none"}`);
+    lines.push("");
+  }
+
+  lines.push("Re-run SEO Fix Kit after shipping changes and keep only fixes that match visible page content.");
+  return lines.join("\n");
+}
+
+function buildFixPack(home, origin, findings = []) {
   if (!home) return [];
   const facts = home.rendered;
-  return [
+  const issueFixes = findings
+    .filter((finding) => finding.severity !== "good" && finding.snippet)
+    .sort((a, b) => severityRank(a.severity) - severityRank(b.severity))
+    .map((finding) => ({
+      title: `Fix: ${finding.title}`,
+      body: `${finding.fix} Proof: ${finding.evidence}`,
+      snippet: finding.snippet
+    }));
+
+  const fallbackFixes = [
     {
       title: "Social preview tags",
       body: "Use this when og:image or twitter:image is missing.",
@@ -604,6 +693,70 @@ function buildFixPack(home, origin) {
       snippet: buildSchemaSnippet(origin, facts)
     }
   ];
+
+  return dedupeFixes([...issueFixes, ...fallbackFixes]);
+}
+
+function severityRank(severity) {
+  return { critical: 0, warning: 1, notice: 2, good: 3 }[severity] ?? 4;
+}
+
+function acceptanceCheck(finding) {
+  const title = finding.title.toLowerCase();
+  if (title.includes("title")) {
+    return "The rendered page has a unique, descriptive title that is not obviously truncated.";
+  }
+  if (title.includes("description")) {
+    return "The rendered page has one useful meta description, roughly 70-165 characters.";
+  }
+  if (title.includes("h1")) {
+    return "The rendered page has one visible H1 that matches the main page purpose.";
+  }
+  if (title.includes("internal links")) {
+    return "The rendered DOM exposes normal internal anchor links to important pages.";
+  }
+  if (title.includes("canonical")) {
+    return "The rendered head includes one rel=canonical pointing to the preferred URL.";
+  }
+  if (title.includes("noindex")) {
+    return "The rendered robots meta does not include noindex for pages that should rank.";
+  }
+  if (title.includes("social share")) {
+    return "The rendered head includes og:image and twitter:image using a 1200x630 image.";
+  }
+  if (title.includes("apple touch")) {
+    return "The rendered head links an Apple touch icon.";
+  }
+  if (title.includes("alt text")) {
+    return "Informative images have useful alt text, while decorative images are intentionally empty.";
+  }
+  if (title.includes("structured data")) {
+    return "JSON-LD validates and matches content that is visible on the page.";
+  }
+  if (title.includes("robots.txt")) {
+    return "GET /robots.txt returns 200 and references the sitemap.";
+  }
+  if (title.includes("sitemap")) {
+    return "GET /sitemap.xml returns 200 and lists indexable canonical URLs.";
+  }
+  if (title.includes("rendered audit")) {
+    return "Rendered checks are available before trusting the audit output.";
+  }
+  return "Re-run the audit and confirm this finding is gone or marked needs-review with evidence.";
+}
+
+function dedupeFixes(fixes) {
+  const seen = new Set();
+  return fixes.filter((fix) => {
+    const key = fix.snippet;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function fenceSafe(value) {
+  return String(value || "").replaceAll("```", "` ` `");
 }
 
 function buildSocialSnippet(url, facts) {

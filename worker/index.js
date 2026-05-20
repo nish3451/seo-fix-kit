@@ -3,6 +3,7 @@ import puppeteer from "@cloudflare/puppeteer";
 const DOCS = {
   javascript:
     "https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics",
+  title: "https://developers.google.com/search/docs/appearance/title-link",
   snippets: "https://developers.google.com/search/docs/appearance/snippet",
   structuredData:
     "https://developers.google.com/search/docs/appearance/structured-data/intro-structured-data"
@@ -158,6 +159,10 @@ async function auditUrl(inputUrl, env, options = {}) {
     robots,
     sitemap
   });
+  const score = scoreFindings(findings);
+  const summary = summarize(findings, pages);
+  const repairPlan = buildRepairPlan(findings);
+  const fixPack = buildFixPack(pages[0], origin, findings);
 
   return {
     id: `${new URL(startUrl).hostname.replace(/[^a-z0-9]+/gi, "-")}-${startedAt.toString(36)}`,
@@ -165,13 +170,22 @@ async function auditUrl(inputUrl, env, options = {}) {
     origin,
     scannedAt: new Date(startedAt).toISOString(),
     durationMs: Date.now() - startedAt,
-    score: scoreFindings(findings),
-    summary: summarize(findings, pages),
+    score,
+    summary,
     warnings: [],
     docs: DOCS,
     pages,
     findings,
-    fixPack: buildFixPack(pages[0], origin)
+    repairPlan,
+    repairBrief: buildRepairBrief({
+      startUrl,
+      score,
+      summary,
+      pages,
+      findings,
+      repairPlan
+    }),
+    fixPack
   };
 }
 
@@ -370,14 +384,14 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
   const add = (finding) =>
     findings.push({
       id: `${finding.type}-${findings.length + 1}`,
-      confidence: "verified",
+      confidence: finding.confidence || "verified",
       ...finding
     });
 
   for (const page of pages) {
     const rendered = page.rendered;
     const staticFacts = page.static;
-    const label = stripHash(page.url) === stripHash(startUrl) ? "home" : new URL(page.url).pathname;
+    const label = pathLabel(page.url, startUrl);
 
     if (staticFacts.h1s.length === 0 && rendered.h1s.length > 0) {
       add({
@@ -415,15 +429,49 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
       });
     }
 
-    if (!rendered.description || rendered.description.length < 70 || rendered.description.length > 165) {
+    if (!rendered.title || rendered.title.length < 12) {
+      add({
+        type: "issue",
+        severity: "critical",
+        title: `Missing or weak title on ${label}`,
+        why: "A clear title helps searchers identify the page.",
+        evidence: rendered.title ? `Current title: "${rendered.title}"` : "No title found.",
+        fix: "Add a unique, descriptive title for this page.",
+        source: DOCS.title,
+        snippet: `<title>${escapeHtml(suggestTitle(page.url, rendered))}</title>`
+      });
+    } else if (rendered.title.length > 65) {
+      add({
+        type: "issue",
+        severity: "warning",
+        title: `Long title on ${label}`,
+        why: "Long titles are often rewritten or truncated in search results.",
+        evidence: `${rendered.title.length} characters: "${rendered.title}"`,
+        fix: "Shorten the title and put the main page promise first.",
+        source: DOCS.title,
+        snippet: `<title>${escapeHtml(trimSentence(rendered.title, 58))}</title>`
+      });
+    }
+
+    if (!rendered.description) {
+      add({
+        type: "issue",
+        severity: "critical",
+        title: `Missing meta description on ${label}`,
+        why: "A useful description can influence the snippet shown in search.",
+        evidence: "No meta description found in the rendered page.",
+        fix: "Add a concise page-specific meta description.",
+        source: DOCS.snippets,
+        snippet: `<meta name="description" content="${escapeHtml(suggestDescription(rendered))}" />`
+      });
+    } else if (rendered.description.length < 70 || rendered.description.length > 165) {
       add({
         type: "issue",
         severity: "warning",
         title: `Meta description needs tightening on ${label}`,
-        why: "A clear page-specific description gives Google better source material for snippets.",
-        evidence: rendered.description
-          ? `${rendered.description.length} characters: "${rendered.description}"`
-          : "No rendered meta description found.",
+        why:
+          "Google may rewrite snippets, but a clear page-specific description gives it better source material.",
+        evidence: `${rendered.description.length} characters: "${rendered.description}"`,
         fix: "Rewrite it as one clear value proposition.",
         source: DOCS.snippets,
         snippet: `<meta name="description" content="${escapeHtml(suggestDescription(rendered))}" />`
@@ -438,7 +486,30 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
         why: "The H1 should state the main topic visible on the page.",
         evidence: "No rendered H1 found.",
         fix: "Add one visible H1 that matches the page purpose.",
-        source: DOCS.javascript
+        source: DOCS.javascript,
+        snippet: `<h1>${escapeHtml(suggestTitle(page.url, rendered))}</h1>`
+      });
+    } else if (rendered.h1s.length > 1) {
+      add({
+        type: "issue",
+        severity: "warning",
+        title: `Multiple H1s on ${label}`,
+        why: "Multiple H1s can make the page hierarchy less clear.",
+        evidence: `${rendered.h1s.length} rendered H1s: ${rendered.h1s.join(" | ")}`,
+        fix: "Keep one primary H1 and move secondary headings to H2."
+      });
+    }
+
+    if (rendered.wordCount < 250) {
+      add({
+        type: "issue",
+        severity: "warning",
+        title: `Thin rendered content on ${label}`,
+        why:
+          "This is a heuristic, not a ranking rule. Thin pages often fail to answer the query well.",
+        evidence: `${rendered.wordCount} rendered words found.`,
+        fix: "Add useful page-specific detail, proof, examples, and next steps.",
+        confidence: "needs-review"
       });
     }
 
@@ -448,9 +519,33 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
         severity: "critical",
         title: `No rendered internal links on ${label}`,
         why: "Internal links help crawlers discover and understand related pages.",
-        evidence: "No rendered internal links found.",
-        fix: "Add normal anchor links to key related pages.",
+        evidence: "No internal anchor links found in the rendered DOM.",
+        fix: "Add links to important related pages using normal anchor tags.",
         source: DOCS.javascript
+      });
+    }
+
+    if (!rendered.canonical) {
+      add({
+        type: "issue",
+        severity: "warning",
+        title: `Missing canonical URL on ${label}`,
+        why: "Canonical tags help clarify the preferred URL for similar pages.",
+        evidence: "No rendered rel=canonical tag found.",
+        fix: "Add a canonical tag that points to the preferred URL.",
+        source: DOCS.javascript,
+        snippet: `<link rel="canonical" href="${page.url}" />`
+      });
+    }
+
+    if ((rendered.robots || "").toLowerCase().includes("noindex")) {
+      add({
+        type: "issue",
+        severity: "critical",
+        title: `Noindex found on ${label}`,
+        why: "A noindex directive tells search engines not to index the page.",
+        evidence: `Robots meta: "${rendered.robots}"`,
+        fix: "Remove noindex if this page should appear in search."
       });
     }
 
@@ -480,6 +575,18 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
       });
     }
 
+    if (rendered.images.length > 0 && rendered.imagesMissingAlt.length > 0) {
+      add({
+        type: "issue",
+        severity: "warning",
+        title: `Images missing alt text on ${label}`,
+        why: "Alt text improves accessibility and can help image understanding.",
+        evidence: `${rendered.imagesMissingAlt.length}/${rendered.images.length} images have empty alt text.`,
+        fix: "Add useful alt text to informative images. Leave decorative images empty intentionally.",
+        confidence: "needs-review"
+      });
+    }
+
     if (!rendered.schemaTypes.length) {
       add({
         type: "enhancement",
@@ -501,7 +608,8 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
       title: "Robots.txt not found",
       why: "Robots.txt gives crawlers explicit discovery guidance.",
       evidence: `GET /robots.txt returned ${robots.status || "no response"}.`,
-      fix: "Add a robots.txt file that references your sitemap."
+      fix: "Add a robots.txt file that references your sitemap.",
+      snippet: "User-agent: *\nAllow: /\n\nSitemap: /sitemap.xml"
     });
   }
 
@@ -519,9 +627,88 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
   return findings;
 }
 
-function buildFixPack(page, origin) {
+function buildRepairPlan(findings) {
+  return findings
+    .filter((finding) => finding.severity !== "good")
+    .sort((a, b) => severityRank(a.severity) - severityRank(b.severity))
+    .map((finding, index) => ({
+      priority: index + 1,
+      severity: finding.severity,
+      title: finding.title,
+      proof: finding.evidence,
+      fix: finding.fix,
+      confidence: finding.confidence || "verified",
+      source: finding.source || null,
+      snippet: finding.snippet || null,
+      acceptance: acceptanceCheck(finding)
+    }));
+}
+
+function buildRepairBrief({ startUrl, score, summary, pages, findings, repairPlan }) {
+  const lines = [
+    "# SEO Fix Kit repair brief",
+    "",
+    `Site: ${startUrl}`,
+    `Scanned pages: ${summary.pagesScanned}`,
+    `Score: ${score}/100`,
+    `Issues: ${summary.critical} critical, ${summary.warnings} warnings, ${summary.notices} notices`,
+    `False positives avoided: ${summary.guardedFalsePositives}`,
+    ""
+  ];
+
+  if (!repairPlan.length) {
+    lines.push("## Fix order", "", "No critical repairs found in this scan.", "");
+  } else {
+    lines.push("## Fix order", "");
+    for (const item of repairPlan) {
+      lines.push(`${item.priority}. [${item.severity}] ${item.title}`);
+      lines.push(`   Proof: ${item.proof}`);
+      lines.push(`   Fix: ${item.fix}`);
+      lines.push(`   Acceptance check: ${item.acceptance}`);
+      if (item.snippet) {
+        lines.push("", "```html", fenceSafe(item.snippet), "```", "");
+      }
+    }
+  }
+
+  const guarded = findings.filter((finding) => finding.severity === "good");
+  if (guarded.length) {
+    lines.push("## Do not fix these false positives", "");
+    for (const finding of guarded) {
+      lines.push(`- ${finding.title}: ${finding.evidence}`);
+    }
+    lines.push("");
+  }
+
+  if (pages[0]?.rendered) {
+    const facts = pages[0].rendered;
+    lines.push("## Rendered proof snapshot", "");
+    lines.push(`- Rendered title: ${facts.title || "missing"}`);
+    lines.push(`- Rendered description: ${facts.description || "missing"}`);
+    lines.push(`- Rendered H1s: ${facts.h1s?.join(" | ") || "none"}`);
+    lines.push(`- Rendered word count: ${facts.wordCount ?? "unknown"}`);
+    lines.push(`- Rendered internal links: ${facts.internalLinks?.length ?? 0}`);
+    lines.push(`- Rendered schema types: ${facts.schemaTypes?.join(", ") || "none"}`);
+    lines.push("");
+  }
+
+  lines.push("Re-run SEO Fix Kit after shipping changes and keep only fixes that match visible page content.");
+  return lines.join("\n");
+}
+
+function buildFixPack(page, origin, findings = []) {
   if (!page) return [];
+  const issueFixes = findings
+    .filter((finding) => finding.severity !== "good" && finding.snippet)
+    .sort((a, b) => severityRank(a.severity) - severityRank(b.severity))
+    .map((finding) => ({
+      title: `Fix: ${finding.title}`,
+      body: `${finding.fix} Proof: ${finding.evidence}`,
+      snippet: finding.snippet
+    }));
+
   return [
+    ...issueFixes,
     {
       title: "Social preview tags",
       body: "Use this when og:image or twitter:image is missing.",
@@ -537,11 +724,64 @@ function buildFixPack(page, origin) {
       body: "Use truthful schema that matches visible content.",
       snippet: buildSchemaSnippet(origin, page.rendered)
     }
-  ];
+  ].filter(dedupeFix);
+}
+
+function severityRank(severity) {
+  return { critical: 0, warning: 1, notice: 2, good: 3 }[severity] ?? 4;
+}
+
+function acceptanceCheck(finding) {
+  const title = finding.title.toLowerCase();
+  if (title.includes("title")) {
+    return "The rendered page has a unique, descriptive title that is not obviously truncated.";
+  }
+  if (title.includes("description")) {
+    return "The rendered page has one useful meta description, roughly 70-165 characters.";
+  }
+  if (title.includes("h1")) {
+    return "The rendered page has one visible H1 that matches the main page purpose.";
+  }
+  if (title.includes("internal links")) {
+    return "The rendered DOM exposes normal internal anchor links to important pages.";
+  }
+  if (title.includes("canonical")) {
+    return "The rendered head includes one rel=canonical pointing to the preferred URL.";
+  }
+  if (title.includes("noindex")) {
+    return "The rendered robots meta does not include noindex for pages that should rank.";
+  }
+  if (title.includes("social share")) {
+    return "The rendered head includes og:image and twitter:image using a 1200x630 image.";
+  }
+  if (title.includes("apple touch")) {
+    return "The rendered head links an Apple touch icon.";
+  }
+  if (title.includes("alt text")) {
+    return "Informative images have useful alt text, while decorative images are intentionally empty.";
+  }
+  if (title.includes("structured data")) {
+    return "JSON-LD validates and matches content that is visible on the page.";
+  }
+  if (title.includes("robots.txt")) {
+    return "GET /robots.txt returns 200 and references the sitemap.";
+  }
+  if (title.includes("sitemap")) {
+    return "GET /sitemap.xml returns 200 and lists indexable canonical URLs.";
+  }
+  return "Re-run the audit and confirm this finding is gone or marked needs-review with evidence.";
+}
+
+function dedupeFix(fix, index, fixes) {
+  return fixes.findIndex((item) => item.snippet === fix.snippet) === index;
+}
+
+function fenceSafe(value) {
+  return String(value || "").replaceAll("```", "` ` `");
 }
 
 function buildSocialSnippet(url, facts) {
-  const title = escapeHtml(facts.title || new URL(url).hostname);
+  const title = escapeHtml(facts.title || suggestTitle(url, facts));
   const description = escapeHtml(facts.description || suggestDescription(facts));
   const origin = new URL(url).origin;
   const image = `${origin}/og-image.png`;
@@ -702,6 +942,12 @@ function stripHash(value) {
   return url.href.replace(/\/$/, url.pathname === "/" ? "/" : "");
 }
 
+function pathLabel(url, startUrl) {
+  const parsed = new URL(url);
+  if (stripHash(url) === stripHash(startUrl)) return "home";
+  return parsed.pathname || "page";
+}
+
 function stripTags(value) {
   return String(value || "").replace(/<[^>]*>/g, " ");
 }
@@ -727,13 +973,24 @@ function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function suggestTitle(url, facts) {
+  const host = new URL(url).hostname.replace(/^www\./, "");
+  const firstH1 = facts.h1s?.[0];
+  return trimSentence(firstH1 || `${host} page`, 58);
+}
+
 function suggestDescription(facts = {}) {
   const base =
     facts.bodySample ||
     facts.title ||
     "Clear page summary that explains the offer, audience, and next action.";
-  const cleaned = base.replace(/\s+/g, " ").trim();
-  return cleaned.length <= 150 ? cleaned : `${cleaned.slice(0, 147).trim()}...`;
+  return trimSentence(base.replace(/\s+/g, " "), 150);
+}
+
+function trimSentence(value, max) {
+  const cleaned = String(value || "").replace(/\s+/g, " ").trim();
+  if (cleaned.length <= max) return cleaned;
+  return `${cleaned.slice(0, max - 1).trim()}...`;
 }
 
 function json(value, status = 200) {
@@ -782,13 +1039,13 @@ function renderedFixture(origin) {
 function llmsText(origin) {
   return `# SEO Fix Kit
 
-SEO Fix Kit audits a website, proves what is wrong, and generates a first repair pack.
+SEO Fix Kit audits a website, proves what is wrong, and generates a developer repair pack.
 
 Live product claims:
 - Renders pages before judging common SEO issues.
 - Compares static HTML against rendered DOM.
 - Shows evidence for findings.
-- Generates starter fix snippets for metadata, social previews, canonical tags, robots, sitemaps, and schema.
+- Generates a prioritized repair plan, copyable Markdown brief, acceptance checks, and starter snippets.
 - Guards common false positives on JavaScript-rendered pages.
 
 Current product boundary:
@@ -808,7 +1065,7 @@ function homeMarkdown(origin) {
 
 Audit it. Prove it. Fix it.
 
-SEO Fix Kit returns an evidence-backed SEO repair report. It renders pages before judging them, compares static HTML against rendered DOM, separates real SEO repairs from crawler false positives, and generates copy-paste starter fixes.
+SEO Fix Kit returns an evidence-backed SEO repair report. It renders pages before judging them, compares static HTML against rendered DOM, separates real SEO repairs from crawler false positives, and generates a copyable developer repair brief with starter fixes.
 
 Start at ${origin}/.
 `;

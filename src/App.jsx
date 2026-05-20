@@ -99,6 +99,8 @@ export default function App() {
 
   const firstPage = report?.pages?.[0];
   const hostname = report ? new URL(report.url).hostname : "";
+  const repairPlan = report?.repairPlan || [];
+  const fixPack = report?.fixPack || [];
 
   return (
     <main className="app-shell">
@@ -153,7 +155,7 @@ export default function App() {
           <h1>SEO fixes with receipts.</h1>
           <p>
             A repair report that renders the page, shows the evidence, and gives
-            you copy-paste fixes.
+            you a developer-ready brief.
           </p>
         </section>
 
@@ -213,9 +215,9 @@ export default function App() {
                 value={report.summary.guardedFalsePositives}
               />
               <Signal
-                label="Fixes ready"
+                label="Repairs queued"
                 tone="neutral"
-                value={report.fixPack.length}
+                value={repairPlan.length}
               />
             </section>
 
@@ -275,10 +277,29 @@ export default function App() {
 
             <section className="fix-pack">
               <div className="section-heading">
-                <span>Starter kit</span>
-                <h3>Copy-paste fixes</h3>
+                <span>Developer handoff</span>
+                <h3>Repair pack</h3>
               </div>
-              {report.fixPack.map((fix) => (
+
+              {report.repairBrief && (
+                <CodeBlock
+                  body="One Markdown handoff with priority, proof, fix, snippet, and acceptance checks."
+                  copied={copiedKey === "repair-brief"}
+                  onCopy={() => copySnippet("repair-brief", report.repairBrief)}
+                  title="Full repair brief"
+                  value={report.repairBrief}
+                />
+              )}
+
+              {repairPlan.length > 0 && (
+                <ol className="repair-queue" aria-label="Repair queue">
+                  {repairPlan.map((item) => (
+                    <RepairStep item={item} key={`${item.priority}-${item.title}`} />
+                  ))}
+                </ol>
+              )}
+
+              {fixPack.map((fix) => (
                 <CodeBlock
                   body={fix.body}
                   copied={copiedKey === fix.title}
@@ -406,6 +427,19 @@ function ProofMetric({ label, value, detail }) {
       <strong>{value}</strong>
       <p>{detail}</p>
     </article>
+  );
+}
+
+function RepairStep({ item }) {
+  return (
+    <li className={`repair-step ${item.severity}`}>
+      <div>
+        <span>#{item.priority}</span>
+        <strong>{item.title}</strong>
+      </div>
+      <p>{item.fix}</p>
+      <small>{item.acceptance}</small>
+    </li>
   );
 }
 

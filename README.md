@@ -12,6 +12,7 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Static HTML vs rendered DOM comparison.
 - Evidence-backed findings.
 - Exact fix snippets for common SEO repairs.
+- Copyable developer repair brief with priority, proof, acceptance checks, and snippets.
 - Founder-friendly React interface.
 - Cloudflare Worker target using Workers Static Assets and Browser Run.
 
@@ -53,9 +54,7 @@ npm run cf:dry-run
 
 ## Custom domain
 
-`seofixkit.com` is the intended production domain. It currently needs DNS moved from Porkbun to Cloudflare or a Cloudflare zone with the right DNS records before the Worker can answer on that hostname.
-
-After the zone is active on Cloudflare, add the custom domains to `wrangler.jsonc` and deploy:
+`seofixkit.com` is the production domain. The Worker config attaches both the apex and `www` hostnames:
 
 ```jsonc
 "routes": [

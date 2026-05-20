@@ -23,6 +23,14 @@ if (!hasProofFields) {
   throw new Error("Rendered proof fields are missing.");
 }
 
+if (!Array.isArray(report.repairPlan) || typeof report.repairBrief !== "string") {
+  throw new Error("Repair handoff fields are missing.");
+}
+
+if (!report.repairBrief.includes("# SEO Fix Kit repair brief")) {
+  throw new Error("Repair brief is not copyable Markdown.");
+}
+
 console.log(
   JSON.stringify(
     {
@@ -86,6 +94,10 @@ const guarded = fixtureReport.findings.filter(
 
 if (guarded.length < 2) {
   throw new Error("False-positive guard findings were not created for rendered fixture.");
+}
+
+if (!fixtureReport.repairBrief.includes("Do not fix these false positives")) {
+  throw new Error("False-positive protections were not carried into the repair brief.");
 }
 
 if (fixtureReport.pages.some((page) => page.url.endsWith("/llms.txt"))) {
