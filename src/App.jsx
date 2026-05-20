@@ -784,54 +784,78 @@ function CopyButton({ label, value }) {
 
 function FixQuoteButton({ report, hasPriorityFixes }) {
   const [status, setStatus] = useState("idle");
+  const [message, setMessage] = useState("");
 
   if (!hasPriorityFixes) {
     return <button className="action-link" type="button" onClick={() => copyText(report.reportUrl || "")}>Monitor this site</button>;
   }
 
   return (
-    <button
-      className="action-link paid-action"
-      disabled={status === "submitting" || status === "success"}
-      onClick={async () => {
-        setStatus("submitting");
-        const ok = await requestFixQuote(report.id);
-        setStatus(ok ? "success" : "error");
-      }}
-      type="button"
-    >
-      {status === "success" ? "Quote requested" : status === "submitting" ? "Sending" : "Get this fixed"}
-    </button>
+    <span className="checkout-action">
+      <button
+        className="action-link paid-action"
+        disabled={status === "submitting" || status === "success"}
+        onClick={async () => {
+          setStatus("submitting");
+          setMessage("");
+          const result = await requestFixQuote(report.id);
+          if (result.checkoutUrl) {
+            setStatus("success");
+            setMessage("Opening secure checkout.");
+            window.location.assign(result.checkoutUrl);
+            return;
+          }
+          setStatus(result.ok ? "success" : "error");
+          setMessage(result.message || result.error || (result.ok ? "Request received." : "Checkout could not open."));
+        }}
+        type="button"
+      >
+        {status === "success" ? "Checkout ready" : status === "submitting" ? "Opening checkout" : "Get this fixed"}
+      </button>
+      {message && <small className={`checkout-message ${status}`}>{message}</small>}
+    </span>
   );
 }
 
 function FixQuotePanel({ report, hasPriorityFixes }) {
   const [status, setStatus] = useState("idle");
+  const [message, setMessage] = useState("");
 
   return (
     <aside className="paid-panel">
       <div>
         <p className="beta-eyebrow">{hasPriorityFixes ? "SEO Fix Pack" : "Monitoring"}</p>
-        <h3>{hasPriorityFixes ? "Send this repair brief for a paid fix quote." : "No paid fix needed from this scan."}</h3>
+        <h3>{hasPriorityFixes ? "Open checkout for the paid repair pass." : "No paid fix needed from this scan."}</h3>
         <p>
           {hasPriorityFixes
-            ? "Beta offer: one proof-backed repair pass for this report, then one rerun after fixes. No ranking promises, just the proven repair queue."
+            ? "One proof-backed repair pass for this report, then one rerun after fixes. No ranking promises, just the proven repair queue."
             : "Keep the private report and rerun after meaningful content or template changes."}
         </p>
       </div>
       {hasPriorityFixes ? (
-        <button
-          className="action-link paid-action"
-          disabled={status === "submitting" || status === "success"}
-          onClick={async () => {
-            setStatus("submitting");
-            const ok = await requestFixQuote(report.id);
-            setStatus(ok ? "success" : "error");
-          }}
-          type="button"
-        >
-          {status === "success" ? "Request received" : status === "submitting" ? "Sending" : "Request fix quote"}
-        </button>
+        <span className="checkout-action">
+          <button
+            className="action-link paid-action"
+            disabled={status === "submitting" || status === "success"}
+            onClick={async () => {
+              setStatus("submitting");
+              setMessage("");
+              const result = await requestFixQuote(report.id);
+              if (result.checkoutUrl) {
+                setStatus("success");
+                setMessage("Opening secure checkout.");
+                window.location.assign(result.checkoutUrl);
+                return;
+              }
+              setStatus(result.ok ? "success" : "error");
+              setMessage(result.message || result.error || (result.ok ? "Request received." : "Checkout could not open."));
+            }}
+            type="button"
+          >
+            {status === "success" ? "Checkout ready" : status === "submitting" ? "Opening checkout" : "Get this fixed"}
+          </button>
+          {message && <small className={`checkout-message ${status}`}>{message}</small>}
+        </span>
       ) : (
         <CopyButton label="Copy report URL" value={report.reportUrl || ""} />
       )}
@@ -1059,9 +1083,16 @@ async function requestFixQuote(reportId) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ reportId })
     });
-    return response.ok;
-  } catch {
-    return false;
+    const payload = await response.json().catch(() => ({}));
+    return {
+      ok: response.ok,
+      checkoutUrl: response.ok ? payload.checkoutUrl || "" : "",
+      mode: payload.mode || "",
+      message: payload.message || "",
+      error: payload.error || ""
+    };
+  } catch (error) {
+    return { ok: false, error: error.message || "Checkout could not open." };
   }
 }
 

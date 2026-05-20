@@ -14,13 +14,14 @@ const port = Number(process.env.PORT || 8787);
 const auditReports = new Map();
 const betaSessions = new Map();
 const fixRequests = [];
-const VERSION = "0.6.0";
+const VERSION = "0.7.0";
 const SESSION_COOKIE = "sfk_beta_session";
 const BETA_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const REPORT_RETENTION_DAYS = 30;
 const FIX_PACK_OFFER = {
   name: "SEO Fix Pack",
   priceLabel: "$99 beta",
+  productKey: "seofixkit_fix_pack",
   description: "One proof-backed repair pass for this report plus one rerun after fixes."
 };
 
@@ -79,12 +80,29 @@ app.post("/api/beta/fix-request", (req, res) => {
     reportId: report.id,
     ownerEmail: access.ownerEmail,
     targetUrl: report.url,
-    status: "new",
+    status: process.env.DODO_SEOFIXKIT_MOCK_CHECKOUT_URL ? "checkout_created" : "new",
     offer: FIX_PACK_OFFER,
     createdAt: new Date().toISOString()
   };
   fixRequests.push(request);
-  res.set("cache-control", "no-store").json({ ok: true, request });
+  if (process.env.DODO_SEOFIXKIT_MOCK_CHECKOUT_URL) {
+    res.set("cache-control", "no-store").json({
+      ok: true,
+      mode: "checkout",
+      checkoutUrl: process.env.DODO_SEOFIXKIT_MOCK_CHECKOUT_URL,
+      request,
+      offer: FIX_PACK_OFFER
+    });
+    return;
+  }
+  res.set("cache-control", "no-store").json({
+    ok: true,
+    mode: "request",
+    checkoutAvailable: false,
+    message: "Fix request saved. Dodo checkout is only created by the Cloudflare Worker.",
+    request,
+    offer: FIX_PACK_OFFER
+  });
 });
 
 app.get("/api/beta/session", (req, res) => {

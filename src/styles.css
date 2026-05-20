@@ -504,6 +504,23 @@ h1 {
   color: #06100c;
 }
 
+.checkout-action {
+  align-items: flex-start;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.checkout-message {
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.checkout-message.error {
+  color: #ffb6a6;
+}
+
 .beta-hero {
   align-items: end;
   display: grid;

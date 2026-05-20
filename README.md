@@ -27,7 +27,7 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - 30-day report retention with cleanup for expired reports, sessions, and quota buckets.
 - D1-backed abuse controls across login, waitlist, network, session, daily, and target-site audit buckets.
 - `/beta/admin` ops dashboard for waitlist, invites, audits, repeated issue patterns, and fix requests.
-- SEO Fix Pack quote request CTA inside reports when real fixes exist.
+- Dodo-backed SEO Fix Pack checkout CTA inside reports when real fixes exist.
 
 ## Run locally
 
@@ -57,7 +57,8 @@ Cloudflare cannot run the local Express + Chromium server directly. The deployab
 - `/api/beta/session` checks the current beta session, and `/api/beta/logout` revokes it
 - `/api/audit` runs only with a valid beta session
 - `/api/reports/:id` and `/api/reports/:id/brief.md` return saved private reports only to the report owner
-- `/api/beta/fix-request` records interest in the one-site SEO Fix Pack
+- `/api/beta/fix-request` creates a Dodo checkout session for the one-site SEO Fix Pack when Dodo config is present
+- `/api/webhooks/dodo` verifies Dodo Standard Webhooks signatures and marks successful Fix Pack payments
 - rendered checks powered by Cloudflare Browser Run through the `BROWSER` binding
 - `/llms.txt` and same-URL Markdown for `/` kept truthful to the visible product
 
@@ -79,9 +80,31 @@ Apply D1 migrations after creating or changing the waitlist schema:
 wrangler d1 migrations apply seofixkit_waitlist --remote
 ```
 
-Migration `0004_audit_usage.sql` adds the private beta quota table. Migration `0005_beta_controls.sql` adds beta sessions, report ownership, target-host indexing, and report expiry. Migration `0006_ops_funnel.sql` adds invite codes, invite-bound ownership, fix requests, and admin audit logging.
+Migration `0004_audit_usage.sql` adds the private beta quota table. Migration `0005_beta_controls.sql` adds beta sessions, report ownership, target-host indexing, and report expiry. Migration `0006_ops_funnel.sql` adds invite codes, invite-bound ownership, fix requests, and admin audit logging. Migration `0007_fix_pack_checkout.sql` adds Dodo checkout/payment tracking and webhook idempotency.
 
 The protected admin APIs require the `ADMIN_EXPORT_TOKEN` Worker secret and must be called with an `Authorization: Bearer ...` header. The private beta login uses invite codes; `BETA_ACCESS_PASSWORD` remains as a founder override only.
+
+## Dodo checkout
+
+The paid repair CTA uses a hosted Dodo checkout session. The product is `SEO Fix Pack`, mapped through `DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID`; customer-facing copy must stay limited to one proof-backed repair pass plus one rerun, with no ranking promise.
+
+Cloudflare vars in `wrangler.jsonc` hold the public Dodo brand/product identifiers and environment mode:
+
+- `DODO_SEOFIXKIT_BRAND_ID`
+- `DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID`
+- `DODO_SEOFIXKIT_ENVIRONMENT`
+- `DODO_SEOFIXKIT_ADAPTIVE_CURRENCY_FEES_INCLUSIVE`
+
+Cloudflare secrets hold private credentials:
+
+- `DODO_SEOFIXKIT_API_KEY`
+- `DODO_SEOFIXKIT_WEBHOOK_SECRET`
+
+The Dodo webhook endpoint is:
+
+```text
+https://seofixkit.com/api/webhooks/dodo
+```
 
 ## Custom domain
 

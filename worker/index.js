@@ -1,4 +1,19 @@
 import puppeteer from "@cloudflare/puppeteer";
+import {
+  DODO_PAYMENT_FAILURE_EVENTS,
+  DODO_PAYMENT_SUCCESS_EVENTS,
+  PAID_STATUSES,
+  dodoAdaptiveCurrencyFeesInclusive,
+  dodoApiKey,
+  dodoBaseUrl,
+  dodoCountryFromRequest,
+  dodoProductId,
+  dodoProductMatches,
+  dodoWebhookSecret,
+  extractDodoPayment,
+  hasDodoCheckoutConfig,
+  verifyDodoWebhookSignature
+} from "../shared/dodo.js";
 
 const DOCS = {
   javascript:
@@ -10,7 +25,7 @@ const DOCS = {
 };
 
 const MAX_HTML_BYTES = 1_000_000;
-const VERSION = "0.6.0";
+const VERSION = "0.7.0";
 const SESSION_COOKIE = "sfk_beta_session";
 const BETA_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const REPORT_RETENTION_DAYS = 30;
@@ -18,6 +33,7 @@ const DEFAULT_INVITE_TTL_DAYS = 14;
 const FIX_PACK_OFFER = {
   name: "SEO Fix Pack",
   priceLabel: "$99 beta",
+  productKey: "seofixkit_fix_pack",
   description: "One proof-backed repair pass for this report plus one rerun after fixes."
 };
 
@@ -65,6 +81,10 @@ export default {
 
       if (url.pathname === "/api/beta/fix-request" && request.method === "POST") {
         return requestFixPack(request, env);
+      }
+
+      if (url.pathname === "/api/webhooks/dodo" && request.method === "POST") {
+        return handleDodoWebhook(request, env);
       }
 
       if (url.pathname.startsWith("/api/reports/")) {
@@ -567,8 +587,102 @@ async function requestFixPack(request, env) {
 
   const summary = parseJson(row.summary_json, {});
   const now = new Date().toISOString();
-  const id = crypto.randomUUID();
   const note = cleanText(body.note || "", 1000);
+  const fixRequest = await getOrCreateFixRequest(env, row, access, summary, note, now);
+
+  if (fixRequest.status === "paid") {
+    return jsonNoStore({
+      ok: true,
+      mode: "paid",
+      request: fixRequestResponse(fixRequest, now),
+      offer: FIX_PACK_OFFER
+    });
+  }
+
+  if (fixRequest.checkout_url && fixRequest.checkout_session_id) {
+    return jsonNoStore({
+      ok: true,
+      mode: "checkout",
+      checkoutUrl: fixRequest.checkout_url,
+      request: fixRequestResponse(fixRequest, now),
+      offer: FIX_PACK_OFFER
+    });
+  }
+
+  if (!hasDodoCheckoutConfig(env)) {
+    return jsonNoStore({
+      ok: true,
+      mode: "request",
+      checkoutAvailable: false,
+      message: "Fix request saved. Dodo checkout is not configured yet.",
+      request: fixRequestResponse(fixRequest, now),
+      offer: FIX_PACK_OFFER
+    });
+  }
+
+  let checkout;
+  try {
+    checkout = await createDodoFixPackCheckout(request, env, row, fixRequest, access);
+  } catch (error) {
+    return jsonNoStore(
+      {
+        error: error?.message || "Dodo checkout could not be created.",
+        code: error?.code || "DODO_CHECKOUT_ERROR",
+        request: fixRequestResponse(fixRequest, now),
+        offer: FIX_PACK_OFFER
+      },
+      503
+    );
+  }
+  const checkoutCreatedAt = new Date().toISOString();
+  await env.WAITLIST_DB.prepare(
+    `UPDATE fix_requests
+     SET status = 'checkout_created',
+         checkout_session_id = ?,
+         checkout_url = ?,
+         checkout_created_at = ?,
+         product_id = ?,
+         updated_at = ?
+     WHERE id = ?`
+  )
+    .bind(
+      checkout.checkoutSessionId,
+      checkout.checkoutUrl,
+      checkoutCreatedAt,
+      dodoProductId(env),
+      checkoutCreatedAt,
+      fixRequest.id
+    )
+    .run();
+
+  return jsonNoStore({
+    ok: true,
+    mode: "checkout",
+    checkoutUrl: checkout.checkoutUrl,
+    request: {
+      ...fixRequestResponse(fixRequest, checkoutCreatedAt),
+      status: "checkout_created",
+      checkoutSessionId: checkout.checkoutSessionId,
+      offer: FIX_PACK_OFFER,
+      checkoutCreatedAt
+    },
+    offer: FIX_PACK_OFFER
+  });
+}
+
+async function getOrCreateFixRequest(env, reportRow, access, summary, note, now) {
+  const existing = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM fix_requests
+     WHERE report_id = ? AND owner_email = ?
+     ORDER BY created_at DESC
+     LIMIT 1`
+  )
+    .bind(reportRow.id, access.ownerEmail)
+    .first();
+  if (existing?.id) return existing;
+
+  const id = crypto.randomUUID();
   await env.WAITLIST_DB.prepare(
     `INSERT INTO fix_requests
       (id, report_id, owner_email, target_url, target_host, score, issue_count, status, note, created_at, updated_at)
@@ -576,11 +690,11 @@ async function requestFixPack(request, env) {
   )
     .bind(
       id,
-      row.id,
+      reportRow.id,
       access.ownerEmail,
-      row.url,
-      row.target_host || new URL(row.url).hostname.toLowerCase(),
-      row.score,
+      reportRow.url,
+      reportRow.target_host || new URL(reportRow.url).hostname.toLowerCase(),
+      reportRow.score,
       Number(summary.totalFindings || 0),
       note,
       now,
@@ -588,15 +702,250 @@ async function requestFixPack(request, env) {
     )
     .run();
 
-  return jsonNoStore({
-    ok: true,
-    request: {
-      id,
-      status: "new",
-      offer: FIX_PACK_OFFER,
-      createdAt: now
+  return {
+    id,
+    report_id: reportRow.id,
+    owner_email: access.ownerEmail,
+    target_url: reportRow.url,
+    target_host: reportRow.target_host || new URL(reportRow.url).hostname.toLowerCase(),
+    score: reportRow.score,
+    issue_count: Number(summary.totalFindings || 0),
+    status: "new",
+    note,
+    created_at: now,
+    updated_at: now
+  };
+}
+
+function fixRequestResponse(row, now = new Date().toISOString()) {
+  return {
+    id: row.id,
+    status: row.status || "new",
+    targetUrl: row.target_url,
+    targetHost: row.target_host,
+    score: row.score,
+    issueCount: row.issue_count,
+    checkoutSessionId: row.checkout_session_id || "",
+    paidAt: row.paid_at || "",
+    createdAt: row.created_at || now,
+    updatedAt: row.updated_at || now
+  };
+}
+
+async function createDodoFixPackCheckout(request, env, reportRow, fixRequest, access) {
+  const returnUrl = new URL(request.url);
+  returnUrl.pathname = `/beta/reports/${reportRow.id}`;
+  returnUrl.search = "";
+  returnUrl.searchParams.set("checkout", "return");
+  returnUrl.searchParams.set("fixRequestId", fixRequest.id);
+
+  const body = {
+    product_cart: [{ product_id: dodoProductId(env), quantity: 1 }],
+    return_url: returnUrl.toString(),
+    adaptive_currency_fees_inclusive: dodoAdaptiveCurrencyFeesInclusive(env),
+    customer: { email: access.ownerEmail },
+    metadata: {
+      product_key: FIX_PACK_OFFER.productKey,
+      fix_request_id: fixRequest.id,
+      report_id: reportRow.id,
+      target_host: reportRow.target_host || new URL(reportRow.url).hostname.toLowerCase()
     }
+  };
+  const country = dodoCountryFromRequest(request);
+  if (country) body.billing_address = { country };
+
+  const response = await fetch(`${dodoBaseUrl(env)}/checkouts`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${dodoApiKey(env)}`
+    },
+    body: JSON.stringify(body)
   });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message =
+      payload?.code === "MERCHANT_NOT_LIVE"
+        ? "Dodo live payments are not enabled for this merchant yet."
+        : payload?.message || "Dodo checkout could not be created.";
+    return Promise.reject(Object.assign(new Error(message), { status: response.status, code: payload?.code || "" }));
+  }
+
+  const checkoutUrl = payload.checkout_url || payload.payment_link || "";
+  if (!checkoutUrl) throw new Error("Dodo did not return a checkout URL.");
+  return {
+    checkoutUrl,
+    checkoutSessionId: payload.session_id || payload.checkout_session_id || payload.id || ""
+  };
+}
+
+async function handleDodoWebhook(request, env) {
+  if (!env.WAITLIST_DB || !dodoWebhookSecret(env)) {
+    return jsonNoStore({ error: "Dodo webhook is not configured." }, 503);
+  }
+
+  const payloadText = await request.text();
+  const webhookId = request.headers.get("webhook-id") || request.headers.get("svix-id") || "";
+  const webhookTimestamp =
+    request.headers.get("webhook-timestamp") || request.headers.get("svix-timestamp") || "";
+  const webhookSignature =
+    request.headers.get("webhook-signature") || request.headers.get("svix-signature") || "";
+
+  const verified = await verifyDodoWebhookSignature({
+    payload: payloadText,
+    webhookId,
+    webhookTimestamp,
+    webhookSignature,
+    secret: dodoWebhookSecret(env)
+  });
+  if (!verified) return jsonNoStore({ error: "Invalid signature." }, 400);
+
+  let event;
+  try {
+    event = JSON.parse(payloadText);
+  } catch {
+    return jsonNoStore({ error: "Invalid JSON payload." }, 400);
+  }
+
+  const eventType = String(event?.type || "");
+  const payment = extractDodoPayment(event?.data || {});
+  const payloadHash = await sha256Hex(payloadText);
+  const reserved = await reserveDodoWebhookEvent(env, {
+    webhookId,
+    eventType,
+    payment,
+    payloadHash,
+    payloadText
+  });
+  if (reserved.duplicate) return jsonNoStore({ received: true, duplicate: true });
+
+  try {
+    const result = await processDodoPaymentWebhook(env, eventType, payment);
+    await markDodoWebhookProcessed(env, webhookId, result.status || "processed", "", result.fixRequestId || payment.metadataFixRequestId || "");
+    return jsonNoStore({ received: true, ...result });
+  } catch (error) {
+    await markDodoWebhookProcessed(env, webhookId, "error", error?.message || "Webhook processing failed.", payment.metadataFixRequestId || "");
+    return jsonNoStore({ error: "Webhook processing failed." }, 500);
+  }
+}
+
+async function reserveDodoWebhookEvent(env, { webhookId, eventType, payment, payloadHash, payloadText }) {
+  if (!webhookId) throw new Error("Missing Dodo webhook id.");
+  const now = new Date().toISOString();
+  const existing = await env.WAITLIST_DB.prepare("SELECT status FROM dodo_webhook_events WHERE webhook_id = ?")
+    .bind(webhookId)
+    .first();
+  if (existing?.status === "processed") return { duplicate: true };
+  if (existing) {
+    await env.WAITLIST_DB.prepare(
+      `UPDATE dodo_webhook_events
+       SET received_count = received_count + 1, last_received_at = ?, updated_at = ?
+       WHERE webhook_id = ?`
+    )
+      .bind(now, now, webhookId)
+      .run();
+    return { duplicate: false };
+  }
+
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO dodo_webhook_events
+      (webhook_id, event_type, payment_id, fix_request_id, status, error, payload_hash, payload_json,
+       received_count, first_received_at, last_received_at, processed_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'received', '', ?, ?, 1, ?, ?, '', ?, ?)`
+  )
+    .bind(
+      webhookId,
+      eventType,
+      payment.paymentId,
+      payment.metadataFixRequestId,
+      payloadHash,
+      payloadText.slice(0, 10000),
+      now,
+      now,
+      now,
+      now
+    )
+    .run();
+  return { duplicate: false };
+}
+
+async function processDodoPaymentWebhook(env, eventType, payment) {
+  if (!payment.paymentId && !payment.checkoutSessionId && !payment.metadataFixRequestId) {
+    return { ok: false, ignored: true, status: "ignored", reason: "missing_payment_identity" };
+  }
+  if (!dodoProductMatches(payment, dodoProductId(env))) {
+    return { ok: false, ignored: true, status: "ignored", reason: "product_mismatch" };
+  }
+  if (payment.metadataProductKey && payment.metadataProductKey !== FIX_PACK_OFFER.productKey) {
+    return { ok: false, ignored: true, status: "ignored", reason: "product_key_mismatch" };
+  }
+
+  const fixRequest = await findFixRequestForPayment(env, payment);
+  if (!fixRequest?.id) {
+    return { ok: false, ignored: true, status: "ignored", reason: "fix_request_not_found" };
+  }
+
+  const now = new Date().toISOString();
+  if (DODO_PAYMENT_SUCCESS_EVENTS.has(eventType)) {
+    if (payment.status && !PAID_STATUSES.has(payment.status)) {
+      return { ok: false, ignored: true, status: "ignored", reason: "not_paid", fixRequestId: fixRequest.id };
+    }
+    await env.WAITLIST_DB.prepare(
+      `UPDATE fix_requests
+       SET status = 'paid',
+           payment_id = ?,
+           checkout_session_id = COALESCE(checkout_session_id, ?),
+           paid_at = COALESCE(paid_at, ?),
+           updated_at = ?
+       WHERE id = ?`
+    )
+      .bind(payment.paymentId, payment.checkoutSessionId, now, now, fixRequest.id)
+      .run();
+    return { ok: true, status: "processed", paid: true, fixRequestId: fixRequest.id };
+  }
+
+  if (DODO_PAYMENT_FAILURE_EVENTS.has(eventType)) {
+    await env.WAITLIST_DB.prepare(
+      `UPDATE fix_requests
+       SET status = CASE WHEN paid_at IS NOT NULL THEN status ELSE 'payment_failed' END,
+           payment_id = COALESCE(payment_id, ?),
+           checkout_session_id = COALESCE(checkout_session_id, ?),
+           updated_at = ?
+       WHERE id = ?`
+    )
+      .bind(payment.paymentId, payment.checkoutSessionId, now, fixRequest.id)
+      .run();
+    return { ok: true, status: "processed", paid: false, fixRequestId: fixRequest.id };
+  }
+
+  return { ok: true, ignored: true, status: "ignored", reason: "unsupported_event", fixRequestId: fixRequest.id };
+}
+
+async function findFixRequestForPayment(env, payment) {
+  if (payment.metadataFixRequestId) {
+    const row = await env.WAITLIST_DB.prepare("SELECT * FROM fix_requests WHERE id = ? LIMIT 1")
+      .bind(payment.metadataFixRequestId)
+      .first();
+    if (row?.id) return row;
+  }
+  if (payment.checkoutSessionId) {
+    const row = await env.WAITLIST_DB.prepare("SELECT * FROM fix_requests WHERE checkout_session_id = ? LIMIT 1")
+      .bind(payment.checkoutSessionId)
+      .first();
+    if (row?.id) return row;
+  }
+  return null;
+}
+
+async function markDodoWebhookProcessed(env, webhookId, status, error = "", fixRequestId = "") {
+  const now = new Date().toISOString();
+  await env.WAITLIST_DB.prepare(
+    `UPDATE dodo_webhook_events
+     SET status = ?, error = ?, fix_request_id = COALESCE(NULLIF(fix_request_id, ''), ?), processed_at = ?, updated_at = ?
+     WHERE webhook_id = ?`
+  )
+    .bind(status, String(error || "").slice(0, 1000), fixRequestId, status === "processed" ? now : "", now, webhookId)
+    .run();
 }
 
 async function runPrivateDemoAudit(request, env) {

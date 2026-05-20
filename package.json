@@ -1,6 +1,6 @@
 {
   "name": "seo-fix-kit",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,8 +13,9 @@
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "cf:dry-run": "npm run build && wrangler deploy --dry-run",
     "ops:audit-owned": "node scripts/run-live-audit-batch.mjs",
+    "test:billing": "node server/dodo-payment-smoke-test.js",
     "test:audit": "node server/audit/smoke-test.js",
-    "check": "npm run test:audit && npm run build"
+    "check": "npm run test:billing && npm run test:audit && npm run build"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.0",
