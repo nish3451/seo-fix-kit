@@ -80,7 +80,7 @@ Apply D1 migrations after creating or changing the waitlist schema:
 wrangler d1 migrations apply seofixkit_waitlist --remote
 ```
 
-Migration `0004_audit_usage.sql` adds the private beta quota table. Migration `0005_beta_controls.sql` adds beta sessions, report ownership, target-host indexing, and report expiry. Migration `0006_ops_funnel.sql` adds invite codes, invite-bound ownership, fix requests, and admin audit logging. Migration `0007_fix_pack_checkout.sql` adds Dodo checkout/payment tracking and webhook idempotency.
+Migration `0004_audit_usage.sql` adds the private beta quota table. Migration `0005_beta_controls.sql` adds beta sessions, report ownership, target-host indexing, and report expiry. Migration `0006_ops_funnel.sql` adds invite codes, invite-bound ownership, fix requests, and admin audit logging. Migration `0007_fix_pack_checkout.sql` adds Dodo checkout/payment tracking and webhook idempotency. Migration `0008_fix_pack_fulfillment.sql` adds the paid Fix Pack delivery queue and payment notification log.
 
 The protected admin APIs require the `ADMIN_EXPORT_TOKEN` Worker secret and must be called with an `Authorization: Bearer ...` header. The private beta login uses invite codes; `BETA_ACCESS_PASSWORD` remains as a founder override only.
 
@@ -99,12 +99,24 @@ Cloudflare secrets hold private credentials:
 
 - `DODO_SEOFIXKIT_API_KEY`
 - `DODO_SEOFIXKIT_WEBHOOK_SECRET`
+- `RESEND_API_KEY`
 
 The Dodo webhook endpoint is:
 
 ```text
 https://seofixkit.com/api/webhooks/dodo
 ```
+
+## Fix Pack fulfillment
+
+Paid requests move through `checkout_created`, `paid`, `in_progress`, and `delivered`. The admin queue can assign an owner, keep private notes, show a customer note, attach a delivery URL, and link a final rerun report.
+
+Payment-success email uses Resend from the Worker after Dodo confirms payment. These Worker values must be set before email can send:
+
+- `RESEND_API_KEY`
+- `SEOFIXKIT_EMAIL_FROM`
+- `SEOFIXKIT_ADMIN_EMAIL`
+- optional `SEOFIXKIT_REPLY_TO`
 
 ## Custom domain
 
