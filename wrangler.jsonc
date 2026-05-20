@@ -18,8 +18,16 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/", "/api/*", "/llms.txt", "/robots.txt", "/sitemap.xml", "/fixture/*"]
+    "run_worker_first": ["/", "/api/*", "/llms.txt", "/privacy", "/robots.txt", "/sitemap.xml", "/fixture/*"]
   },
+  "d1_databases": [
+    {
+      "binding": "WAITLIST_DB",
+      "database_name": "seofixkit_waitlist",
+      "database_id": "887316c4-ca9d-4068-a7fa-1f530b479437",
+      "migrations_dir": "migrations"
+    }
+  ],
   "browser": {
     "binding": "BROWSER"
   }

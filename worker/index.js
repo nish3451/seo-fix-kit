@@ -22,29 +22,33 @@ export default {
           service: "seo-fix-kit",
           runtime: "cloudflare-worker",
           browserRun: Boolean(env.BROWSER),
+          waitlistDb: Boolean(env.WAITLIST_DB),
           version: "0.3.0"
         });
       }
 
-      if (url.pathname === "/api/audit" && request.method === "POST") {
-        const body = await request.json().catch(() => ({}));
-        if (!body.url || typeof body.url !== "string") {
-          return json({ error: "Enter a website URL to audit." }, 400);
-        }
+      if (url.pathname === "/api/waitlist" && request.method === "POST") {
+        return joinWaitlist(request, env);
+      }
 
-        const report = await auditUrl(body.url, env, {
-          maxPages: Math.min(Math.max(Number(body.maxPages || 3), 1), 3),
-          appOrigin: url.origin
-        });
-        return json(report);
+      if (url.pathname === "/api/audit" && request.method === "POST") {
+        return json(
+          {
+            error: "SEO Fix Kit is locked for private beta.",
+            waitlist: `${url.origin}/`
+          },
+          423
+        );
       }
 
       if (url.pathname === "/api/demo-audit") {
-        const report = await auditUrl(`${url.origin}/fixture/rendered-page`, env, {
-          maxPages: 1,
-          appOrigin: url.origin
-        });
-        return json(report);
+        return json(
+          {
+            error: "SEO Fix Kit is locked for private beta.",
+            waitlist: `${url.origin}/`
+          },
+          423
+        );
       }
 
       if (url.pathname === "/fixture/rendered-page") {
@@ -84,6 +88,12 @@ export default {
         });
       }
 
+      if (url.pathname === "/privacy") {
+        return new Response(privacyHtml(url.origin), {
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+
       if (
         url.pathname === "/" &&
         (request.headers.get("accept") || "").includes("text/markdown")
@@ -106,6 +116,44 @@ export default {
     }
   }
 };
+
+async function joinWaitlist(request, env) {
+  if (!env.WAITLIST_DB) {
+    return json({ error: "Waitlist storage is not configured." }, 503);
+  }
+
+  const body = await request.json().catch(() => ({}));
+  if (body.company) {
+    return json({ ok: true, status: "joined" });
+  }
+
+  const email = normalizeEmail(body.email);
+  if (!email) {
+    return json({ error: "Enter a valid email address." }, 400);
+  }
+
+  const now = new Date().toISOString();
+  const source = cleanText(body.source || "locked-homepage", 80);
+  const referrer = cleanText(request.headers.get("referer") || "", 500);
+  const userAgent = cleanText(request.headers.get("user-agent") || "", 500);
+  const country = cleanText(request.cf?.country || "", 8);
+
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO waitlist_leads
+      (email, source, referrer, user_agent, country, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(email) DO UPDATE SET
+      source = excluded.source,
+      referrer = excluded.referrer,
+      user_agent = excluded.user_agent,
+      country = excluded.country,
+      updated_at = excluded.updated_at`
+  )
+    .bind(email, source, referrer, userAgent, country, now, now)
+    .run();
+
+  return json({ ok: true, status: "joined" });
+}
 
 async function auditUrl(inputUrl, env, options = {}) {
   const startedAt = Date.now();
@@ -936,6 +984,21 @@ function normalizeUrl(input) {
   return url.href;
 }
 
+function normalizeEmail(input) {
+  const email = String(input || "").trim().toLowerCase();
+  if (email.length > 254) return "";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "";
+  return email;
+}
+
+function cleanText(input, maxLength) {
+  return String(input || "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
 function stripHash(value) {
   const url = new URL(value);
   url.hash = "";
@@ -1039,40 +1102,75 @@ function renderedFixture(origin) {
 function llmsText(origin) {
   return `# SEO Fix Kit
 
-SEO Fix Kit audits a website, proves what is wrong, and generates a developer repair pack.
+SEO Fix Kit is currently locked for private beta.
 
 Live product claims:
-- Renders pages before judging common SEO issues.
-- Compares static HTML against rendered DOM.
-- Shows evidence for findings.
-- Generates a prioritized repair plan, copyable Markdown brief, acceptance checks, and starter snippets.
-- Guards common false positives on JavaScript-rendered pages.
+- The public homepage is a coming-soon waitlist.
+- Visitors can submit an email address for private beta outreach.
+- The public audit API is locked while private beta is prepared.
 
 Current product boundary:
 - Does not provide backlink databases.
 - Does not provide keyword volume databases.
 - Does not replace Ahrefs or Semrush.
+- Does not currently provide public self-serve audits.
 
 Useful routes:
 - ${origin}/
 - ${origin}/api/health
 - ${origin}/llms.txt
+- ${origin}/privacy
 `;
 }
 
 function homeMarkdown(origin) {
   return `# SEO Fix Kit
 
-Audit it. Prove it. Fix it.
+Coming soon.
 
-SEO Fix Kit returns an evidence-backed SEO repair report. It renders pages before judging them, compares static HTML against rendered DOM, separates real SEO repairs from crawler false positives, and generates a copyable developer repair brief with starter fixes.
+SEO Fix Kit is locked for private beta. Join the waitlist for evidence-backed SEO audits and developer repair briefs.
 
 Start at ${origin}/.
 `;
 }
 
+function privacyHtml(origin) {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy - SEO Fix Kit</title>
+    <meta name="description" content="SEO Fix Kit waitlist privacy note." />
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
+      body { margin: 0; min-width: 320px; }
+      main { margin: 0 auto; max-width: 760px; padding: 48px 22px; }
+      a { color: #98f0cc; font-weight: 760; text-decoration: none; }
+      h1 { font-size: clamp(42px, 8vw, 76px); letter-spacing: 0; line-height: .92; margin: 0 0 24px; }
+      p, li { color: rgba(251,248,239,.76); font-size: 18px; line-height: 1.62; }
+      ul { padding-left: 22px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a href="${origin}/">SEO Fix Kit</a>
+      <h1>Privacy</h1>
+      <p>SEO Fix Kit collects the email address you submit on the waitlist so we can contact you about private beta access and product updates.</p>
+      <ul>
+        <li>We store your email address, signup source, referrer, browser user agent, country code when Cloudflare provides it, and signup timestamps.</li>
+        <li>We do not sell the waitlist.</li>
+        <li>We do not use the waitlist to send unrelated promotions.</li>
+        <li>To be removed from outreach, reply to any email we send and ask to be removed.</li>
+      </ul>
+      <p>Last updated: May 20, 2026.</p>
+    </main>
+  </body>
+</html>`;
+}
+
 function rootSitemap(origin) {
-  const urls = ["/", "/llms.txt"];
+  const urls = ["/", "/llms.txt", "/privacy"];
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls
     .map((path) => `<url><loc>${origin}${path}</loc></url>`)
     .join("")}</urlset>`;

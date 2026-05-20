@@ -18,6 +18,19 @@ app.get("/api/health", (req, res) => {
   res.json({ ok: true, service: "seo-fix-kit", version: "0.3.0" });
 });
 
+app.post("/api/waitlist", (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  if (req.body?.company) {
+    res.json({ ok: true, status: "joined" });
+    return;
+  }
+  if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    res.status(400).json({ error: "Enter a valid email address." });
+    return;
+  }
+  res.json({ ok: true, status: "joined", mode: "local-dev" });
+});
+
 app.get("/api/demo-audit", async (req, res) => {
   try {
     const report = await auditUrl(`http://127.0.0.1:${port}/fixture/rendered-page`, {
