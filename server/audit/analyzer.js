@@ -1131,11 +1131,13 @@ function trimSentence(value, max) {
 }
 
 function escapeHtml(value) {
-  return String(value || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+  const entities = {
+    "&": "&amp;",
+    '"': "&quot;",
+    "<": "&lt;",
+    ">": "&gt;"
+  };
+  return String(value || "").replace(/[&"<>]/g, (character) => entities[character]);
 }
 
 function makeReportId(url, startedAt) {

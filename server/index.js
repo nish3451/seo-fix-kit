@@ -331,7 +331,7 @@ app.get("/fixture/rendered-page", (req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Proof Demo App Shell</title>
     <meta name="description" content="A JavaScript-rendered demo page for proving false-positive SEO audit behavior." />
-    <link rel="canonical" href="http://127.0.0.1:${port}/fixture/rendered-page" />
+    <link rel="canonical" href="/fixture/rendered-page" />
   </head>
   <body>
     <div id="app">Loading app shell...</div>

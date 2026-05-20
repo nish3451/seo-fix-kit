@@ -2096,21 +2096,30 @@ function workType(finding) {
 }
 
 function attr(html, name) {
-  return html.match(new RegExp(`${name}=["']([^"']+)["']`, "i"))?.[1] || null;
+  const wanted = String(name || "").toLowerCase();
+  for (const match of String(html || "").matchAll(/\s([^\s=]+)\s*=\s*(["'])(.*?)\2/gi)) {
+    if (match[1].toLowerCase() === wanted) return match[3] || null;
+  }
+  return null;
 }
 
 function meta(head, key, value) {
-  const match = head.match(
-    new RegExp(`<meta\\b(?=[^>]*${key}=["']${escapeRegExp(value)}["'])(?=[^>]*content=["']([^"']*)["'])[^>]*>`, "i")
-  );
-  return match?.[1] || null;
+  for (const match of String(head || "").matchAll(/<meta\b[^>]*>/gi)) {
+    if (attr(match[0], key) === value) return attr(match[0], "content");
+  }
+  return null;
 }
 
 function linkRel(head, rel) {
-  const match = head.match(
-    new RegExp(`<link\\b(?=[^>]*rel=["'][^"']*${escapeRegExp(rel)}[^"']*["'])(?=[^>]*href=["']([^"']*)["'])[^>]*>`, "i")
-  );
-  return match?.[1] || null;
+  const wanted = String(rel || "").toLowerCase();
+  for (const match of String(head || "").matchAll(/<link\b[^>]*>/gi)) {
+    const tokens = String(attr(match[0], "rel") || "")
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean);
+    if (tokens.includes(wanted)) return attr(match[0], "href");
+  }
+  return null;
 }
 
 function absolute(value, base) {
@@ -2717,15 +2726,13 @@ function decodeEntities(value) {
 }
 
 function escapeHtml(value) {
-  return String(value || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
-
-function escapeRegExp(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const entities = {
+    "&": "&amp;",
+    '"': "&quot;",
+    "<": "&lt;",
+    ">": "&gt;"
+  };
+  return String(value || "").replace(/[&"<>]/g, (character) => entities[character]);
 }
 
 function suggestTitle(url, facts) {
