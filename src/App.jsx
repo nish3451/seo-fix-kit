@@ -18,6 +18,10 @@ function WaitlistPage() {
   const [message, setMessage] = useState("");
   const [formStartedAt] = useState(() => Date.now());
 
+  useEffect(() => {
+    document.title = "SEO Fix Kit - Proof-Backed SEO Repair Beta";
+  }, []);
+
   async function joinWaitlist(event) {
     event.preventDefault();
     setStatus("submitting");
@@ -122,6 +126,9 @@ function WaitlistPage() {
             <span>Do nothing. The finding is a false positive.</span>
           </div>
         </div>
+        <a className="proof-link" href="/demo">
+          View proof demo
+        </a>
       </section>
 
       <footer className="site-footer">
@@ -154,6 +161,18 @@ function BetaApp() {
   const [adminData, setAdminData] = useState(null);
   const [adminStatus, setAdminStatus] = useState("idle");
   const [adminMessage, setAdminMessage] = useState("");
+
+  useEffect(() => {
+    if (isAdminRoute) {
+      document.title = "SEO Fix Kit Ops";
+      return;
+    }
+    if (report?.url) {
+      document.title = `SEO Fix Kit report - ${safeHostnameLabel(report.url)}`;
+      return;
+    }
+    document.title = "SEO Fix Kit Beta";
+  }, [isAdminRoute, report?.url]);
 
   useEffect(() => {
     if (window.sessionStorage.getItem(BETA_SESSION_KEY) === "1" || reportId || isAdminRoute) {
@@ -516,7 +535,11 @@ function ReportView({ report }) {
       <section className="report-actions">
         <CopyButton label="Copy report URL" value={shareUrl} />
         <CopyButton label="Copy developer brief" value={report.repairBrief || ""} />
-        <FixQuoteButton report={report} hasPriorityFixes={hasPriorityFixes} />
+        {hasPriorityFixes && (
+          <a className="action-link paid-action" href="#fix-pack">
+            Start paid Fix Pack
+          </a>
+        )}
         <a
           className="action-link"
           href={`/api/reports/${report.id}/brief.md`}
@@ -570,7 +593,7 @@ function ReportView({ report }) {
         </div>
       </section>
 
-      <section className="fix-section">
+      <section className="fix-section" id="fix-pack">
         <div className="section-heading">
           <p className="beta-eyebrow">Repair queue</p>
           <h2>Copy the fix, ship it, rerun</h2>
@@ -833,29 +856,71 @@ function PageProof({ page }) {
 
 function PageSummaryTable({ pages }) {
   return (
-    <div className="page-table" role="table" aria-label="Crawled pages">
-      <div className="page-table-row page-table-head" role="row">
-        <span>Page</span>
-        <span>Score</span>
-        <span>Issues</span>
-        <span>H1</span>
-        <span>Words</span>
-        <span>Links</span>
-        <span>Schema</span>
-      </div>
-      {pages.map((page) => (
-        <div className="page-table-row" role="row" key={page.url}>
-          <span title={page.url}>{page.path || new URL(page.url).pathname || "/"}</span>
-          <strong>{page.score}</strong>
-          <span>{page.critical + page.warnings + page.notices}</span>
-          <span>{page.h1 || "missing"}</span>
-          <span>{page.wordCount}</span>
-          <span>{page.internalLinks}</span>
-          <span>{page.schemaTypes?.join(", ") || "none"}</span>
+    <>
+      <div className="page-table" role="table" aria-label="Crawled pages">
+        <div className="page-table-row page-table-head" role="row">
+          <span>Page</span>
+          <span>Score</span>
+          <span>Issues</span>
+          <span>H1</span>
+          <span>Words</span>
+          <span>Links</span>
+          <span>Schema</span>
         </div>
-      ))}
-    </div>
+        {pages.map((page) => (
+          <div className="page-table-row" role="row" key={page.url}>
+            <span title={page.url}>{page.path || new URL(page.url).pathname || "/"}</span>
+            <strong>{page.score}</strong>
+            <span>{page.critical + page.warnings + page.notices}</span>
+            <span>{page.h1 || "missing"}</span>
+            <span>{page.wordCount}</span>
+            <span>{page.internalLinks}</span>
+            <span>{page.schemaTypes?.join(", ") || "none"}</span>
+          </div>
+        ))}
+      </div>
+      <div className="page-card-list" aria-label="Crawled pages mobile summary">
+        {pages.map((page) => (
+          <article className="page-summary-card" key={`card-${page.url}`}>
+            <div>
+              <span>{page.path || new URL(page.url).pathname || "/"}</span>
+              <strong>{page.score}/100</strong>
+            </div>
+            <dl>
+              <div>
+                <dt>Issues</dt>
+                <dd>{page.critical + page.warnings + page.notices}</dd>
+              </div>
+              <div>
+                <dt>H1</dt>
+                <dd>{page.h1 || "missing"}</dd>
+              </div>
+              <div>
+                <dt>Words</dt>
+                <dd>{page.wordCount}</dd>
+              </div>
+              <div>
+                <dt>Links</dt>
+                <dd>{page.internalLinks}</dd>
+              </div>
+              <div>
+                <dt>Schema</dt>
+                <dd>{page.schemaTypes?.join(", ") || "none"}</dd>
+              </div>
+            </dl>
+          </article>
+        ))}
+      </div>
+    </>
   );
+}
+
+function safeHostnameLabel(value) {
+  try {
+    return new URL(value).hostname.replace(/^www\./, "");
+  } catch {
+    return "saved audit";
+  }
 }
 
 function summarizePages(pages, findings, startUrl) {
@@ -868,16 +933,7 @@ function summarizePages(pages, findings, startUrl) {
     return {
       url: page.url,
       path: pathLabel(page.url, startUrl),
-      score: Math.max(
-        0,
-        100 -
-          pageFindings.reduce((sum, finding) => {
-            if (finding.severity === "critical") return sum + 12;
-            if (finding.severity === "warning") return sum + 5;
-            if (finding.severity === "notice") return sum + 1;
-            return sum;
-          }, 0)
-      ),
+      score: scorePageFindings(pageFindings),
       critical: pageFindings.filter((finding) => finding.severity === "critical").length,
       warnings: pageFindings.filter((finding) => finding.severity === "warning").length,
       notices: pageFindings.filter((finding) => finding.severity === "notice").length,
@@ -888,6 +944,37 @@ function summarizePages(pages, findings, startUrl) {
       staticWordCount: staticFacts.wordCount || 0
     };
   });
+}
+
+function scorePageFindings(findings = []) {
+  const groups = new Map();
+  for (const finding of findings) {
+    const key = String(finding.title || "unknown issue")
+      .replace(/\son\s(home|\/[^\s]+)/i, "")
+      .replace(/\sneeds cleanup.*/i, " needs cleanup")
+      .trim();
+    const current = groups.get(key) || { critical: 0, warning: 0, notice: 0 };
+    if (finding.severity === "critical") current.critical += 1;
+    if (finding.severity === "warning") current.warning += 1;
+    if (finding.severity === "notice") current.notice += 1;
+    groups.set(key, current);
+  }
+
+  let penalty = 0;
+  for (const group of groups.values()) {
+    penalty += scorePenalty(group.critical, "critical");
+    penalty += scorePenalty(group.warning, "warning");
+    penalty += scorePenalty(group.notice, "notice");
+  }
+  return Math.max(0, Math.min(100, Math.round(100 - penalty)));
+}
+
+function scorePenalty(count, severity) {
+  if (!count) return 0;
+  const first = { critical: 12, warning: 5, notice: 1 }[severity] || 0;
+  const repeat = { critical: 4, warning: 1.5, notice: 0.25 }[severity] || 0;
+  const cap = { critical: 28, warning: 10, notice: 3 }[severity] || first;
+  return Math.min(cap, first + Math.max(0, count - 1) * repeat);
 }
 
 function pathLabel(url, startUrl) {
@@ -919,50 +1006,90 @@ function CopyButton({ label, value }) {
   );
 }
 
-function FixQuoteButton({ report, hasPriorityFixes }) {
-  const [status, setStatus] = useState("idle");
-  const [message, setMessage] = useState("");
+function usePricingPreview(enabled) {
+  const [pricing, setPricing] = useState({
+    status: enabled ? "loading" : "idle",
+    displayPrice: "",
+    message: ""
+  });
 
-  if (!hasPriorityFixes) {
-    return <button className="action-link" type="button" onClick={() => copyText(report.reportUrl || "")}>Monitor this site</button>;
-  }
+  useEffect(() => {
+    if (!enabled) {
+      setPricing({ status: "idle", displayPrice: "", message: "" });
+      return;
+    }
 
-  return (
-    <span className="checkout-action">
-      <button
-        className="action-link paid-action"
-        disabled={status === "submitting" || status === "success"}
-        onClick={async () => {
-          setStatus("submitting");
-          setMessage("");
-          const result = await requestFixQuote(report.id);
-          if (result.checkoutUrl) {
-            setStatus("success");
-            setMessage("Opening secure checkout.");
-            window.location.assign(result.checkoutUrl);
-            return;
-          }
-          setStatus(result.ok ? "success" : "error");
-          setMessage(result.message || result.error || (result.ok ? "Request received." : "Checkout could not open."));
-        }}
-        type="button"
-      >
-        {status === "success" ? "Checkout ready" : status === "submitting" ? "Opening checkout" : "Get this fixed"}
-      </button>
-      {message && <small className={`checkout-message ${status}`}>{message}</small>}
-    </span>
-  );
+    let cancelled = false;
+    setPricing({ status: "loading", displayPrice: "", message: "" });
+    fetch("/api/pricing-preview", {
+      credentials: "include",
+      headers: { accept: "application/json" }
+    })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.message || "Pricing unavailable.");
+        }
+        return payload.pricing || {};
+      })
+      .then((nextPricing) => {
+        if (cancelled) return;
+        setPricing({
+          status: nextPricing.displayPrice ? "available" : "error",
+          displayPrice: nextPricing.displayPrice || "",
+          message: nextPricing.displayPrice ? "Dodo checkout price" : "Pricing unavailable."
+        });
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setPricing({
+          status: "error",
+          displayPrice: "",
+          message: error?.message || "Pricing unavailable."
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled]);
+
+  return pricing;
 }
 
 function FixQuotePanel({ report, hasPriorityFixes }) {
   const [status, setStatus] = useState("idle");
   const [message, setMessage] = useState("");
+  const pricing = usePricingPreview(hasPriorityFixes);
+  const checkoutDisabled =
+    !hasPriorityFixes ||
+    pricing.status !== "available" ||
+    status === "submitting" ||
+    status === "success";
+  const priceLabel =
+    pricing.status === "available"
+      ? pricing.displayPrice
+      : pricing.status === "loading"
+        ? "Loading Dodo price"
+        : "Pricing unavailable";
 
   return (
     <aside className="paid-panel">
       <div>
         <p className="beta-eyebrow">{hasPriorityFixes ? "SEO Fix Pack" : "Monitoring"}</p>
         <h3>{hasPriorityFixes ? "Open checkout for the paid repair pass." : "No paid fix needed from this scan."}</h3>
+        {hasPriorityFixes && (
+          <div className={`price-preview ${pricing.status}`}>
+            <strong>{priceLabel}</strong>
+            <span>
+              {pricing.status === "available"
+                ? "Pulled from Dodo before checkout."
+                : pricing.status === "loading"
+                  ? "Checking the live payment source."
+                  : "Checkout is paused until Dodo pricing loads."}
+            </span>
+          </div>
+        )}
         <p>
           {hasPriorityFixes
             ? "One proof-backed repair pass for this report, then one rerun after fixes. No ranking promises, just the proven repair queue."
@@ -973,7 +1100,7 @@ function FixQuotePanel({ report, hasPriorityFixes }) {
         <span className="checkout-action">
           <button
             className="action-link paid-action"
-            disabled={status === "submitting" || status === "success"}
+            disabled={checkoutDisabled}
             onClick={async () => {
               setStatus("submitting");
               setMessage("");
@@ -989,9 +1116,13 @@ function FixQuotePanel({ report, hasPriorityFixes }) {
             }}
             type="button"
           >
-            {status === "success" ? "Checkout ready" : status === "submitting" ? "Opening checkout" : "Get this fixed"}
+            {status === "success" ? "Checkout ready" : status === "submitting" ? "Opening checkout" : "Start paid Fix Pack"}
           </button>
-          {message && <small className={`checkout-message ${status}`}>{message}</small>}
+          {(message || pricing.status === "error") && (
+            <small className={`checkout-message ${status === "error" || pricing.status === "error" ? "error" : status}`}>
+              {message || pricing.message}
+            </small>
+          )}
         </span>
       ) : (
         <CopyButton label="Copy report URL" value={report.reportUrl || ""} />
@@ -1151,8 +1282,13 @@ function AdminDashboard({
         <div className="admin-panel paid-ops-panel">
           <p className="beta-eyebrow">First paid offer</p>
           <h2>{adminData?.offer?.name || "SEO Fix Pack"}</h2>
-          <strong>{adminData?.offer?.priceLabel || "$99 beta"}</strong>
+          <strong>
+            {adminData?.paymentHealth?.dodo?.checkoutReady ? "Dodo checkout ready" : "Dodo checkout paused"}
+          </strong>
           <p>{adminData?.offer?.description || "One proof-backed repair pass plus one rerun after fixes."}</p>
+          {adminData?.paymentHealth?.dodo?.missing?.length > 0 && (
+            <p className="quiet-note">Missing: {adminData.paymentHealth.dodo.missing.join(", ")}</p>
+          )}
         </div>
       </section>
     </section>

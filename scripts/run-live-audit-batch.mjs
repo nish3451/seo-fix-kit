@@ -258,7 +258,7 @@ function recommendOffer(batch) {
 
   return {
     offer: "SEO Fix Pack",
-    price: "$99 beta",
+    price: "Dodo checkout price",
     scope:
       "Fix the top proven metadata, canonical, social preview, schema, and crawlability issues on one site.",
     reason: `${audited.length} projects produced ${totalFindings} actionable findings. ${priorityPatterns.length} repeated revenue-relevant issue patterns appeared across the batch.`

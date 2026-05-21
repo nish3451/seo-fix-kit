@@ -88,6 +88,8 @@ The protected admin APIs require the `ADMIN_EXPORT_TOKEN` Worker secret. Browser
 
 The paid repair CTA uses a hosted Dodo checkout session. The product is `SEO Fix Pack`, mapped through `DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID`; customer-facing copy must stay limited to one proof-backed repair pass plus one rerun, with no ranking promise.
 
+Visible pricing comes from Dodo's checkout preview endpoint. If the API key, product id, brand id, explicit environment, or webhook secret is missing, the app pauses checkout instead of showing a hardcoded fallback price.
+
 Cloudflare vars in `wrangler.jsonc` hold the public Dodo brand/product identifiers and environment mode:
 
 - `DODO_SEOFIXKIT_BRAND_ID`

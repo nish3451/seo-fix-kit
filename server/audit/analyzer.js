@@ -181,12 +181,18 @@ async function extractRenderedFacts(browser, url) {
         rawHref: node.getAttribute("href")
       }))
       .filter((link) => link.href && link.href.startsWith("http"));
-    const images = [...document.querySelectorAll("img")].map((node) => ({
-      src: absolute(node.getAttribute("src")),
-      alt: node.getAttribute("alt") || "",
-      width: node.getAttribute("width") || null,
-      height: node.getAttribute("height") || null
-    }));
+    const images = [...document.querySelectorAll("img")].map((node) => {
+      const alt = node.getAttribute("alt");
+      return {
+        src: absolute(node.getAttribute("src")),
+        alt: alt || "",
+        hasAlt: node.hasAttribute("alt"),
+        role: node.getAttribute("role") || "",
+        ariaHidden: node.getAttribute("aria-hidden") === "true",
+        width: node.getAttribute("width") || null,
+        height: node.getAttribute("height") || null
+      };
+    });
     const schema = [...document.querySelectorAll('script[type="application/ld+json"]')]
       .map((node) => {
         try {
@@ -224,7 +230,7 @@ async function extractRenderedFacts(browser, url) {
       internalLinks: links.filter((link) => new URL(link.href).origin === origin),
       externalLinks: links.filter((link) => new URL(link.href).origin !== origin),
       images,
-      imagesMissingAlt: images.filter((image) => !image.alt || !image.alt.trim()),
+      imagesMissingAlt: images.filter((image) => !image.hasAlt),
       openGraph: {
         title: metaByProperty("og:title"),
         description: metaByProperty("og:description"),
@@ -287,12 +293,18 @@ function extractStaticFacts(html, url, fetchResult = {}) {
     .filter((link) => link.href && link.href.startsWith("http"));
   const images = $("img")
     .toArray()
-    .map((node) => ({
-      src: absolute($(node).attr("src")),
-      alt: $(node).attr("alt") || "",
-      width: $(node).attr("width") || null,
-      height: $(node).attr("height") || null
-    }));
+    .map((node) => {
+      const alt = $(node).attr("alt");
+      return {
+        src: absolute($(node).attr("src")),
+        alt: alt || "",
+        hasAlt: alt !== undefined,
+        role: $(node).attr("role") || "",
+        ariaHidden: $(node).attr("aria-hidden") === "true",
+        width: $(node).attr("width") || null,
+        height: $(node).attr("height") || null
+      };
+    });
   const schemaTypes = $('script[type="application/ld+json"]')
     .toArray()
     .flatMap((node) => {
@@ -336,7 +348,7 @@ function extractStaticFacts(html, url, fetchResult = {}) {
     internalLinks: links.filter((link) => new URL(link.href).origin === base.origin),
     externalLinks: links.filter((link) => new URL(link.href).origin !== base.origin),
     images,
-    imagesMissingAlt: images.filter((image) => !image.alt || !image.alt.trim()),
+    imagesMissingAlt: images.filter((image) => !image.hasAlt),
     openGraph: {
       title: metaByProperty("og:title"),
       description: metaByProperty("og:description"),
@@ -397,6 +409,16 @@ function buildFindings({ pages, startUrl, robots, sitemap, renderedAvailable }) 
     activePage = page;
     const { rendered, static: staticFacts } = page;
     const label = pathLabel(page.url, startUrl);
+    const addRenderedGuard = ({ title, evidence, fix, source }) =>
+      add({
+        type: "guard",
+        severity: "good",
+        title: `False positive guarded on ${label}: ${title}`,
+        why: "Static HTML missed data that exists in the rendered page.",
+        evidence,
+        fix,
+        source: source || GOOGLE_DOCS.javascript
+      });
 
     if (page.redirected || stripHash(rendered.finalUrl || page.finalUrl || page.url) !== stripHash(page.url)) {
       add({
@@ -446,6 +468,56 @@ function buildFindings({ pages, startUrl, robots, sitemap, renderedAvailable }) 
         evidence: `${rendered.wordCount} rendered words found.`,
         fix: "No thin-content fix is needed for this page based on rendered text.",
         source: GOOGLE_DOCS.javascript
+      });
+    }
+
+    if (!staticFacts.title && rendered.title) {
+      addRenderedGuard({
+        title: "title exists after render",
+        evidence: `Rendered title: "${rendered.title}"`,
+        fix: "Do not add a duplicate title just to satisfy a static crawler.",
+        source: GOOGLE_DOCS.title
+      });
+    }
+
+    if (!staticFacts.description && rendered.description) {
+      addRenderedGuard({
+        title: "meta description exists after render",
+        evidence: `Rendered description: "${rendered.description}"`,
+        fix: "Keep the rendered meta description aligned with visible page content."
+      });
+    }
+
+    if (!staticFacts.canonical && rendered.canonical) {
+      addRenderedGuard({
+        title: "canonical exists after render",
+        evidence: `Rendered canonical: ${rendered.canonical}`,
+        fix: "Do not add a second canonical; keep one preferred URL."
+      });
+    }
+
+    if (!staticFacts.viewport && rendered.viewport) {
+      addRenderedGuard({
+        title: "viewport exists after render",
+        evidence: `Rendered viewport: "${rendered.viewport}"`,
+        fix: "Do not add a duplicate viewport tag."
+      });
+    }
+
+    if ((!staticFacts.openGraph.image || !staticFacts.twitter.image) && rendered.openGraph.image && rendered.twitter.image) {
+      addRenderedGuard({
+        title: "social images exist after render",
+        evidence: `Rendered og:image: ${rendered.openGraph.image}; twitter:image: ${rendered.twitter.image}`,
+        fix: "Do not create duplicate social tags; keep the rendered tags stable."
+      });
+    }
+
+    if ((staticFacts.schemaTypes || []).length === 0 && rendered.schemaTypes.length > 0) {
+      addRenderedGuard({
+        title: "structured data exists after render",
+        evidence: `Rendered schema types: ${rendered.schemaTypes.join(", ")}`,
+        fix: "Do not add duplicate JSON-LD; validate the rendered schema instead.",
+        source: GOOGLE_DOCS.structuredData
       });
     }
 
@@ -660,10 +732,10 @@ function buildFindings({ pages, startUrl, robots, sitemap, renderedAvailable }) 
       add({
         type: "issue",
         severity: "warning",
-        title: `Images missing alt text on ${label}`,
-        why: "Alt text improves accessibility and can help image understanding.",
-        evidence: `${rendered.imagesMissingAlt.length}/${rendered.images.length} images have empty alt text.`,
-        fix: "Add useful alt text to informative images. Leave decorative images empty intentionally.",
+        title: `Images missing alt attributes on ${label}`,
+        why: "Informative images need alt text for accessibility and image search context.",
+        evidence: `${rendered.imagesMissingAlt.length}/${rendered.images.length} images have no alt attribute. Intentionally empty alt="" images are treated as decorative, not scored.`,
+        fix: "Add useful alt text to informative images. Leave decorative images as alt=\"\" intentionally.",
         confidence: "needs-review"
       });
     }
@@ -845,7 +917,7 @@ function acceptanceCheck(finding) {
   if (title.includes("apple touch")) {
     return "The rendered head links an Apple touch icon.";
   }
-  if (title.includes("alt text")) {
+  if (title.includes("alt")) {
     return "Informative images have useful alt text, while decorative images are intentionally empty.";
   }
   if (title.includes("structured data")) {
@@ -976,7 +1048,8 @@ function summarize(findings, pages, maxPages = pages.length) {
     warnings: counts.warning || 0,
     notices: counts.notice || 0,
     guardedFalsePositives: counts.good || 0,
-    totalFindings: counts.total
+    totalFindings: counts.total,
+    scoring: scoreBreakdown(findings)
   };
 }
 
@@ -1018,13 +1091,63 @@ function workType(finding) {
 }
 
 function scoreFindings(findings) {
-  let score = 100;
+  const { penalty } = scoreBreakdown(findings);
+  return Math.max(0, Math.min(100, Math.round(100 - penalty)));
+}
+
+function scoreBreakdown(findings = []) {
+  const groups = new Map();
   for (const finding of findings) {
-    if (finding.severity === "critical") score -= 12;
-    if (finding.severity === "warning") score -= 5;
-    if (finding.severity === "notice") score -= 1;
+    if (!finding || finding.severity === "good") continue;
+    const key = scoreFindingKey(finding);
+    const group = groups.get(key) || { key, critical: 0, warning: 0, notice: 0 };
+    if (finding.severity === "critical") group.critical += 1;
+    if (finding.severity === "warning") group.warning += 1;
+    if (finding.severity === "notice") group.notice += 1;
+    groups.set(key, group);
   }
-  return Math.max(0, Math.min(100, score));
+
+  let penalty = 0;
+  const repeated = [];
+  for (const group of groups.values()) {
+    const groupPenalty =
+      severityPenalty(group.critical, "critical") +
+      severityPenalty(group.warning, "warning") +
+      severityPenalty(group.notice, "notice");
+    penalty += groupPenalty;
+    const count = group.critical + group.warning + group.notice;
+    if (count > 1) {
+      repeated.push({
+        key: group.key,
+        count,
+        penalty: Number(groupPenalty.toFixed(2))
+      });
+    }
+  }
+
+  return {
+    method: "deduped-template-penalty-v1",
+    penalty: Number(penalty.toFixed(2)),
+    repeated
+  };
+}
+
+function severityPenalty(count, severity) {
+  if (!count) return 0;
+  const first = { critical: 12, warning: 5, notice: 1 }[severity] || 0;
+  const repeat = { critical: 4, warning: 1.5, notice: 0.25 }[severity] || 0;
+  const cap = { critical: 28, warning: 10, notice: 3 }[severity] || first;
+  return Math.min(cap, first + Math.max(0, count - 1) * repeat);
+}
+
+function scoreFindingKey(finding) {
+  return String(finding.title || "unknown issue")
+    .toLowerCase()
+    .replace(/\s+on\s+\/.*$/, "")
+    .replace(/\s+on\s+https?:\/\/.*$/, "")
+    .replace(/[^\w\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim() || "unknown issue";
 }
 
 async function fetchText(url) {

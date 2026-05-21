@@ -11,6 +11,7 @@ import {
   dodoApiKey,
   dodoBaseUrl,
   dodoBrandId,
+  dodoCheckoutConfigStatus,
   dodoCountryFromRequest,
   dodoProductId,
   dodoProductMatches,
@@ -49,7 +50,6 @@ const REPORT_RETENTION_DAYS = 30;
 const DEFAULT_INVITE_TTL_DAYS = 14;
 const FIX_PACK_OFFER = {
   name: "SEO Fix Pack",
-  priceLabel: "$99 beta",
   productKey: "seofixkit_fix_pack",
   description: "One proof-backed repair pass for this report plus one rerun after fixes."
 };
@@ -105,6 +105,10 @@ export default {
         return requestFixPack(request, env);
       }
 
+      if (url.pathname === "/api/pricing-preview" && request.method === "GET") {
+        return getFixPackPricingPreview(request, env);
+      }
+
       if (url.pathname === "/admin/session" && request.method === "POST") {
         return createAdminSession(request, env);
       }
@@ -147,7 +151,10 @@ export default {
 
       if (url.pathname === "/fixture/rendered-page") {
         return new Response(renderedFixture(url.origin), {
-          headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
+          headers: secureHeaders({
+            "content-type": "text/html; charset=utf-8",
+            "x-robots-tag": "noindex, nofollow"
+          })
         });
       }
 
@@ -184,6 +191,12 @@ export default {
 
       if (url.pathname === "/privacy") {
         return new Response(privacyHtml(url.origin), {
+          headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
+        });
+      }
+
+      if (url.pathname === "/demo") {
+        return new Response(demoHtml(url.origin), {
           headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
         });
       }
@@ -505,6 +518,7 @@ async function getAdminSummary(request, env) {
   ]);
   const notificationsByFixRequest = groupNotificationsByFixRequest(notificationRows.results || []);
   const eventsByFixRequest = groupEventsByFixRequest(eventRows.results || []);
+  const dodoConfig = dodoCheckoutConfigStatus(env);
 
   return jsonNoStore({
     ok: true,
@@ -522,8 +536,23 @@ async function getAdminSummary(request, env) {
       emailNotificationsConfigured: isResendEmailConfigured(env)
     },
     opsHealth,
+    paymentHealth: {
+      dodo: {
+        checkoutReady: dodoConfig.checkoutReady,
+        environment: dodoConfig.environment || "",
+        missing: dodoConfigMissing(dodoConfig)
+      }
+    },
     includeTest,
-    offer: FIX_PACK_OFFER,
+    offer: {
+      ...FIX_PACK_OFFER,
+      pricing: {
+        source: "dodo",
+        status: dodoConfig.checkoutReady ? "available_at_checkout" : "unavailable",
+        environment: dodoConfig.environment || "",
+        missing: dodoConfigMissing(dodoConfig)
+      }
+    },
     recentAudits: (recentAudits.results || []).map((row) => {
       const summary = parseJson(row.summary_json, {});
       return {
@@ -912,7 +941,7 @@ async function requestFixPack(request, env) {
       ok: true,
       mode: "request",
       checkoutAvailable: false,
-      message: "Fix request saved. Dodo checkout is not configured yet.",
+      message: "Fix request saved. Checkout is paused until payment and webhook config pass.",
       request: fixRequestResponse(fixRequest, now),
       offer: FIX_PACK_OFFER
     });
@@ -966,6 +995,47 @@ async function requestFixPack(request, env) {
     },
     offer: FIX_PACK_OFFER
   });
+}
+
+async function getFixPackPricingPreview(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+
+  const config = dodoCheckoutConfigStatus(env);
+  if (!config.checkoutReady) {
+    return jsonNoStore(
+      {
+        ok: false,
+        code: "PRICING_UNAVAILABLE",
+        message: "Pricing is unavailable because checkout or webhook config is incomplete.",
+        pricing: {
+          status: "unavailable",
+          source: "dodo",
+          environment: config.environment || "",
+          missing: dodoConfigMissing(config)
+        }
+      },
+      503
+    );
+  }
+
+  try {
+    const pricing = await previewDodoFixPackPricing(request, env, access);
+    return jsonNoStore({ ok: true, pricing });
+  } catch (error) {
+    return jsonNoStore(
+      {
+        ok: false,
+        code: error?.code || "PRICING_UNAVAILABLE",
+        message: error?.message || "Dodo pricing preview is unavailable.",
+        pricing: {
+          status: "unavailable",
+          source: "dodo"
+        }
+      },
+      503
+    );
+  }
 }
 
 async function getOrCreateFixRequest(env, reportRow, access, summary, note, now, options = {}) {
@@ -1184,6 +1254,45 @@ async function validateFinalReportForFixRequest(env, fixRequest, finalReportId) 
   };
 }
 
+async function previewDodoFixPackPricing(request, env, access) {
+  const body = {
+    product_cart: [{ product_id: dodoProductId(env), quantity: 1 }],
+    adaptive_currency_fees_inclusive: dodoAdaptiveCurrencyFeesInclusive(env),
+    customer: access?.ownerEmail ? { email: access.ownerEmail } : undefined
+  };
+  const country = dodoCountryFromRequest(request);
+  if (country) body.billing_address = { country };
+
+  const { response, payload } = await fetchDodoJson(`${dodoBaseUrl(env)}/checkouts/preview`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${dodoApiKey(env)}`
+    },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    throw Object.assign(new Error(payload?.message || "Dodo pricing preview failed."), {
+      status: response.status,
+      code: payload?.code || "DODO_PRICING_PREVIEW_ERROR"
+    });
+  }
+
+  const pricing = parseDodoPricingPreview(payload);
+  if (!pricing.displayPrice) {
+    throw Object.assign(new Error("Dodo did not return a displayable price."), {
+      code: "DODO_PRICING_FORMAT_ERROR"
+    });
+  }
+  return {
+    ...pricing,
+    status: "available",
+    source: "dodo",
+    country: country || "",
+    feesInclusive: dodoAdaptiveCurrencyFeesInclusive(env)
+  };
+}
+
 async function createDodoFixPackCheckout(request, env, reportRow, fixRequest, access) {
   const returnUrl = new URL(request.url);
   returnUrl.pathname = `/beta/reports/${reportRow.id}`;
@@ -1207,7 +1316,7 @@ async function createDodoFixPackCheckout(request, env, reportRow, fixRequest, ac
   const country = dodoCountryFromRequest(request);
   if (country) body.billing_address = { country };
 
-  const response = await fetch(`${dodoBaseUrl(env)}/checkouts`, {
+  const { response, payload } = await fetchDodoJson(`${dodoBaseUrl(env)}/checkouts`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -1215,7 +1324,6 @@ async function createDodoFixPackCheckout(request, env, reportRow, fixRequest, ac
     },
     body: JSON.stringify(body)
   });
-  const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message =
       payload?.code === "MERCHANT_NOT_LIVE"
@@ -1230,6 +1338,92 @@ async function createDodoFixPackCheckout(request, env, reportRow, fixRequest, ac
     checkoutUrl,
     checkoutSessionId: payload.session_id || payload.checkout_session_id || payload.id || ""
   };
+}
+
+async function fetchDodoJson(url, options) {
+  if (!url) {
+    throw Object.assign(new Error("Dodo environment is not configured."), { code: "DODO_ENVIRONMENT_MISSING" });
+  }
+  const response = await fetch(url, {
+    ...options,
+    signal: AbortSignal.timeout(12_000)
+  });
+  const payload = await response.json().catch(() => ({}));
+  return { response, payload };
+}
+
+function parseDodoPricingPreview(payload = {}) {
+  const breakup = objectValue(payload.current_breakup) || objectValue(payload.breakup) || {};
+  const currency = normalizeCurrencyCode(payload.currency || payload.payment_currency || payload.checkout_currency);
+  const amountMinor = numberOrNull(
+    breakup.total_amount ??
+      payload.total_amount ??
+      payload.amount_total ??
+      payload.total_price ??
+      payload.total ??
+      payload.amount
+  );
+  const displayPrice =
+    textValue(payload.display_price) ||
+    textValue(payload.displayPrice) ||
+    textValue(payload.formatted_total) ||
+    textValue(payload.formattedTotal) ||
+    (currency && amountMinor !== null ? formatMinorCurrency(amountMinor, currency) : "");
+
+  return {
+    displayPrice,
+    currency,
+    amountMinor,
+    subtotalMinor: numberOrNull(breakup.subtotal ?? payload.subtotal),
+    taxMinor: numberOrNull(breakup.tax ?? payload.tax),
+    discountMinor: numberOrNull(breakup.discount ?? payload.discount)
+  };
+}
+
+function dodoConfigMissing(config = {}) {
+  const missing = [];
+  if (!config.apiKey) missing.push("apiKey");
+  if (!config.productId) missing.push("productId");
+  if (!config.brandId) missing.push("brandId");
+  if (!config.environment) missing.push("environment");
+  if (!config.webhookSecret) missing.push("webhookSecret");
+  return missing;
+}
+
+function objectValue(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+function textValue(value) {
+  const text = String(value || "").trim();
+  return text || "";
+}
+
+function numberOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function normalizeCurrencyCode(value) {
+  const currency = String(value || "").trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(currency) ? currency : "";
+}
+
+function formatMinorCurrency(amountMinor, currency) {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency
+    }).format(amountMinor / minorCurrencyDivisor(currency));
+  } catch {
+    return currency ? `${currency} ${amountMinor}` : String(amountMinor);
+  }
+}
+
+function minorCurrencyDivisor(currency) {
+  return new Set(["BIF", "CLP", "DJF", "GNF", "JPY", "KMF", "KRW", "MGA", "PYG", "RWF", "UGX", "VND", "VUV", "XAF", "XOF", "XPF"]).has(currency)
+    ? 1
+    : 100;
 }
 
 async function handleDodoWebhook(request, env, ctx) {
@@ -2261,10 +2455,16 @@ async function extractRenderedFacts(browser, url) {
           rawHref: node.getAttribute("href")
         }))
         .filter((link) => link.href && link.href.startsWith("http"));
-      const images = [...document.querySelectorAll("img")].map((node) => ({
-        src: absolute(node.getAttribute("src")),
-        alt: node.getAttribute("alt") || ""
-      }));
+      const images = [...document.querySelectorAll("img")].map((node) => {
+        const alt = node.getAttribute("alt");
+        return {
+          src: absolute(node.getAttribute("src")),
+          alt: alt || "",
+          hasAlt: node.hasAttribute("alt"),
+          role: node.getAttribute("role") || "",
+          ariaHidden: node.getAttribute("aria-hidden") === "true"
+        };
+      });
       const schemaTypes = [...document.querySelectorAll('script[type="application/ld+json"]')]
         .flatMap((node) => {
           try {
@@ -2302,7 +2502,7 @@ async function extractRenderedFacts(browser, url) {
         internalLinks: links.filter((link) => new URL(link.href).origin === origin),
         externalLinks: links.filter((link) => new URL(link.href).origin !== origin),
         images,
-        imagesMissingAlt: images.filter((image) => !image.alt || !image.alt.trim()),
+        imagesMissingAlt: images.filter((image) => !image.hasAlt),
         openGraph: {
           title: metaByProperty("og:title"),
           description: metaByProperty("og:description"),
@@ -2349,10 +2549,16 @@ function extractStaticFacts(html, url, fetchResult = {}) {
       text: decodeEntities(stripTags(match[2])).replace(/\s+/g, " ").trim()
     }))
     .filter((link) => link.href?.startsWith("http"));
-  const images = [...html.matchAll(/<img\b[^>]*>/gi)].map((match) => ({
-    src: absolute(attr(match[0], "src"), base.href),
-    alt: attr(match[0], "alt") || ""
-  }));
+  const images = [...html.matchAll(/<img\b[^>]*>/gi)].map((match) => {
+    const alt = attr(match[0], "alt");
+    return {
+      src: absolute(attr(match[0], "src"), base.href),
+      alt: alt || "",
+      hasAlt: alt !== null,
+      role: attr(match[0], "role") || "",
+      ariaHidden: attr(match[0], "aria-hidden") === "true"
+    };
+  });
   const headings = [];
   for (const match of html.matchAll(/<(h[1-6])\b[^>]*>([\s\S]*?)<\/\1>/gi)) {
     headings.push({
@@ -2399,7 +2605,7 @@ function extractStaticFacts(html, url, fetchResult = {}) {
     internalLinks: links.filter((link) => new URL(link.href).origin === base.origin),
     externalLinks: links.filter((link) => new URL(link.href).origin !== base.origin),
     images,
-    imagesMissingAlt: images.filter((image) => !image.alt || !image.alt.trim()),
+    imagesMissingAlt: images.filter((image) => !image.hasAlt),
     openGraph: {
       title: meta(head, "property", "og:title"),
       description: meta(head, "property", "og:description"),
@@ -2444,6 +2650,16 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
     const rendered = page.rendered;
     const staticFacts = page.static;
     const label = pathLabel(page.url, startUrl);
+    const addRenderedGuard = ({ title, evidence, fix, source }) =>
+      add({
+        type: "guard",
+        severity: "good",
+        title: `False positive guarded on ${label}: ${title}`,
+        why: "Static HTML missed data that exists in the rendered page.",
+        evidence,
+        fix,
+        source: source || DOCS.javascript
+      });
 
     if (page.redirected || stripHash(rendered.finalUrl || page.finalUrl || page.url) !== stripHash(page.url)) {
       add({
@@ -2490,6 +2706,56 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
         evidence: `${rendered.wordCount} rendered words found.`,
         fix: "No thin-content fix is needed for this page based on rendered text.",
         source: DOCS.javascript
+      });
+    }
+
+    if (!staticFacts.title && rendered.title) {
+      addRenderedGuard({
+        title: "title exists after render",
+        evidence: `Rendered title: "${rendered.title}"`,
+        fix: "Do not add a duplicate title just to satisfy a static crawler.",
+        source: DOCS.title
+      });
+    }
+
+    if (!staticFacts.description && rendered.description) {
+      addRenderedGuard({
+        title: "meta description exists after render",
+        evidence: `Rendered description: "${rendered.description}"`,
+        fix: "Keep the rendered meta description aligned with visible page content."
+      });
+    }
+
+    if (!staticFacts.canonical && rendered.canonical) {
+      addRenderedGuard({
+        title: "canonical exists after render",
+        evidence: `Rendered canonical: ${rendered.canonical}`,
+        fix: "Do not add a second canonical; keep one preferred URL."
+      });
+    }
+
+    if (!staticFacts.viewport && rendered.viewport) {
+      addRenderedGuard({
+        title: "viewport exists after render",
+        evidence: `Rendered viewport: "${rendered.viewport}"`,
+        fix: "Do not add a duplicate viewport tag."
+      });
+    }
+
+    if ((!staticFacts.openGraph.image || !staticFacts.twitter.image) && rendered.openGraph.image && rendered.twitter.image) {
+      addRenderedGuard({
+        title: "social images exist after render",
+        evidence: `Rendered og:image: ${rendered.openGraph.image}; twitter:image: ${rendered.twitter.image}`,
+        fix: "Do not create duplicate social tags; keep the rendered tags stable."
+      });
+    }
+
+    if ((staticFacts.schemaTypes || []).length === 0 && rendered.schemaTypes.length > 0) {
+      addRenderedGuard({
+        title: "structured data exists after render",
+        evidence: `Rendered schema types: ${rendered.schemaTypes.join(", ")}`,
+        fix: "Do not add duplicate JSON-LD; validate the rendered schema instead.",
+        source: DOCS.structuredData
       });
     }
 
@@ -2704,10 +2970,10 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
       add({
         type: "issue",
         severity: "warning",
-        title: `Images missing alt text on ${label}`,
-        why: "Alt text improves accessibility and can help image understanding.",
-        evidence: `${rendered.imagesMissingAlt.length}/${rendered.images.length} images have empty alt text.`,
-        fix: "Add useful alt text to informative images. Leave decorative images empty intentionally.",
+        title: `Images missing alt attributes on ${label}`,
+        why: "Informative images need alt text for accessibility and image search context.",
+        evidence: `${rendered.imagesMissingAlt.length}/${rendered.images.length} images have no alt attribute. Intentionally empty alt="" images are treated as decorative, not scored.`,
+        fix: "Add useful alt text to informative images. Leave decorative images as alt=\"\" intentionally.",
         confidence: "needs-review"
       });
     }
@@ -2887,7 +3153,7 @@ function acceptanceCheck(finding) {
   if (title.includes("apple touch")) {
     return "The rendered head links an Apple touch icon.";
   }
-  if (title.includes("alt text")) {
+  if (title.includes("alt")) {
     return "Informative images have useful alt text, while decorative images are intentionally empty.";
   }
   if (title.includes("structured data")) {
@@ -2975,7 +3241,8 @@ async function fetchText(url) {
 
       response = await fetch(currentUrl, {
         redirect: "manual",
-        headers: { "user-agent": `SEOFixKit/${VERSION} (+https://seofixkit.com; evidence-backed SEO audit)` }
+        headers: { "user-agent": `SEOFixKit/${VERSION} (+https://seofixkit.com; evidence-backed SEO audit)` },
+        signal: AbortSignal.timeout(15_000)
       });
 
       if (![301, 302, 303, 307, 308].includes(response.status)) break;
@@ -3093,18 +3360,63 @@ function summarize(findings, pages, maxPages = pages.length) {
     warnings: findings.filter((finding) => finding.severity === "warning").length,
     notices: findings.filter((finding) => finding.severity === "notice").length,
     guardedFalsePositives: findings.filter((finding) => finding.severity === "good").length,
-    totalFindings: findings.length
+    totalFindings: findings.length,
+    scoring: scoreBreakdown(findings)
   };
 }
 
 function scoreFindings(findings) {
-  let score = 100;
+  const { penalty } = scoreBreakdown(findings);
+  return Math.max(0, Math.min(100, Math.round(100 - penalty)));
+}
+
+function scoreBreakdown(findings = []) {
+  const groups = new Map();
   for (const finding of findings) {
-    if (finding.severity === "critical") score -= 12;
-    if (finding.severity === "warning") score -= 5;
-    if (finding.severity === "notice") score -= 1;
+    if (!finding || finding.severity === "good") continue;
+    const key = scoreFindingKey(finding);
+    const group = groups.get(key) || { key, critical: 0, warning: 0, notice: 0 };
+    if (finding.severity === "critical") group.critical += 1;
+    if (finding.severity === "warning") group.warning += 1;
+    if (finding.severity === "notice") group.notice += 1;
+    groups.set(key, group);
   }
-  return Math.max(0, Math.min(100, score));
+
+  let penalty = 0;
+  const repeated = [];
+  for (const group of groups.values()) {
+    const groupPenalty =
+      severityPenalty(group.critical, "critical") +
+      severityPenalty(group.warning, "warning") +
+      severityPenalty(group.notice, "notice");
+    penalty += groupPenalty;
+    const count = group.critical + group.warning + group.notice;
+    if (count > 1) {
+      repeated.push({
+        key: group.key,
+        count,
+        penalty: Number(groupPenalty.toFixed(2))
+      });
+    }
+  }
+
+  return {
+    method: "deduped-template-penalty-v1",
+    penalty: Number(penalty.toFixed(2)),
+    repeated
+  };
+}
+
+function severityPenalty(count, severity) {
+  if (!count) return 0;
+  const first = { critical: 12, warning: 5, notice: 1 }[severity] || 0;
+  const repeat = { critical: 4, warning: 1.5, notice: 0.25 }[severity] || 0;
+  const cap = { critical: 28, warning: 10, notice: 3 }[severity] || first;
+  return Math.min(cap, first + Math.max(0, count - 1) * repeat);
+}
+
+function scoreFindingKey(finding) {
+  return issuePatternKey(finding.title || "Unknown issue");
 }
 
 function headingHierarchyIssue(headings = []) {
@@ -3640,20 +3952,21 @@ async function sendDailyOpsDigest(env) {
     .run();
   if (inserted?.meta?.changes === 0) return;
 
-  const snapshot = await buildOpsSnapshot(env);
-  const appOrigin = String(env.SEOFIXKIT_APP_ORIGIN || "https://seofixkit.com").replace(/\/+$/, "");
-  const adminEmail = adminNotificationEmail(env);
-  if (!adminEmail || !isResendEmailConfigured(env)) {
-    await env.WAITLIST_DB.prepare(
-      `UPDATE ops_digest_runs SET status = 'skipped', summary_json = ?, error = ?, updated_at = ? WHERE digest_key = ?`
-    )
-      .bind(JSON.stringify(snapshot), "missing_email_config", new Date().toISOString(), digestKey)
-      .run();
-    return;
-  }
-
-  const email = buildOpsDigestEmail({ appOrigin, snapshot });
+  let snapshot = null;
   try {
+    snapshot = await buildOpsSnapshot(env);
+    const appOrigin = String(env.SEOFIXKIT_APP_ORIGIN || "https://seofixkit.com").replace(/\/+$/, "");
+    const adminEmail = adminNotificationEmail(env);
+    if (!adminEmail || !isResendEmailConfigured(env)) {
+      await env.WAITLIST_DB.prepare(
+        `UPDATE ops_digest_runs SET status = 'skipped', summary_json = ?, error = ?, updated_at = ? WHERE digest_key = ?`
+      )
+        .bind(JSON.stringify(snapshot), "missing_email_config", new Date().toISOString(), digestKey)
+        .run();
+      return;
+    }
+
+    const email = buildOpsDigestEmail({ appOrigin, snapshot });
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -3682,7 +3995,7 @@ async function sendDailyOpsDigest(env) {
     await env.WAITLIST_DB.prepare(
       `UPDATE ops_digest_runs SET status = 'error', summary_json = ?, error = ?, updated_at = ? WHERE digest_key = ?`
     )
-      .bind(JSON.stringify(snapshot), String(error?.message || "Digest failed.").slice(0, 1000), new Date().toISOString(), digestKey)
+      .bind(JSON.stringify(snapshot || {}), String(error?.message || "Digest failed.").slice(0, 1000), new Date().toISOString(), digestKey)
       .run();
   }
 }
@@ -4042,10 +4355,10 @@ function secureHeaders(input = {}) {
       "content-security-policy",
       [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline'",
+        "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: https:",
-        "connect-src 'self'",
+        "connect-src 'self' https://cloudflareinsights.com",
         "form-action 'self' https://live.dodopayments.com https://test.dodopayments.com",
         "base-uri 'self'",
         "frame-ancestors 'none'"
@@ -4065,6 +4378,7 @@ function renderedFixture(origin) {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
     <title>Proof Demo App Shell</title>
     <meta name="description" content="A JavaScript-rendered demo page for proving false-positive SEO audit behavior." />
     <link rel="canonical" href="${origin}/fixture/rendered-page" />
@@ -4112,6 +4426,7 @@ Useful routes:
 - ${origin}/api/health
 - ${origin}/llms.txt
 - ${origin}/privacy
+- ${origin}/demo
 `;
 }
 
@@ -4120,10 +4435,78 @@ function homeMarkdown(origin) {
 
 Coming soon.
 
-SEO Fix Kit is locked for private beta. Join the waitlist for evidence-backed SEO audits and developer repair briefs.
+SEO Fix Kit is locked for private beta. Join the waitlist for proof-backed SEO audits, developer repair briefs, and the paid Fix Pack repair queue.
 
 Start at ${origin}/.
 `;
+}
+
+function demoHtml(origin) {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SEO Fix Kit Demo - Proof-Backed SEO Repair</title>
+    <meta name="description" content="A public sample showing how SEO Fix Kit refuses static crawler false positives and turns verified issues into repair briefs." />
+    <link rel="canonical" href="${origin}/demo" />
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
+      body { margin: 0; min-width: 320px; }
+      main { margin: 0 auto; max-width: 980px; padding: 36px 22px 60px; }
+      a { color: #98f0cc; font-weight: 780; text-decoration: none; }
+      header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 54px; }
+      h1 { font-size: clamp(44px, 9vw, 104px); letter-spacing: 0; line-height: .9; margin: 0 0 18px; max-width: 780px; }
+      h2 { font-size: clamp(24px, 3vw, 34px); margin: 0; }
+      p, li { color: rgba(251,248,239,.75); font-size: 18px; line-height: 1.6; }
+      .kicker { color: #98f0cc; font-size: 13px; font-weight: 880; letter-spacing: .08em; text-transform: uppercase; }
+      .grid { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 34px 0; }
+      .panel { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; padding: 20px; }
+      .panel strong { color: #dcc062; display: block; font-size: 14px; margin-bottom: 10px; text-transform: uppercase; }
+      .proof { border-color: rgba(152,240,204,.28); }
+      .proof strong { color: #98f0cc; }
+      .cta { align-items: center; background: #98f0cc; border-radius: 8px; color: #06100c; display: inline-flex; font-weight: 880; min-height: 48px; padding: 0 18px; }
+      code { color: #fbf8ef; white-space: pre-wrap; }
+      @media (max-width: 760px) { header { align-items: flex-start; gap: 18px; flex-direction: column; } .grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <a href="${origin}/">SEO Fix Kit</a>
+        <span class="kicker">Public sample</span>
+      </header>
+      <section>
+        <p class="kicker">Proof loop</p>
+        <h1>Do not fix what is not broken.</h1>
+        <p>Weak SEO scanners read the raw app shell and invent work. SEO Fix Kit compares raw HTML with the rendered page, shows the proof, and only creates a repair when the browser-visible page is actually wrong.</p>
+      </section>
+      <section class="grid" aria-label="Sample audit outcome">
+        <article class="panel">
+          <strong>Static scanner</strong>
+          <p>No H1. No internal links. Thin content. Needs cleanup.</p>
+        </article>
+        <article class="panel proof">
+          <strong>Rendered proof</strong>
+          <p>Browser render shows a real H1, normal internal links, and substantial page content.</p>
+        </article>
+        <article class="panel">
+          <strong>Repair brief</strong>
+          <p>No duplicate H1. No fake internal links. No busywork. Keep monitoring and rerun after real content changes.</p>
+        </article>
+      </section>
+      <section class="panel proof">
+        <h2>Sample developer brief</h2>
+        <p>The paid beta turns verified findings into a repair queue with acceptance checks and one rerun after fixes.</p>
+        <code>- Finding: False positive guarded. H1 exists after render.
+- Evidence: Rendered H1 is visible in the final DOM.
+- Action: Do not add another H1.
+- Acceptance: Re-run audit; finding stays guarded, not queued as a fix.</code>
+      </section>
+      <p><a class="cta" href="${origin}/">Join waitlist</a></p>
+    </main>
+  </body>
+</html>`;
 }
 
 function privacyHtml(origin) {
@@ -4166,7 +4549,7 @@ function privacyHtml(origin) {
 }
 
 function rootSitemap(origin) {
-  const urls = ["/", "/llms.txt", "/privacy"];
+  const urls = ["/", "/demo", "/privacy", "/llms.txt"];
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls
     .map((path) => `<url><loc>${origin}${path}</loc></url>`)
     .join("")}</urlset>`;

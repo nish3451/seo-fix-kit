@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
   DODO_REFUND_SUCCESS_EVENTS,
+  dodoCheckoutConfigStatus,
   dodoProductMatches,
   extractDodoPayment,
+  hasDodoCheckoutConfig,
   verifyDodoWebhookSignature
 } from "../shared/dodo.js";
 import {
@@ -72,6 +74,19 @@ assert.deepEqual(payment.productIds, ["pdt_fix_pack"]);
 assert.equal(dodoProductMatches(payment, "pdt_fix_pack"), true);
 assert.equal(dodoProductMatches(payment, "pdt_other"), false);
 assert.equal(dodoProductMatches({ productIds: [] }, "pdt_fix_pack"), false);
+assert.equal(hasDodoCheckoutConfig({ DODO_SEOFIXKIT_API_KEY: "key", DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID: "pdt" }), false);
+assert.equal(
+  hasDodoCheckoutConfig({
+    DODO_SEOFIXKIT_API_KEY: "key",
+    DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID: "pdt",
+    DODO_SEOFIXKIT_BRAND_ID: "brnd",
+    DODO_SEOFIXKIT_ENVIRONMENT: "test",
+    DODO_SEOFIXKIT_WEBHOOK_SECRET: "secret"
+  }),
+  true
+);
+assert.equal(dodoCheckoutConfigStatus({ DODO_SEOFIXKIT_ENVIRONMENT: "staging" }).environment, "");
+assert.equal(dodoCheckoutConfigStatus({ DODO_SEOFIXKIT_ENVIRONMENT: "staging" }).checkoutReady, false);
 assert.equal(normalizeFixRequestStatus("in_progress"), "in_progress");
 assert.equal(normalizeFixRequestStatus("nonsense"), "new");
 assert.equal(fixRequestStatusLabel("delivered"), "Delivered");

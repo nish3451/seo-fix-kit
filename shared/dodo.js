@@ -34,28 +34,37 @@ export const DODO_DISPUTE_EVENTS = new Set([
 
 export const PAID_STATUSES = new Set(["succeeded", "paid", "completed"]);
 
-export function dodoApiKey(env) {
+export function dodoApiKey(env = {}) {
   return env.DODO_SEOFIXKIT_API_KEY || "";
 }
 
-export function dodoWebhookSecret(env) {
+export function dodoWebhookSecret(env = {}) {
   return env.DODO_SEOFIXKIT_WEBHOOK_SECRET || env.DODO_SEOFIXKIT_WEBHOOK_KEY || "";
 }
 
-export function dodoProductId(env) {
+export function dodoProductId(env = {}) {
   return env.DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID || "";
 }
 
-export function dodoBrandId(env) {
+export function dodoBrandId(env = {}) {
   return env.DODO_SEOFIXKIT_BRAND_ID || "";
 }
 
-export function dodoBaseUrl(env) {
-  const mode = String(env.DODO_SEOFIXKIT_ENVIRONMENT || "live").toLowerCase();
-  return mode.includes("test") ? DODO_TEST_URL : DODO_LIVE_URL;
+export function dodoEnvironment(env = {}) {
+  const mode = String(env.DODO_SEOFIXKIT_ENVIRONMENT || "").trim().toLowerCase();
+  if (["live", "live_mode", "production", "prod"].includes(mode)) return "live";
+  if (["test", "test_mode", "sandbox", "development", "dev"].includes(mode)) return "test";
+  return "";
 }
 
-export function dodoAdaptiveCurrencyFeesInclusive(env) {
+export function dodoBaseUrl(env = {}) {
+  const mode = dodoEnvironment(env);
+  if (mode === "test") return DODO_TEST_URL;
+  if (mode === "live") return DODO_LIVE_URL;
+  return "";
+}
+
+export function dodoAdaptiveCurrencyFeesInclusive(env = {}) {
   return String(env.DODO_SEOFIXKIT_ADAPTIVE_CURRENCY_FEES_INCLUSIVE || "true").toLowerCase() !== "false";
 }
 
@@ -69,8 +78,23 @@ export function dodoCountryFromRequest(request) {
   return /^[A-Z]{2}$/.test(country) && country !== "XX" ? country : "";
 }
 
-export function hasDodoCheckoutConfig(env) {
-  return Boolean(dodoApiKey(env) && dodoProductId(env));
+export function dodoCheckoutConfigStatus(env = {}) {
+  const checks = {
+    apiKey: Boolean(dodoApiKey(env)),
+    productId: Boolean(dodoProductId(env)),
+    brandId: Boolean(dodoBrandId(env)),
+    environment: Boolean(dodoEnvironment(env)),
+    webhookSecret: Boolean(dodoWebhookSecret(env))
+  };
+  return {
+    ...checks,
+    environment: dodoEnvironment(env),
+    checkoutReady: Object.values(checks).every(Boolean)
+  };
+}
+
+export function hasDodoCheckoutConfig(env = {}) {
+  return dodoCheckoutConfigStatus(env).checkoutReady;
 }
 
 export async function verifyDodoWebhookSignature({

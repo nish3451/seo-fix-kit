@@ -21,7 +21,6 @@ const BETA_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const REPORT_RETENTION_DAYS = 30;
 const FIX_PACK_OFFER = {
   name: "SEO Fix Pack",
-  priceLabel: "$99 beta",
   productKey: "seofixkit_fix_pack",
   description: "One proof-backed repair pass for this report plus one rerun after fixes."
 };
@@ -109,6 +108,23 @@ app.post("/api/beta/fix-request", (req, res) => {
     message: "Fix request saved. Dodo checkout is only created by the Cloudflare Worker.",
     request,
     offer: FIX_PACK_OFFER
+  });
+});
+
+app.get("/api/pricing-preview", (req, res) => {
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res.status(401).json({ error: "Private beta session required." });
+    return;
+  }
+  res.status(503).json({
+    ok: false,
+    code: "PRICING_UNAVAILABLE",
+    message: "Dodo pricing preview is only available in the Cloudflare Worker runtime.",
+    pricing: {
+      status: "unavailable",
+      source: "dodo"
+    }
   });
 });
 
@@ -393,11 +409,12 @@ app.get("/api/reports/:id", (req, res) => {
 });
 
 app.get("/fixture/rendered-page", (req, res) => {
-  res.type("html").send(`<!doctype html>
+  res.set({ "x-robots-tag": "noindex, nofollow" }).type("html").send(`<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
     <title>Proof Demo App Shell</title>
     <meta name="description" content="A JavaScript-rendered demo page for proving false-positive SEO audit behavior." />
     <link rel="canonical" href="/fixture/rendered-page" />
@@ -420,6 +437,66 @@ app.get("/fixture/rendered-page", (req, res) => {
         </main>
       \`;
     </script>
+  </body>
+</html>`);
+});
+
+app.get("/demo", (req, res) => {
+  const origin = `http://127.0.0.1:${port}`;
+  res.type("html").send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SEO Fix Kit Demo - Proof-Backed SEO Repair</title>
+    <meta name="description" content="A public sample showing how SEO Fix Kit refuses static crawler false positives and turns verified issues into repair briefs." />
+    <link rel="canonical" href="${origin}/demo" />
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
+      body { margin: 0; min-width: 320px; }
+      main { margin: 0 auto; max-width: 980px; padding: 36px 22px 60px; }
+      a { color: #98f0cc; font-weight: 780; text-decoration: none; }
+      header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 54px; }
+      h1 { font-size: clamp(44px, 9vw, 104px); letter-spacing: 0; line-height: .9; margin: 0 0 18px; max-width: 780px; }
+      h2 { font-size: clamp(24px, 3vw, 34px); margin: 0; }
+      p, li { color: rgba(251,248,239,.75); font-size: 18px; line-height: 1.6; }
+      .kicker { color: #98f0cc; font-size: 13px; font-weight: 880; letter-spacing: .08em; text-transform: uppercase; }
+      .grid { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 34px 0; }
+      .panel { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; padding: 20px; }
+      .panel strong { color: #dcc062; display: block; font-size: 14px; margin-bottom: 10px; text-transform: uppercase; }
+      .proof { border-color: rgba(152,240,204,.28); }
+      .proof strong { color: #98f0cc; }
+      .cta { align-items: center; background: #98f0cc; border-radius: 8px; color: #06100c; display: inline-flex; font-weight: 880; min-height: 48px; padding: 0 18px; }
+      code { color: #fbf8ef; white-space: pre-wrap; }
+      @media (max-width: 760px) { header { align-items: flex-start; gap: 18px; flex-direction: column; } .grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <a href="${origin}/">SEO Fix Kit</a>
+        <span class="kicker">Public sample</span>
+      </header>
+      <section>
+        <p class="kicker">Proof loop</p>
+        <h1>Do not fix what is not broken.</h1>
+        <p>Weak SEO scanners read the raw app shell and invent work. SEO Fix Kit compares raw HTML with the rendered page, shows the proof, and only creates a repair when the browser-visible page is actually wrong.</p>
+      </section>
+      <section class="grid" aria-label="Sample audit outcome">
+        <article class="panel"><strong>Static scanner</strong><p>No H1. No internal links. Thin content. Needs cleanup.</p></article>
+        <article class="panel proof"><strong>Rendered proof</strong><p>Browser render shows a real H1, normal internal links, and substantial page content.</p></article>
+        <article class="panel"><strong>Repair brief</strong><p>No duplicate H1. No fake internal links. No busywork. Keep monitoring and rerun after real content changes.</p></article>
+      </section>
+      <section class="panel proof">
+        <h2>Sample developer brief</h2>
+        <p>The paid beta turns verified findings into a repair queue with acceptance checks and one rerun after fixes.</p>
+        <code>- Finding: False positive guarded. H1 exists after render.
+- Evidence: Rendered H1 is visible in the final DOM.
+- Action: Do not add another H1.
+- Acceptance: Re-run audit; finding stays guarded, not queued as a fix.</code>
+      </section>
+      <p><a class="cta" href="${origin}/">Join waitlist</a></p>
+    </main>
   </body>
 </html>`);
 });
