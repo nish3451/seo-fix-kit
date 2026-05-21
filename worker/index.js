@@ -46,6 +46,7 @@ const SESSION_COOKIE = "sfk_beta_session";
 const ADMIN_SESSION_COOKIE = "sfk_admin_session";
 const BETA_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const ADMIN_SESSION_TTL_SECONDS = 60 * 60 * 2;
+const ACCESS_LINK_TTL_SECONDS = 60 * 15;
 const REPORT_RETENTION_DAYS = 30;
 const DEFAULT_INVITE_TTL_DAYS = 14;
 const FIX_PACK_OFFER = {
@@ -89,6 +90,14 @@ export default {
         return joinWaitlist(request, env);
       }
 
+      if (url.pathname === "/api/access/request" && request.method === "POST") {
+        return requestAccessLink(request, env);
+      }
+
+      if (url.pathname === "/api/access/verify" && request.method === "POST") {
+        return verifyAccessLink(request, env);
+      }
+
       if (url.pathname === "/api/beta/login" && request.method === "POST") {
         return betaLogin(request, env);
       }
@@ -111,6 +120,10 @@ export default {
 
       if (url.pathname === "/api/billing/summary" && request.method === "GET") {
         return getBillingSummary(request, env);
+      }
+
+      if (url.pathname === "/api/account/summary" && request.method === "GET") {
+        return getAccountSummary(request, env);
       }
 
       if (url.pathname === "/admin/session" && request.method === "POST") {
@@ -195,6 +208,18 @@ export default {
 
       if (url.pathname === "/privacy") {
         return new Response(privacyHtml(url.origin), {
+          headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
+        });
+      }
+
+      if (url.pathname === "/support") {
+        return new Response(supportHtml(url.origin), {
+          headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
+        });
+      }
+
+      if (url.pathname === "/terms") {
+        return new Response(termsHtml(url.origin), {
           headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
         });
       }
@@ -309,6 +334,205 @@ async function joinWaitlist(request, env) {
     .run();
 
   return json({ ok: true, status: "joined" });
+}
+
+async function requestAccessLink(request, env) {
+  if (!env.WAITLIST_DB) {
+    return jsonNoStore({ error: "Access link storage is not configured." }, 503);
+  }
+
+  const body = await request.json().catch(() => ({}));
+  if (body.company) return jsonNoStore({ ok: true, status: "requested" });
+
+  const submitMs = Number(body.timeToSubmitMs || 0);
+  if (submitMs > 0 && submitMs < 1200) {
+    return jsonNoStore({ ok: true, status: "requested" });
+  }
+
+  const ownerEmail = normalizeEmail(body.email || body.ownerEmail);
+  if (!ownerEmail) return jsonNoStore({ error: "Enter a valid email address." }, 400);
+
+  const quota = await accessLinkQuotaStatus(request, env, ownerEmail);
+  if (!quota.ok) return jsonNoStore({ error: quota.error, resetAt: quota.resetAt }, 429);
+
+  if (!isResendEmailConfigured(env)) {
+    return jsonNoStore({ error: "Access email is not configured yet. Use an invite code for now." }, 503);
+  }
+
+  const now = new Date().toISOString();
+  await recordWaitlistLead(request, env, ownerEmail, body, "self-serve-access", now);
+
+  const token = randomToken();
+  const tokenHash = await sha256Hex(token);
+  const expiresAt = isoSecondsFromNow(ACCESS_LINK_TTL_SECONDS);
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO access_tokens
+      (token_hash, owner_email, purpose, created_at, expires_at, used_at, ip_hash, user_agent)
+     VALUES (?, ?, 'self_serve_access', ?, ?, NULL, ?, ?)`
+  )
+    .bind(
+      tokenHash,
+      ownerEmail,
+      now,
+      expiresAt,
+      await requestIpHash(request),
+      cleanText(request.headers.get("user-agent") || "", 500)
+    )
+    .run();
+
+  const origin = new URL(request.url).origin;
+  const accessUrl = `${origin}/beta?access=${encodeURIComponent(token)}&email=${encodeURIComponent(ownerEmail)}`;
+  try {
+    await sendAccessLinkEmail(env, {
+      ownerEmail,
+      accessUrl,
+      expiresAt,
+      tokenHash
+    });
+  } catch (error) {
+    await env.WAITLIST_DB.prepare("DELETE FROM access_tokens WHERE token_hash = ?").bind(tokenHash).run();
+    return jsonNoStore({ error: error?.message || "Access email could not be sent." }, 503);
+  }
+
+  return jsonNoStore({
+    ok: true,
+    status: "sent",
+    message: "Check your email for a secure access link.",
+    expiresAt
+  });
+}
+
+async function verifyAccessLink(request, env) {
+  if (!env.WAITLIST_DB) {
+    return jsonNoStore({ error: "Access link storage is not configured." }, 503);
+  }
+
+  const body = await request.json().catch(() => ({}));
+  const token = cleanAccessToken(body.token || "");
+  if (!token) return jsonNoStore({ error: "Access link is invalid." }, 400);
+
+  const tokenHash = await sha256Hex(token);
+  const now = new Date().toISOString();
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT token_hash, owner_email, expires_at, used_at
+     FROM access_tokens
+     WHERE token_hash = ?
+     LIMIT 1`
+  )
+    .bind(tokenHash)
+    .first();
+
+  if (!row?.token_hash || row.used_at || row.expires_at <= now) {
+    return jsonNoStore({ error: "Access link is expired or already used." }, 401);
+  }
+
+  const update = await env.WAITLIST_DB.prepare(
+    `UPDATE access_tokens
+     SET used_at = ?
+     WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?`
+  )
+    .bind(now, tokenHash, now)
+    .run();
+
+  if (Number(update?.meta?.changes || 0) !== 1) {
+    return jsonNoStore({ error: "Access link is expired or already used." }, 401);
+  }
+
+  const session = await createBetaSession(request, env, {
+    ownerEmail: row.owner_email,
+    inviteId: null,
+    accessMode: "self-serve"
+  });
+  const response = jsonNoStore({
+    ok: true,
+    status: "unlocked",
+    ownerEmail: row.owner_email,
+    accessMode: "self-serve",
+    expiresAt: session.expiresAt
+  });
+  response.headers.append("set-cookie", session.cookie);
+  return response;
+}
+
+async function sendAccessLinkEmail(env, { ownerEmail, accessUrl, expiresAt, tokenHash }) {
+  const subject = "Your SEO Fix Kit access link";
+  const text = [
+    "Use this secure link to open SEO Fix Kit:",
+    "",
+    accessUrl,
+    "",
+    `This link expires at ${expiresAt} and can be used once.`,
+    "SEO Fix Kit audits produce proof-backed repair briefs. No ranking promises are made."
+  ].join("\n");
+  const html = [
+    "<p>Use this secure link to open SEO Fix Kit:</p>",
+    `<p><a href="${escapeHtml(accessUrl)}">Open SEO Fix Kit</a></p>`,
+    `<p>This link expires at ${escapeHtml(expiresAt)} and can be used once.</p>`,
+    "<p>SEO Fix Kit audits produce proof-backed repair briefs. No ranking promises are made.</p>"
+  ].join("");
+
+  const body = {
+    from: env.SEOFIXKIT_EMAIL_FROM,
+    to: [ownerEmail],
+    subject,
+    html,
+    text
+  };
+  if (env.SEOFIXKIT_REPLY_TO) body.reply_to = env.SEOFIXKIT_REPLY_TO;
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": `access:${tokenHash.slice(0, 32)}`,
+      "User-Agent": "seo-fix-kit-worker/0.10"
+    },
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload?.message || `Resend returned ${response.status}`);
+  return payload;
+}
+
+async function recordWaitlistLead(request, env, email, body = {}, sourceFallback = "locked-homepage", now = new Date().toISOString()) {
+  const utm = typeof body.utm === "object" && body.utm ? body.utm : {};
+  const submitMs = Number(body.timeToSubmitMs || 0);
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO waitlist_leads
+      (email, source, utm_source, utm_medium, utm_campaign, utm_term, utm_content, landing_path, submit_ms, referrer, user_agent, country, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(email) DO UPDATE SET
+      source = excluded.source,
+      utm_source = excluded.utm_source,
+      utm_medium = excluded.utm_medium,
+      utm_campaign = excluded.utm_campaign,
+      utm_term = excluded.utm_term,
+      utm_content = excluded.utm_content,
+      landing_path = excluded.landing_path,
+      submit_ms = excluded.submit_ms,
+      referrer = excluded.referrer,
+      user_agent = excluded.user_agent,
+      country = excluded.country,
+      updated_at = excluded.updated_at`
+  )
+    .bind(
+      email,
+      cleanText(body.source || sourceFallback, 80),
+      cleanText(utm.source || body.utm_source || "", 120),
+      cleanText(utm.medium || body.utm_medium || "", 120),
+      cleanText(utm.campaign || body.utm_campaign || "", 180),
+      cleanText(utm.term || body.utm_term || "", 180),
+      cleanText(utm.content || body.utm_content || "", 180),
+      cleanText(body.landingPath || "/", 500),
+      Number.isFinite(submitMs) ? Math.round(submitMs) : null,
+      cleanText(request.headers.get("referer") || "", 500),
+      cleanText(request.headers.get("user-agent") || "", 500),
+      cleanText(request.cf?.country || "", 8),
+      now,
+      now
+    )
+    .run();
 }
 
 async function exportLeadsCsv(request, env) {
@@ -1099,6 +1323,81 @@ async function getBillingSummary(request, env) {
     payments,
     generatedAt: now
   });
+}
+
+async function getAccountSummary(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Account storage is not configured." }, 503);
+
+  const [reports, fixRequests] = await Promise.all([
+    env.WAITLIST_DB.prepare(
+      `SELECT id, url, target_host, score, summary_json, created_at, expires_at
+       FROM audit_reports
+       WHERE owner_email = ?
+         AND (expires_at IS NULL OR expires_at > ?)
+       ORDER BY created_at DESC
+       LIMIT 12`
+    )
+      .bind(access.ownerEmail, new Date().toISOString())
+      .all(),
+    env.WAITLIST_DB.prepare(
+      `SELECT *
+       FROM fix_requests
+       WHERE owner_email = ?
+         AND is_test = 0
+       ORDER BY updated_at DESC
+       LIMIT 12`
+    )
+      .bind(access.ownerEmail)
+      .all()
+  ]);
+
+  const recentReports = (reports.results || []).map((row) => {
+    const summary = parseJson(row.summary_json, {});
+    return {
+      id: row.id,
+      url: row.url,
+      targetHost: row.target_host || safeHostname(row.url),
+      score: row.score,
+      pagesScanned: summary.pagesScanned || 0,
+      totalFindings: summary.totalFindings || 0,
+      guardedFalsePositives: summary.guardedFalsePositives || 0,
+      reportPath: `/beta/reports/${row.id}`,
+      createdAt: row.created_at,
+      expiresAt: row.expires_at || ""
+    };
+  });
+  const requests = (fixRequests.results || []).map((row) => billingFixRequestResponse(row));
+
+  return jsonNoStore({
+    ok: true,
+    owner: {
+      email: access.ownerEmail,
+      accessMode: access.accessMode
+    },
+    metrics: {
+      reports: recentReports.length,
+      fixRequests: requests.length,
+      openFixRequests: requests.filter((request) => !["delivered", "refunded"].includes(request.status)).length
+    },
+    recentReports,
+    fixRequests: requests,
+    nextActions: accountNextActions(recentReports, requests)
+  });
+}
+
+function accountNextActions(reports, requests) {
+  if (!reports.length) {
+    return [{ id: "run-audit", label: "Run your first audit", detail: "Start with your homepage or highest-value product page." }];
+  }
+  if (reports.some((report) => Number(report.totalFindings || 0) > 0) && !requests.length) {
+    return [{ id: "review-fixes", label: "Review proven fixes", detail: "Open a report and start a Fix Pack only when the findings are real." }];
+  }
+  if (requests.some((request) => ["paid", "in_progress"].includes(request.status))) {
+    return [{ id: "watch-delivery", label: "Watch delivery status", detail: "Your billing page shows due dates, notes, delivery links, and rerun proof." }];
+  }
+  return [{ id: "rerun-later", label: "Keep the report handy", detail: "Rerun after meaningful content, template, or metadata changes." }];
 }
 
 async function billingPricingState(request, env, access, config) {
@@ -3647,6 +3946,19 @@ function cleanInviteCode(input) {
   return code;
 }
 
+function cleanAccessToken(input) {
+  const token = String(input || "").trim();
+  if (token.length < 32 || token.length > 160) return "";
+  if (!/^[A-Za-z0-9_-]+$/.test(token)) return "";
+  return token;
+}
+
+function cleanAccessMode(input) {
+  const mode = String(input || "").trim().toLowerCase();
+  if (mode === "invite" || mode === "self-serve" || mode === "founder-override") return mode;
+  return "invite";
+}
+
 function randomInviteCode() {
   const bytes = new Uint8Array(12);
   crypto.getRandomValues(bytes);
@@ -3729,7 +4041,7 @@ async function betaAccessStatus(request, env) {
   const tokenHash = await sha256Hex(token);
   const now = new Date().toISOString();
   const row = await env.WAITLIST_DB.prepare(
-    `SELECT token_hash, owner_email, invite_id, expires_at, revoked_at
+    `SELECT token_hash, owner_email, invite_id, access_mode, expires_at, revoked_at
      FROM beta_sessions
      WHERE token_hash = ?
      LIMIT 1`
@@ -3755,7 +4067,7 @@ async function betaAccessStatus(request, env) {
     ok: true,
     ownerEmail: row.owner_email,
     inviteId: row.invite_id || null,
-    accessMode: row.invite_id ? "invite" : "founder-override",
+    accessMode: cleanAccessMode(row.access_mode || (row.invite_id ? "invite" : "founder-override")),
     sessionHash: row.token_hash,
     expiresAt: row.expires_at
   };
@@ -3861,6 +4173,30 @@ async function loginQuotaStatus(request, env, ownerEmail = "", inviteCodeHash = 
   return checkQuotaSet(env, checks);
 }
 
+async function accessLinkQuotaStatus(request, env, ownerEmail = "") {
+  const hour = hourWindow(new Date());
+  const ipHash = await requestIpHash(request);
+  const checks = [
+    {
+      bucket: `access:ip:${hour.key}:${ipHash}`,
+      limit: 8,
+      windowStart: hour.key,
+      resetAt: hour.resetAt,
+      error: "Too many access link requests from this network. Try again later."
+    }
+  ];
+  if (ownerEmail) {
+    checks.push({
+      bucket: `access:email:${hour.key}:${await sha256Hex(ownerEmail)}`,
+      limit: 3,
+      windowStart: hour.key,
+      resetAt: hour.resetAt,
+      error: "Too many access links requested for this email. Try again later."
+    });
+  }
+  return checkQuotaSet(env, checks);
+}
+
 async function adminFailureQuotaStatus(request, env) {
   const hour = hourWindow(new Date());
   const ipHash = await requestIpHash(request);
@@ -3913,54 +4249,49 @@ async function inviteAccessStatus(request, env, ownerEmail, inviteCode, inviteCo
   }
 
   const ipHash = await requestIpHash(request);
-  await env.WAITLIST_DB.prepare(
+  const update = await env.WAITLIST_DB.prepare(
     `UPDATE beta_invites
      SET used_count = used_count + 1,
       used_at = ?,
       last_used_ip_hash = ?,
       status = CASE WHEN used_count + 1 >= max_uses THEN 'used' ELSE status END
-     WHERE id = ?`
+     WHERE id = ?
+      AND status = 'active'
+      AND used_count < max_uses
+      AND (expires_at IS NULL OR expires_at > ?)`
   )
-    .bind(now, ipHash, row.id)
+    .bind(now, ipHash, row.id, now)
     .run();
+
+  if (Number(update?.meta?.changes || 0) !== 1) {
+    return { ok: false, status: 401, error: "Private beta invite has already been used." };
+  }
 
   return { ok: true, inviteId: row.id, accessMode: "invite" };
 }
 
 async function checkQuotaSet(env, checks) {
-  const rows = await Promise.all(
-    checks.map((check) =>
-      env.WAITLIST_DB.prepare(`SELECT count FROM audit_usage WHERE bucket = ? LIMIT 1`)
-        .bind(check.bucket)
-        .first()
+  const updatedAt = new Date().toISOString();
+  for (const check of checks) {
+    const update = await env.WAITLIST_DB.prepare(
+      `INSERT INTO audit_usage (bucket, count, window_start, updated_at)
+       VALUES (?, 1, ?, ?)
+       ON CONFLICT(bucket) DO UPDATE SET
+        count = audit_usage.count + 1,
+        updated_at = excluded.updated_at
+       WHERE audit_usage.count < ?`
     )
-  );
+      .bind(check.bucket, check.windowStart, updatedAt, check.limit)
+      .run();
 
-  for (let index = 0; index < checks.length; index += 1) {
-    const count = Number(rows[index]?.count || 0);
-    if (count >= checks[index].limit) {
+    if (Number(update?.meta?.changes || 0) !== 1) {
       return {
         ok: false,
-        error: checks[index].error,
-        resetAt: checks[index].resetAt.toISOString()
+        error: check.error,
+        resetAt: check.resetAt.toISOString()
       };
     }
   }
-
-  const updatedAt = new Date().toISOString();
-  await Promise.all(
-    checks.map((check) =>
-      env.WAITLIST_DB.prepare(
-        `INSERT INTO audit_usage (bucket, count, window_start, updated_at)
-         VALUES (?, 1, ?, ?)
-         ON CONFLICT(bucket) DO UPDATE SET
-          count = audit_usage.count + 1,
-          updated_at = excluded.updated_at`
-      )
-        .bind(check.bucket, check.windowStart, updatedAt)
-        .run()
-    )
-  );
 
   return { ok: true };
 }
@@ -4190,10 +4521,20 @@ async function createBetaSession(request, env, access) {
 
   await env.WAITLIST_DB.prepare(
     `INSERT INTO beta_sessions
-      (token_hash, owner_email, created_at, expires_at, last_seen_at, ip_hash, user_agent, invite_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      (token_hash, owner_email, created_at, expires_at, last_seen_at, ip_hash, user_agent, invite_id, access_mode)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(tokenHash, access.ownerEmail, now, expiresAt, now, ipHash, userAgent, access.inviteId || null)
+    .bind(
+      tokenHash,
+      access.ownerEmail,
+      now,
+      expiresAt,
+      now,
+      ipHash,
+      userAgent,
+      access.inviteId || null,
+      cleanAccessMode(access.accessMode)
+    )
     .run();
 
   return {
@@ -4295,6 +4636,7 @@ async function cleanupExpiredRows(env) {
   const now = new Date().toISOString();
   await env.WAITLIST_DB.batch([
     env.WAITLIST_DB.prepare(`DELETE FROM audit_reports WHERE expires_at IS NOT NULL AND expires_at < ?`).bind(now),
+    env.WAITLIST_DB.prepare(`DELETE FROM access_tokens WHERE expires_at < ? OR (used_at IS NOT NULL AND used_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),
     env.WAITLIST_DB.prepare(`DELETE FROM beta_sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),
     env.WAITLIST_DB.prepare(`DELETE FROM admin_sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),
     env.WAITLIST_DB.prepare(`DELETE FROM audit_usage WHERE updated_at < ?`).bind(isoSecondsFromNow(-7 * 24 * 60 * 60))
@@ -4542,24 +4884,28 @@ function renderedFixture(origin) {
 function llmsText(origin) {
   return `# SEO Fix Kit
 
-SEO Fix Kit is currently locked for private beta.
+SEO Fix Kit is a private-beta, self-serve SEO audit and paid Fix Pack workflow.
 
 Live product claims:
-- The public homepage is a coming-soon waitlist.
-- Visitors can submit an email address for private beta outreach.
-- The public audit API is locked while private beta is prepared.
+- Visitors can request a secure email access link.
+- Verified sessions can run rate-limited private audits and save owner-only reports.
+- Dodo is the source of truth for visible Fix Pack pricing and checkout.
+- Paid Fix Pack fulfillment includes status, delivery notes, and one rerun after fixes.
 
 Current product boundary:
 - Does not provide backlink databases.
 - Does not provide keyword volume databases.
 - Does not replace Ahrefs or Semrush.
-- Does not currently provide public self-serve audits.
+- Does not provide anonymous public audits.
+- Does not guarantee rankings, traffic, indexing, or revenue.
 
 Useful routes:
 - ${origin}/
 - ${origin}/api/health
 - ${origin}/llms.txt
 - ${origin}/privacy
+- ${origin}/support
+- ${origin}/terms
 - ${origin}/demo
 `;
 }
@@ -4567,9 +4913,9 @@ Useful routes:
 function homeMarkdown(origin) {
   return `# SEO Fix Kit
 
-Coming soon.
+Proof-backed SEO audits and paid repair queue.
 
-SEO Fix Kit is locked for private beta. Join the waitlist for proof-backed SEO audits, developer repair briefs, and the paid Fix Pack repair queue.
+Request a secure email access link to run a rate-limited private audit. The paid Fix Pack is one proof-backed repair pass for one report plus one rerun after fixes. No ranking promise is made.
 
 Start at ${origin}/.
 `;
@@ -4665,16 +5011,16 @@ function privacyHtml(origin) {
     <main>
       <a href="${origin}/">SEO Fix Kit</a>
       <h1>Privacy</h1>
-      <p>SEO Fix Kit collects the information needed to run the private beta, create proof-backed SEO reports, process paid Fix Pack checkout, and deliver repair updates.</p>
+      <p>SEO Fix Kit collects the information needed to run self-serve access, create proof-backed SEO reports, process paid Fix Pack checkout, and deliver repair updates.</p>
       <ul>
-        <li>We store your email address, signup source, UTM fields, landing path, referrer, browser user agent, country code when Cloudflare provides it, and signup timestamps.</li>
-        <li>Private beta audits store the website URL, rendered-page audit findings, screenshots or extracted page facts when available, report owner, beta session reference, target host, and report expiry timestamp.</li>
+        <li>We store your email address, signup source, UTM fields, landing path, referrer, browser user agent, country code when Cloudflare provides it, signup timestamps, and short-lived access-link records.</li>
+        <li>Private audits store the website URL, rendered-page audit findings, screenshots or extracted page facts when available, report owner, beta session reference, target host, and report expiry timestamp.</li>
         <li>Fix Pack records store checkout status, Dodo payment identifiers, payment amount and currency, fulfillment notes, final rerun report links, delivery notifications, and admin audit events.</li>
-        <li>Cloudflare hosts the app and database. Dodo processes checkout and payment webhooks. Resend sends payment, delivery, and ops emails.</li>
+        <li>Cloudflare hosts the app and database. Dodo processes checkout and payment webhooks. Resend sends access, payment, delivery, and ops emails.</li>
         <li>Reports are retained for 30 days unless removed earlier. Admin logs, payment records, and notification logs are kept for operating, support, abuse prevention, and payment reconciliation.</li>
-        <li>We do not sell the waitlist.</li>
-        <li>We do not use the waitlist to send unrelated promotions.</li>
-        <li>To be removed from outreach or request deletion of beta data, reply to any email we send and ask to be removed.</li>
+        <li>We do not sell your email address.</li>
+        <li>We do not send unrelated promotions.</li>
+        <li>To request deletion of beta data, reply to any email we send or use the support path.</li>
       </ul>
       <p>Last updated: May 21, 2026.</p>
     </main>
@@ -4682,8 +5028,75 @@ function privacyHtml(origin) {
 </html>`;
 }
 
+function supportHtml(origin) {
+  return policyPageHtml({
+    origin,
+    title: "Support",
+    description: "SEO Fix Kit support, refunds, and repair delivery notes.",
+    body: `
+      <p>For support, reply to any SEO Fix Kit email or email the sender shown in your access, payment, or delivery message. We use that thread to verify account ownership.</p>
+      <ul>
+        <li>Fix Pack covers one proof-backed repair pass for one report plus one rerun after fixes.</li>
+        <li>No ranking, traffic, or revenue promise is made.</li>
+        <li>If payment succeeds but the repair queue cannot start, ask for support from the payment confirmation email.</li>
+        <li>Refunds are reviewed against the Dodo payment record, report proof, and fulfillment state.</li>
+        <li>Security or abuse reports should include the affected URL, account email, and timestamp.</li>
+      </ul>
+      <p><a href="${origin}/privacy">Privacy</a> · <a href="${origin}/terms">Terms</a></p>
+    `
+  });
+}
+
+function termsHtml(origin) {
+  return policyPageHtml({
+    origin,
+    title: "Terms",
+    description: "SEO Fix Kit product terms for audits, Fix Pack checkout, and fulfillment.",
+    body: `
+      <p>SEO Fix Kit provides proof-backed SEO audits and a paid Fix Pack repair queue. Use the product only for sites you own or are authorized to audit.</p>
+      <ul>
+        <li>Self-serve audits are rate-limited and may be paused for abuse, excessive load, or unsupported sites.</li>
+        <li>Reports are diagnostic and may miss issues outside the crawl/render scope.</li>
+        <li>The paid Fix Pack is a repair service for proven findings in one report plus one rerun after fixes.</li>
+        <li>Checkout, payment status, refunds, and disputes are processed through Dodo.</li>
+        <li>No ranking, indexing, traffic, revenue, or search-engine outcome is guaranteed.</li>
+      </ul>
+      <p><a href="${origin}/privacy">Privacy</a> · <a href="${origin}/support">Support</a></p>
+    `
+  });
+}
+
+function policyPageHtml({ origin, title, description, body }) {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(title)} - SEO Fix Kit</title>
+    <meta name="description" content="${escapeHtml(description)}" />
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
+      body { margin: 0; min-width: 320px; }
+      main { margin: 0 auto; max-width: 760px; padding: 48px 22px; }
+      a { color: #98f0cc; font-weight: 760; text-decoration: none; }
+      h1 { font-size: clamp(42px, 8vw, 76px); letter-spacing: 0; line-height: .92; margin: 0 0 24px; }
+      p, li { color: rgba(251,248,239,.76); font-size: 18px; line-height: 1.62; }
+      ul { padding-left: 22px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a href="${origin}/">SEO Fix Kit</a>
+      <h1>${escapeHtml(title)}</h1>
+      ${body}
+      <p>Last updated: May 21, 2026.</p>
+    </main>
+  </body>
+</html>`;
+}
+
 function rootSitemap(origin) {
-  const urls = ["/", "/demo", "/privacy", "/llms.txt"];
+  const urls = ["/", "/demo", "/privacy", "/support", "/terms", "/llms.txt"];
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls
     .map((path) => `<url><loc>${origin}${path}</loc></url>`)
     .join("")}</urlset>`;

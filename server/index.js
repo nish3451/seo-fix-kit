@@ -13,6 +13,7 @@ const app = express();
 const port = Number(process.env.PORT || 8787);
 const auditReports = new Map();
 const betaSessions = new Map();
+const accessTokens = new Map();
 const fixRequests = [];
 const VERSION = "0.9.0";
 const SESSION_COOKIE = "sfk_beta_session";
@@ -45,6 +46,51 @@ app.post("/api/waitlist", (req, res) => {
   res.json({ ok: true, status: "joined", mode: "local-dev" });
 });
 
+app.post("/api/access/request", (req, res) => {
+  const ownerEmail = normalizeEmail(req.body?.email || req.body?.ownerEmail);
+  if (!ownerEmail) {
+    res.status(400).json({ error: "Enter a valid email address." });
+    return;
+  }
+  const token = randomBytes(32).toString("hex");
+  const tokenHash = sha256Hex(token);
+  const now = new Date().toISOString();
+  const expiresAt = isoSecondsFromNow(15 * 60);
+  accessTokens.set(tokenHash, {
+    ownerEmail,
+    createdAt: now,
+    expiresAt,
+    usedAt: ""
+  });
+  res.set("cache-control", "no-store").json({
+    ok: true,
+    status: "dev_link",
+    message: "Local access link created.",
+    accessUrl: `http://127.0.0.1:${port}/beta?access=${encodeURIComponent(token)}&email=${encodeURIComponent(ownerEmail)}`,
+    expiresAt
+  });
+});
+
+app.post("/api/access/verify", (req, res) => {
+  const token = cleanAccessToken(req.body?.token || "");
+  if (!token) {
+    res.status(400).set("cache-control", "no-store").json({ error: "Access link is invalid." });
+    return;
+  }
+  const tokenHash = sha256Hex(token);
+  const record = accessTokens.get(tokenHash);
+  if (!record || record.usedAt || record.expiresAt <= new Date().toISOString()) {
+    res.status(401).set("cache-control", "no-store").json({ error: "Access link is expired or already used." });
+    return;
+  }
+  record.usedAt = new Date().toISOString();
+  const session = createLocalSession(req, record.ownerEmail, "self-serve");
+  res
+    .set("cache-control", "no-store")
+    .set("set-cookie", sessionCookie(req, session.token, BETA_SESSION_TTL_SECONDS))
+    .json({ ok: true, status: "unlocked", ownerEmail: record.ownerEmail, accessMode: "self-serve", expiresAt: session.expiresAt });
+});
+
 app.post("/api/beta/login", (req, res) => {
   const ownerEmail = normalizeEmail(req.body?.email || req.body?.ownerEmail);
   if (!ownerEmail) {
@@ -57,7 +103,7 @@ app.post("/api/beta/login", (req, res) => {
     return;
   }
 
-  const session = createLocalSession(req, ownerEmail);
+  const session = createLocalSession(req, ownerEmail, "founder-override");
   res
     .set("cache-control", "no-store")
     .set("set-cookie", sessionCookie(req, session.token, BETA_SESSION_TTL_SECONDS))
@@ -181,6 +227,52 @@ app.get("/api/billing/summary", (req, res) => {
       .filter((request) => request.paymentId || request.paidAt || request.refundedAt || request.disputeEvent || request.status === "payment_failed")
       .map(localBillingPaymentResponse),
     generatedAt: new Date().toISOString()
+  });
+});
+
+app.get("/api/account/summary", (req, res) => {
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res.status(401).set("cache-control", "no-store").json({ error: "Private beta session required." });
+    return;
+  }
+  const reports = [...auditReports.values()]
+    .filter((report) => report.owner?.email === access.ownerEmail)
+    .sort((a, b) => String(b.scannedAt).localeCompare(String(a.scannedAt)))
+    .slice(0, 12)
+    .map((report) => ({
+      id: report.id,
+      url: report.url,
+      targetHost: safeHost(report.url),
+      score: report.score,
+      pagesScanned: report.summary?.pagesScanned || 0,
+      totalFindings: report.summary?.totalFindings || 0,
+      guardedFalsePositives: report.summary?.guardedFalsePositives || 0,
+      reportPath: report.reportPath,
+      createdAt: report.scannedAt,
+      expiresAt: report.retention?.expiresAt || ""
+    }));
+  const requests = fixRequests
+    .filter((request) => request.ownerEmail === access.ownerEmail && !request.isTest)
+    .sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)))
+    .slice(0, 12)
+    .map(localBillingFixRequestResponse);
+  res.set("cache-control", "no-store").json({
+    ok: true,
+    owner: {
+      email: access.ownerEmail,
+      accessMode: access.accessMode || "self-serve"
+    },
+    metrics: {
+      reports: reports.length,
+      fixRequests: requests.length,
+      openFixRequests: requests.filter((request) => !["delivered", "refunded"].includes(request.status)).length
+    },
+    recentReports: reports,
+    fixRequests: requests,
+    nextActions: reports.length
+      ? [{ id: "review-fixes", label: "Review proven fixes", detail: "Open a report and start a Fix Pack only when the findings are real." }]
+      : [{ id: "run-audit", label: "Run your first audit", detail: "Start with your homepage or highest-value product page." }]
   });
 });
 
@@ -568,6 +660,41 @@ app.get("/fixture/sitemap.xml", (req, res) => {
 </urlset>`);
 });
 
+app.get(["/support", "/terms"], (req, res) => {
+  const isTerms = req.path === "/terms";
+  res
+    .set({ "cache-control": "public, max-age=300" })
+    .type("html")
+    .send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${isTerms ? "Terms" : "Support"} - SEO Fix Kit</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
+      body { margin: 0; min-width: 320px; }
+      main { margin: 0 auto; max-width: 820px; padding: 42px 22px 70px; }
+      a { color: #98f0cc; font-weight: 780; text-decoration: none; }
+      h1 { font-size: clamp(42px, 8vw, 82px); letter-spacing: 0; line-height: .94; margin: 36px 0 18px; }
+      h2 { font-size: 24px; margin: 32px 0 10px; }
+      p, li { color: rgba(251,248,239,.76); font-size: 17px; line-height: 1.65; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a href="/">SEO Fix Kit</a>
+      <h1>${isTerms ? "Terms" : "Support"}</h1>
+      ${
+        isTerms
+          ? "<p>SEO Fix Kit private beta audits are informational and repair-focused. We do not guarantee rankings, traffic, revenue, or indexing outcomes.</p><h2>Billing</h2><p>Paid Fix Pack checkout starts from a saved report and covers one repair pass plus one rerun after fixes.</p><h2>Use</h2><p>Only audit sites you own or are authorized to review. Abuse, automated load, and private-network targets may be blocked.</p>"
+          : "<p>Email support@seofixkit.com with your report link, checkout ID, or access email if you need help.</p><h2>What to include</h2><p>Send the site URL, the private report URL, and the exact issue you want reviewed.</p><h2>Response</h2><p>Private beta support is founder-operated; timing is not guaranteed yet.</p>"
+      }
+    </main>
+  </body>
+</html>`);
+});
+
 app.get(/^\/beta(\/.*)?$/, (req, res) => {
   res.set({ "cache-control": "no-store", "x-robots-tag": "noindex, nofollow" });
   res.sendFile(path.join(rootDir, "dist", "index.html"));
@@ -603,18 +730,20 @@ function localBetaAccess(req) {
   return {
     ok: true,
     ownerEmail: session.ownerEmail,
+    accessMode: session.accessMode || "founder-override",
     sessionHash,
     expiresAt: session.expiresAt
   };
 }
 
-function createLocalSession(req, ownerEmail) {
+function createLocalSession(req, ownerEmail, accessMode = "founder-override") {
   const token = randomBytes(32).toString("hex");
   const sessionHash = sha256Hex(token);
   const now = new Date().toISOString();
   const expiresAt = isoSecondsFromNow(BETA_SESSION_TTL_SECONDS);
   betaSessions.set(sessionHash, {
     ownerEmail,
+    accessMode,
     createdAt: now,
     expiresAt,
     lastSeenAt: now,
@@ -830,6 +959,13 @@ function normalizeEmail(input) {
   if (email.length > 254) return "";
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "";
   return email;
+}
+
+function cleanAccessToken(input) {
+  const token = String(input || "").trim();
+  if (token.length < 32 || token.length > 160) return "";
+  if (!/^[A-Za-z0-9_-]+$/.test(token)) return "";
+  return token;
 }
 
 function cleanText(input, maxLength) {

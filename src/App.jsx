@@ -16,6 +16,7 @@ function WaitlistPage() {
   const [company, setCompany] = useState("");
   const [status, setStatus] = useState("idle");
   const [message, setMessage] = useState("");
+  const [accessUrl, setAccessUrl] = useState("");
   const [formStartedAt] = useState(() => Date.now());
 
   useEffect(() => {
@@ -28,27 +29,21 @@ function WaitlistPage() {
     setMessage("");
 
     try {
-      const response = await fetch("/api/waitlist", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          email,
-          company,
-          source: "locked-homepage",
-          ...trackingPayload(formStartedAt)
-        })
+      const payload = await postAccessRequest({
+        email,
+        company,
+        source: "homepage-access",
+        formStartedAt
       });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload.error || "Could not join the waitlist.");
-      }
       setStatus("success");
-      setMessage("You're on the list. We'll email you when private beta opens.");
+      setMessage(payload.message || "Check your email for a secure access link.");
+      setAccessUrl(payload.accessUrl || "");
       setEmail("");
       setCompany("");
     } catch (error) {
       setStatus("error");
-      setMessage(error.message || "Could not join the waitlist.");
+      setAccessUrl("");
+      setMessage(error.message || "Could not send the access link.");
     }
   }
 
@@ -67,16 +62,17 @@ function WaitlistPage() {
           <LogoMark />
           <span>SEO Fix Kit</span>
         </a>
-        <span className="launch-status">Coming soon</span>
+        <span className="launch-status">Private beta</span>
       </header>
 
       <section className="hero-copy" aria-labelledby="page-title">
         <p className="kicker">Private beta</p>
         <h1 id="page-title">SEO Fix Kit</h1>
-        <p className="coming-soon">Coming soon.</p>
+        <p className="coming-soon">Private beta access.</p>
         <p className="hero-text">
-          Evidence-backed SEO audits are locked while we prep the private beta.
-          Join the waitlist and we’ll email you when early access opens.
+          Evidence-backed SEO audits are opening by secure email link. Join the
+          private beta, run a proof audit, and only pay when the report finds
+          repairs worth doing.
         </p>
 
         <form className="waitlist-form" onSubmit={joinWaitlist}>
@@ -93,7 +89,7 @@ function WaitlistPage() {
               value={email}
             />
             <button disabled={status === "submitting"} type="submit">
-              {status === "submitting" ? "Joining" : "Join waitlist"}
+              {status === "submitting" ? "Sending" : "Email access link"}
             </button>
           </div>
           <label className="honeypot" htmlFor="company">
@@ -108,7 +104,15 @@ function WaitlistPage() {
             />
           </label>
           <p className={`form-message ${status}`} aria-live="polite">
-            {message || "We’ll only use this email for SEO Fix Kit outreach."}
+            {message || "We’ll only use this email for SEO Fix Kit access and outreach."}
+            {accessUrl && (
+              <>
+                <br />
+                <a className="inline-link" href={accessUrl}>
+                  Open local access link
+                </a>
+              </>
+            )}
           </p>
         </form>
 
@@ -133,6 +137,8 @@ function WaitlistPage() {
 
       <footer className="site-footer">
         <span>Audit it. Prove it. Fix it.</span>
+        <a href="/support">Support</a>
+        <a href="/terms">Terms</a>
         <a href="/privacy">Privacy</a>
       </footer>
     </main>
@@ -144,6 +150,7 @@ function BetaApp() {
   const isAdminRoute = window.location.pathname === "/beta/admin";
   const isBillingRoute = window.location.pathname.startsWith("/beta/billing");
   const inviteParams = new URLSearchParams(window.location.search);
+  const accessToken = inviteParams.get("access") || "";
   const [ownerEmail, setOwnerEmail] = useState(
     () => inviteParams.get("email") || window.sessionStorage.getItem(BETA_EMAIL_KEY) || ""
   );
@@ -152,16 +159,20 @@ function BetaApp() {
   const [isAuthed, setIsAuthed] = useState(
     () => window.sessionStorage.getItem(BETA_SESSION_KEY) === "1"
   );
-  const [loginStatus, setLoginStatus] = useState("idle");
+  const [loginStatus, setLoginStatus] = useState(accessToken ? "submitting" : "idle");
   const [loginMessage, setLoginMessage] = useState("");
-  const [targetUrl, setTargetUrl] = useState("https://aiconverter.app/");
+  const [targetUrl, setTargetUrl] = useState("");
   const [auditStatus, setAuditStatus] = useState(reportId ? "loading" : "idle");
   const [auditMessage, setAuditMessage] = useState("");
   const [report, setReport] = useState(null);
+  const [accountData, setAccountData] = useState(null);
+  const [accountStatus, setAccountStatus] = useState("idle");
+  const [accountMessage, setAccountMessage] = useState("");
   const [adminToken, setAdminToken] = useState("");
   const [adminData, setAdminData] = useState(null);
   const [adminStatus, setAdminStatus] = useState("idle");
   const [adminMessage, setAdminMessage] = useState("");
+  const [accessFormStartedAt] = useState(() => Date.now());
 
   useEffect(() => {
     if (isAdminRoute) {
@@ -193,6 +204,35 @@ function BetaApp() {
   }, []);
 
   useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
+    setLoginStatus("submitting");
+    setLoginMessage("Opening secure access link.");
+    verifyAccessToken(accessToken)
+      .then((payload) => {
+        if (cancelled) return;
+        window.sessionStorage.setItem(BETA_SESSION_KEY, "1");
+        window.sessionStorage.setItem(BETA_EMAIL_KEY, payload.ownerEmail || loginEmail);
+        setOwnerEmail(payload.ownerEmail || loginEmail);
+        setIsAuthed(true);
+        setLoginStatus("success");
+        setLoginMessage("Access unlocked.");
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete("access");
+        cleanUrl.searchParams.delete("email");
+        window.history.replaceState({}, "", `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setLoginStatus("error");
+        setLoginMessage(error.message || "Access link is expired or already used.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
+
+  useEffect(() => {
     if (!isAuthed || !reportId) return;
     loadReport(reportId, setReport, setAuditStatus, setAuditMessage, () => {
       setIsAuthed(false);
@@ -200,6 +240,11 @@ function BetaApp() {
       window.sessionStorage.removeItem(BETA_EMAIL_KEY);
     });
   }, [isAuthed, reportId]);
+
+  useEffect(() => {
+    if (!isAuthed || reportId || isAdminRoute || isBillingRoute) return;
+    loadAccountSummary(setAccountData, setAccountStatus, setAccountMessage);
+  }, [isAuthed, reportId, isAdminRoute, isBillingRoute]);
 
   async function login(event) {
     event.preventDefault();
@@ -229,6 +274,24 @@ function BetaApp() {
     }
   }
 
+  async function requestGateAccess() {
+    setLoginStatus("submitting");
+    setLoginMessage("");
+    try {
+      const payload = await postAccessRequest({
+        email: loginEmail,
+        source: "beta-gate-access",
+        formStartedAt: accessFormStartedAt
+      });
+      setLoginStatus("success");
+      setLoginMessage(payload.accessUrl ? "Local access link created." : payload.message || "Check your email for a secure access link.");
+      if (payload.accessUrl) window.location.assign(payload.accessUrl);
+    } catch (error) {
+      setLoginStatus("error");
+      setLoginMessage(error.message || "Could not send the access link.");
+    }
+  }
+
   async function runAudit(event) {
     event.preventDefault();
     setAuditStatus("loading");
@@ -251,9 +314,11 @@ function BetaApp() {
       setReport(payload);
       setAuditStatus("success");
       setAuditMessage("Audit saved. Private report URL is ready.");
+      loadAccountSummary(setAccountData, setAccountStatus, setAccountMessage);
       if (payload.reportPath) {
         window.history.replaceState(null, "", payload.reportPath);
       }
+      window.requestAnimationFrame(() => window.scrollTo(0, 0));
     } catch (error) {
       if (
         error.message.toLowerCase().includes("session") ||
@@ -278,6 +343,7 @@ function BetaApp() {
     setInviteCode("");
     setIsAuthed(false);
     setReport(null);
+    setAccountData(null);
     window.history.replaceState(null, "", "/beta");
   }
 
@@ -340,11 +406,19 @@ function BetaApp() {
               </button>
             </div>
             <p className={`form-message ${loginStatus}`} aria-live="polite">
-              {loginMessage || "Public access stays locked until beta opens."}
+              {loginMessage || "Use an invite code, or email yourself a secure one-use link."}
             </p>
-            <a className="gate-link" href="/">
-              Need access? Join the waitlist
-            </a>
+            <div className="access-request-row">
+              <span>Need access?</span>
+              <button
+                className="text-button accent-text"
+                disabled={loginStatus === "submitting" || !loginEmail}
+                onClick={requestGateAccess}
+                type="button"
+              >
+                Email access link
+              </button>
+            </div>
           </form>
         </section>
       </main>
@@ -354,7 +428,7 @@ function BetaApp() {
   if (isBillingRoute) {
     return (
       <main className="beta-shell">
-        <BetaTop onLock={lock} showBilling showOps />
+        <BetaTop onLock={lock} showBilling />
         <BillingPortal ownerEmail={ownerEmail} />
       </main>
     );
@@ -362,7 +436,7 @@ function BetaApp() {
 
   return (
     <main className="beta-shell">
-      <BetaTop onLock={lock} showBilling showOps />
+      <BetaTop onLock={lock} showBilling />
 
       <section
         className={`beta-hero ${showingReport ? "beta-hero-compact" : ""}`}
@@ -393,6 +467,14 @@ function BetaApp() {
           </div>
         </form>
       </section>
+
+      {!showingReport && (
+        <CustomerDashboard
+          accountData={accountData}
+          message={accountMessage}
+          status={accountStatus}
+        />
+      )}
 
       <section className="audit-stage" aria-live="polite">
         {auditStatus === "idle" && <EmptyAuditState />}
@@ -427,15 +509,90 @@ function BetaTop({ onLock, showBilling = false, showOps = false }) {
   );
 }
 
+function CustomerDashboard({ accountData, message, status }) {
+  const metrics = accountData?.metrics || {};
+  const reports = accountData?.recentReports || [];
+  const fixRequests = accountData?.fixRequests || [];
+  const nextActions = accountData?.nextActions || [];
+
+  return (
+    <section className="account-dashboard" aria-label="Account overview">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Your workspace</p>
+        <h2>{reports.length ? "Recent proof audits" : "Run your first proof audit"}</h2>
+        {message && status !== "success" && <p className={`form-message ${status}`}>{message}</p>}
+      </div>
+      <section className="metric-strip account-metrics" aria-label="Account summary">
+        <Metric label="Reports" value={metrics.reports || 0} />
+        <Metric label="Fix Packs" value={metrics.fixRequests || 0} />
+        <Metric label="Open" value={metrics.openFixRequests || 0} />
+      </section>
+      <div className="account-grid">
+        <div className="account-panel">
+          <div className="section-heading">
+            <p className="beta-eyebrow">Next</p>
+            <h3>{nextActions[0]?.label || "Start with a page that matters"}</h3>
+          </div>
+          <p>{nextActions[0]?.detail || "Paste your homepage, pricing page, or highest-value product page."}</p>
+        </div>
+        <div className="account-panel">
+          <div className="section-heading">
+            <p className="beta-eyebrow">Reports</p>
+            <h3>{reports.length ? "Latest scans" : "No reports yet"}</h3>
+          </div>
+          <div className="account-list">
+            {reports.slice(0, 4).map((item) => (
+              <a href={item.reportPath} key={item.id}>
+                <span>{item.targetHost || safeHostnameLabel(item.url)}</span>
+                <strong>{item.score}/100</strong>
+              </a>
+            ))}
+            {!reports.length && <p className="quiet-note">Your saved reports will appear here after the first audit.</p>}
+          </div>
+        </div>
+        <div className="account-panel">
+          <div className="section-heading">
+            <p className="beta-eyebrow">Repair queue</p>
+            <h3>{fixRequests.length ? "Fix Pack status" : "Nothing paid yet"}</h3>
+          </div>
+          <div className="account-list">
+            {fixRequests.slice(0, 3).map((request) => (
+              <a href={request.reportPath || "/beta/billing"} key={request.id}>
+                <span>{request.targetHost || request.targetUrl || "Fix Pack"}</span>
+                <strong>{request.statusLabel || statusLabel(request.status)}</strong>
+              </a>
+            ))}
+            {!fixRequests.length && (
+              <p className="quiet-note">
+                Checkout starts from a report with proven fixes.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function EmptyAuditState() {
   return (
     <div className="empty-state">
-      <p className="beta-eyebrow">Ready</p>
-      <h2>Start with a homepage or core product page.</h2>
-      <p>
-        The report will crawl a few same-site pages, compare raw HTML against
-        the rendered page, and turn findings into a repair brief.
-      </p>
+      <p className="beta-eyebrow">First audit</p>
+      <h2>Start with one page your customers actually land on.</h2>
+      <div className="onboarding-steps">
+        <article>
+          <strong>1</strong>
+          <span>Paste your homepage, pricing page, or highest-value product page.</span>
+        </article>
+        <article>
+          <strong>2</strong>
+          <span>SEO Fix Kit renders it in a browser and crawls same-site links.</span>
+        </article>
+        <article>
+          <strong>3</strong>
+          <span>Pay only if the saved report finds proven repairs worth shipping.</span>
+        </article>
+      </div>
     </div>
   );
 }
@@ -552,7 +709,7 @@ function ReportView({ report }) {
         <CopyButton label="Copy developer brief" value={report.repairBrief || ""} />
         {hasPriorityFixes && (
           <a className="action-link paid-action" href="#fix-pack">
-            Start paid Fix Pack
+            View Fix Pack checkout
           </a>
         )}
         <a
@@ -1250,7 +1407,10 @@ function BillingPortal({ ownerEmail }) {
             </article>
           ))}
           {!requests.length && (
-            <p className="quiet-note">No Fix Pack requests yet. Run an audit, open a report with proven fixes, then start checkout from that report.</p>
+            <p className="quiet-note">
+              No Fix Pack requests yet. Run an audit, open a report with proven fixes, then start checkout from that report.
+              <a className="inline-link" href="/beta"> Run an audit</a>
+            </p>
           )}
         </div>
       </section>
@@ -1655,6 +1815,60 @@ async function refreshSession(setIsAuthed, setOwnerEmail) {
     window.sessionStorage.removeItem(BETA_EMAIL_KEY);
     setOwnerEmail("");
     setIsAuthed(false);
+  }
+}
+
+async function postAccessRequest({ email, company = "", source, formStartedAt }) {
+  const response = await fetch("/api/access/request", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      email,
+      company,
+      source,
+      ...trackingPayload(formStartedAt)
+    })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || "Could not send the access link.");
+  }
+  return payload;
+}
+
+async function verifyAccessToken(token) {
+  const response = await fetch("/api/access/verify", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ token })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Access link is expired or already used.");
+  }
+  return payload;
+}
+
+async function loadAccountSummary(setAccountData, setStatus, setMessage) {
+  setStatus("loading");
+  setMessage("Loading your workspace.");
+  try {
+    const response = await fetch("/api/account/summary", {
+      credentials: "same-origin",
+      headers: { accept: "application/json" }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok !== true) {
+      throw new Error(payload.error || "Could not load your workspace.");
+    }
+    setAccountData(payload);
+    setStatus("success");
+    setMessage("");
+  } catch (error) {
+    setStatus("error");
+    setMessage(error.message || "Could not load your workspace.");
   }
 }
 

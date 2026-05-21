@@ -27,7 +27,7 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/", "/api/*", "/admin/*", "/beta", "/beta/*", "/demo", "/llms.txt", "/privacy", "/robots.txt", "/sitemap.xml", "/fixture/*"]
+    "run_worker_first": ["/", "/api/*", "/admin/*", "/beta", "/beta/*", "/demo", "/llms.txt", "/privacy", "/support", "/terms", "/robots.txt", "/sitemap.xml", "/fixture/*"]
   },
   "d1_databases": [
     {

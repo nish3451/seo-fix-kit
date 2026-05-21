@@ -2,7 +2,7 @@
 
 SEO Fix Kit is a proof-backed SEO repair tool for sites that need clear fixes, not generic audit homework.
 
-The public homepage is currently locked as a private-beta waitlist. Public visitors can join the email list; public self-serve audits are disabled until beta opens.
+The public homepage is currently a private-beta access page. Visitors can request a secure one-use email link; anonymous public audits stay disabled.
 
 It is not trying to replace Ahrefs or Semrush keyword and backlink databases. The first wedge is narrower and sharper:
 
@@ -19,15 +19,19 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Copyable developer repair brief with priority, effort, proof, acceptance checks, and snippets.
 - Founder-friendly React interface.
 - Cloudflare Worker target using Workers Static Assets and Browser Run.
-- Locked coming-soon homepage with `/api/waitlist` backed by D1.
-- Hidden `/beta` private audit workbench protected by email + invite code login.
+- Locked private-beta homepage with `/api/waitlist` and `/api/access/request` backed by D1.
+- Hidden `/beta` private audit workbench protected by invite code login or a secure one-use email access link.
 - Expiring beta sessions backed by D1 `beta_sessions`.
+- Explicit session access modes for invite, self-serve, and founder override sessions.
+- Customer workspace summary API and dashboard at `/api/account/summary`.
 - Admin-created beta invite codes backed by D1 `beta_invites`; the shared beta password is only a founder override.
+- Single-use self-serve access tokens backed by D1 `access_tokens`.
 - Saved private report URLs backed by D1 `audit_reports`, tied to the beta owner email and invite where available.
 - 30-day report retention with cleanup for expired reports, sessions, and quota buckets.
-- D1-backed abuse controls across login, waitlist, network, session, daily, and target-site audit buckets.
+- D1-backed abuse controls across access links, login, waitlist, network, session, daily, and target-site audit buckets.
 - `/beta/admin` ops dashboard for waitlist, invites, audits, repeated issue patterns, and fix requests.
 - Dodo-backed SEO Fix Pack checkout CTA inside reports when real fixes exist.
+- Public `/support` and `/terms` pages with no ranking guarantees.
 
 ## Run locally
 
@@ -54,7 +58,9 @@ Cloudflare cannot run the local Express + Chromium server directly. The deployab
 - `/admin/invites` creates invite codes for specific emails
 - `/beta` serves the private workbench with `noindex` and `no-store` headers
 - `/api/beta/login` exchanges beta email + invite code for an expiring private session cookie
+- `/api/access/request` sends a secure self-serve email access link, and `/api/access/verify` exchanges it for a customer beta session
 - `/api/beta/session` checks the current beta session, and `/api/beta/logout` revokes it
+- `/api/account/summary` powers the customer workspace dashboard
 - `/api/audit` runs only with a valid beta session
 - `/api/reports/:id` and `/api/reports/:id/brief.md` return saved private reports only to the report owner
 - `/api/beta/fix-request` creates a Dodo checkout session for the one-site SEO Fix Pack when Dodo config is present
@@ -81,9 +87,9 @@ Apply D1 migrations after creating or changing the waitlist schema:
 wrangler d1 migrations apply seofixkit_waitlist --remote
 ```
 
-Migration `0004_audit_usage.sql` adds the private beta quota table. Migration `0005_beta_controls.sql` adds beta sessions, report ownership, target-host indexing, and report expiry. Migration `0006_ops_funnel.sql` adds invite codes, invite-bound ownership, fix requests, and admin audit logging. Migration `0007_fix_pack_checkout.sql` adds Dodo checkout/payment tracking and webhook idempotency. Migration `0008_fix_pack_fulfillment.sql` adds the paid Fix Pack delivery queue and payment notification log. Migration `0009_product_hardening.sql` adds webhook-only payment guardrails, test request separation, due dates, delivery notification state, status events, admin sessions, and ops digests.
+Migration `0004_audit_usage.sql` adds the private beta quota table. Migration `0005_beta_controls.sql` adds beta sessions, report ownership, target-host indexing, and report expiry. Migration `0006_ops_funnel.sql` adds invite codes, invite-bound ownership, fix requests, and admin audit logging. Migration `0007_fix_pack_checkout.sql` adds Dodo checkout/payment tracking and webhook idempotency. Migration `0008_fix_pack_fulfillment.sql` adds the paid Fix Pack delivery queue and payment notification log. Migration `0009_product_hardening.sql` adds webhook-only payment guardrails, test request separation, due dates, delivery notification state, status events, admin sessions, and ops digests. Migration `0010_self_serve_access.sql` adds self-serve access tokens and explicit beta session access modes.
 
-The protected admin APIs require the `ADMIN_EXPORT_TOKEN` Worker secret. Browser admin use exchanges the token for a short-lived HttpOnly admin session cookie; scripts may still use `Authorization: Bearer ...`. The private beta login uses invite codes; `BETA_ACCESS_PASSWORD` remains as a founder override only.
+The protected admin APIs require the `ADMIN_EXPORT_TOKEN` Worker secret. Browser admin use exchanges the token for a short-lived HttpOnly admin session cookie; scripts may still use `Authorization: Bearer ...`. The private beta login uses invite codes or self-serve email links; `BETA_ACCESS_PASSWORD` remains as a founder override only.
 
 ## Dodo checkout
 
