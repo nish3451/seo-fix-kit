@@ -80,9 +80,9 @@ Apply D1 migrations after creating or changing the waitlist schema:
 wrangler d1 migrations apply seofixkit_waitlist --remote
 ```
 
-Migration `0004_audit_usage.sql` adds the private beta quota table. Migration `0005_beta_controls.sql` adds beta sessions, report ownership, target-host indexing, and report expiry. Migration `0006_ops_funnel.sql` adds invite codes, invite-bound ownership, fix requests, and admin audit logging. Migration `0007_fix_pack_checkout.sql` adds Dodo checkout/payment tracking and webhook idempotency. Migration `0008_fix_pack_fulfillment.sql` adds the paid Fix Pack delivery queue and payment notification log.
+Migration `0004_audit_usage.sql` adds the private beta quota table. Migration `0005_beta_controls.sql` adds beta sessions, report ownership, target-host indexing, and report expiry. Migration `0006_ops_funnel.sql` adds invite codes, invite-bound ownership, fix requests, and admin audit logging. Migration `0007_fix_pack_checkout.sql` adds Dodo checkout/payment tracking and webhook idempotency. Migration `0008_fix_pack_fulfillment.sql` adds the paid Fix Pack delivery queue and payment notification log. Migration `0009_product_hardening.sql` adds webhook-only payment guardrails, test request separation, due dates, delivery notification state, status events, admin sessions, and ops digests.
 
-The protected admin APIs require the `ADMIN_EXPORT_TOKEN` Worker secret and must be called with an `Authorization: Bearer ...` header. The private beta login uses invite codes; `BETA_ACCESS_PASSWORD` remains as a founder override only.
+The protected admin APIs require the `ADMIN_EXPORT_TOKEN` Worker secret. Browser admin use exchanges the token for a short-lived HttpOnly admin session cookie; scripts may still use `Authorization: Bearer ...`. The private beta login uses invite codes; `BETA_ACCESS_PASSWORD` remains as a founder override only.
 
 ## Dodo checkout
 
@@ -109,9 +109,11 @@ https://seofixkit.com/api/webhooks/dodo
 
 ## Fix Pack fulfillment
 
-Paid requests move through `checkout_created`, `paid`, `in_progress`, and `delivered`. The admin queue can assign an owner, keep private notes, show a customer note, attach a delivery URL, and link a final rerun report.
+Paid requests move through `checkout_created`, webhook-only `paid`, `in_progress`, `delivered`, plus Dodo-driven `payment_failed`, `refunded`, `refund_failed`, and `disputed` states. Admin cannot mark a request paid manually.
 
-Payment-success email uses Resend from the Worker after Dodo confirms payment. These Worker values must be set before email can send:
+The admin queue can assign an owner, keep private notes, set customer-visible notes, set due and next-update times, attach a delivery URL, and link a validated final rerun report. Delivery requires a customer note, delivery link, and final rerun report for the same owner, same host, and after payment.
+
+Payment-success, repair-started, delivery-ready, and daily ops digest emails use Resend from the Worker. These Worker values must be set before email can send:
 
 - `RESEND_API_KEY`
 - `SEOFIXKIT_EMAIL_FROM`

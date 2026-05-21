@@ -13,6 +13,25 @@ export const DODO_PAYMENT_FAILURE_EVENTS = new Set([
   "payment.canceled"
 ]);
 
+export const DODO_PAYMENT_PROCESSING_EVENTS = new Set([
+  "payment.processing"
+]);
+
+export const DODO_REFUND_SUCCESS_EVENTS = new Set([
+  "refund.succeeded"
+]);
+
+export const DODO_REFUND_FAILURE_EVENTS = new Set([
+  "refund.failed"
+]);
+
+export const DODO_DISPUTE_EVENTS = new Set([
+  "dispute.opened",
+  "dispute.accepted",
+  "dispute.challenged",
+  "dispute.lost"
+]);
+
 export const PAID_STATUSES = new Set(["succeeded", "paid", "completed"]);
 
 export function dodoApiKey(env) {
@@ -90,27 +109,43 @@ export async function verifyDodoWebhookSignature({
 
 export function extractDodoPayment(payment = {}) {
   const metadata = objectOrEmpty(payment.metadata);
+  const productItems = extractProductItems(payment);
+  const customer = objectOrEmpty(payment.customer);
   return {
     paymentId: firstText(payment.payment_id, payment.paymentId, payment.id),
+    refundId: firstText(payment.refund_id, payment.refundId),
     checkoutSessionId: firstText(payment.checkout_session_id, payment.checkoutSessionId, payment.session_id, payment.sessionId),
     metadataFixRequestId: firstText(metadata.fix_request_id, metadata.fixRequestId),
     metadataReportId: firstText(metadata.report_id, metadata.reportId),
     metadataProductKey: firstText(metadata.product_key, metadata.productKey),
-    productIds: extractProductIds(payment),
+    businessId: firstText(payment.business_id, payment.businessId),
+    brandId: firstText(payment.brand_id, payment.brandId),
+    customerEmail: normalizeEmailText(customer.email || payment.customer_email || payment.customerEmail),
+    productIds: productItems.map((item) => item.productId).filter(Boolean),
+    productItems,
+    productQuantity: productItems.reduce((sum, item) => sum + item.quantity, 0),
     amount: numberOrZero(payment.total_amount ?? payment.amount_total ?? payment.amount),
     currency: normalizeCurrency(payment.currency),
+    refundStatus: String(payment.refund_status || payment.refundStatus || "").toLowerCase(),
+    isPartialRefund: Boolean(payment.is_partial || payment.isPartial),
     status: String(payment.status || "").toLowerCase()
   };
 }
 
-export function dodoProductMatches(payment, expectedProductId) {
-  if (!expectedProductId || !payment.productIds.length) return true;
+export function dodoProductMatches(payment, expectedProductId, options = {}) {
+  if (!expectedProductId) return true;
+  if (!payment.productIds.length) return Boolean(options.allowMissing);
   return payment.productIds.includes(expectedProductId);
 }
 
-function extractProductIds(payment = {}) {
+function extractProductItems(payment = {}) {
   const carts = [payment.product_cart, payment.productCart, payment.line_items, payment.items].filter(Array.isArray).flat();
-  return carts.map((item) => firstText(item?.product_id, item?.productId, item?.id)).filter(Boolean);
+  return carts
+    .map((item) => ({
+      productId: firstText(item?.product_id, item?.productId, item?.id),
+      quantity: Math.max(0, numberOrZero(item?.quantity || 1))
+    }))
+    .filter((item) => item.productId);
 }
 
 function decodeWebhookSecret(secret) {
@@ -158,4 +193,10 @@ function numberOrZero(value) {
 
 function normalizeCurrency(value) {
   return String(value || "").trim().toUpperCase();
+}
+
+function normalizeEmailText(value) {
+  const email = String(value || "").trim().toLowerCase();
+  if (email.length > 254) return "";
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
 }

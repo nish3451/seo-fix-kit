@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import {
+  DODO_REFUND_SUCCESS_EVENTS,
   dodoProductMatches,
   extractDodoPayment,
   verifyDodoWebhookSignature
 } from "../shared/dodo.js";
 import {
+  ADMIN_EDITABLE_FIX_REQUEST_STATUSES,
+  buildOpsDigestEmail,
   buildPaymentNotificationEmail,
+  buildStatusNotificationEmail,
   fixRequestStatusLabel,
   isResendEmailConfigured,
   normalizeFixRequestStatus
@@ -17,9 +21,12 @@ const payload = JSON.stringify({
   data: {
     payment_id: "pay_123",
     checkout_session_id: "cks_123",
+    brand_id: "brnd_123",
+    business_id: "bus_123",
     status: "succeeded",
     currency: "USD",
     total_amount: 9900,
+    customer: { email: "buyer@example.com" },
     metadata: {
       product_key: "seofixkit_fix_pack",
       fix_request_id: "fix_123",
@@ -56,14 +63,22 @@ assert.equal(
 const payment = extractDodoPayment(JSON.parse(payload).data);
 assert.equal(payment.paymentId, "pay_123");
 assert.equal(payment.checkoutSessionId, "cks_123");
+assert.equal(payment.brandId, "brnd_123");
+assert.equal(payment.businessId, "bus_123");
+assert.equal(payment.customerEmail, "buyer@example.com");
 assert.equal(payment.metadataFixRequestId, "fix_123");
 assert.equal(payment.metadataProductKey, "seofixkit_fix_pack");
 assert.deepEqual(payment.productIds, ["pdt_fix_pack"]);
 assert.equal(dodoProductMatches(payment, "pdt_fix_pack"), true);
 assert.equal(dodoProductMatches(payment, "pdt_other"), false);
+assert.equal(dodoProductMatches({ productIds: [] }, "pdt_fix_pack"), false);
 assert.equal(normalizeFixRequestStatus("in_progress"), "in_progress");
 assert.equal(normalizeFixRequestStatus("nonsense"), "new");
 assert.equal(fixRequestStatusLabel("delivered"), "Delivered");
+assert.equal(fixRequestStatusLabel("refunded"), "Refunded");
+assert.equal(ADMIN_EDITABLE_FIX_REQUEST_STATUSES.has("paid"), false);
+assert.equal(ADMIN_EDITABLE_FIX_REQUEST_STATUSES.has("delivered"), true);
+assert.equal(DODO_REFUND_SUCCESS_EVENTS.has("refund.succeeded"), true);
 assert.equal(isResendEmailConfigured({}), false);
 assert.equal(
   isResendEmailConfigured({
@@ -86,6 +101,44 @@ const notification = buildPaymentNotificationEmail({
 });
 assert.equal(notification.subject.includes("example.com"), true);
 assert.equal(notification.text.includes("No ranking promises"), true);
+assert.equal(notification.text.includes("USD 99.00"), true);
+
+const delivery = buildStatusNotificationEmail({
+  appOrigin: "https://seofixkit.com",
+  fixRequest: {
+    report_id: "report_123",
+    final_report_id: "report_456",
+    target_host: "example.com",
+    target_url: "https://example.com/",
+    delivery_url: "https://seofixkit.com/beta/reports/report_456",
+    customer_note: "Canonical tags and social images are now fixed."
+  },
+  report: {},
+  recipientType: "owner",
+  status: "delivered",
+  beforeAfter: {
+    beforeScore: 72,
+    afterScore: 91,
+    beforeFindings: 6,
+    afterFindings: 2
+  }
+});
+assert.equal(delivery.subject.includes("delivery ready"), true);
+assert.equal(delivery.text.includes("Score: 72 -> 91 (+19)"), true);
+
+const digest = buildOpsDigestEmail({
+  appOrigin: "https://seofixkit.com",
+  snapshot: {
+    openPaid: 2,
+    inProgress: 1,
+    deliveredToday: 1,
+    overdue: 0,
+    webhookErrors: 0,
+    emailErrors: 0,
+    oldestOpenCreatedAt: "2026-05-21T00:00:00.000Z"
+  }
+});
+assert.equal(digest.subject.includes("2 paid open"), true);
 
 console.log(JSON.stringify({ ok: true, checked: "dodo payment and fulfillment helpers" }));
 
