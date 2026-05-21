@@ -988,6 +988,13 @@ h1 {
   max-width: 1240px;
 }
 
+.billing-shell {
+  display: grid;
+  gap: 18px;
+  margin: 54px auto 0;
+  max-width: 1180px;
+}
+
 .admin-heading {
   align-items: end;
   display: grid;
@@ -995,7 +1002,20 @@ h1 {
   grid-template-columns: minmax(0, 1fr) minmax(320px, 520px);
 }
 
+.billing-heading {
+  align-items: end;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .admin-heading h1 {
+  font-size: clamp(42px, 7vw, 76px);
+  line-height: 0.94;
+  margin: 0;
+}
+
+.billing-heading h1 {
   font-size: clamp(42px, 7vw, 76px);
   line-height: 0.94;
   margin: 0;
@@ -1044,10 +1064,97 @@ h1 {
   margin-top: 0;
 }
 
+.billing-metrics {
+  margin-top: 0;
+}
+
 .admin-grid {
   display: grid;
   gap: 16px;
   grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+}
+
+.billing-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+}
+
+.billing-panel {
+  background: rgba(251, 248, 239, 0.055);
+  border: 1px solid rgba(251, 248, 239, 0.12);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.billing-panel h2,
+.billing-list-panel h2 {
+  font-size: clamp(22px, 2.4vw, 32px);
+  line-height: 1.05;
+  margin: 0;
+}
+
+.billing-panel p {
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+
+.billing-list-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.billing-list {
+  display: grid;
+  gap: 12px;
+}
+
+.billing-row {
+  align-items: start;
+  background: rgba(7, 13, 10, 0.58);
+  border: 1px solid rgba(251, 248, 239, 0.1);
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 0.65fr) auto;
+  padding: 16px;
+}
+
+.billing-row.paid,
+.billing-row.in_progress,
+.billing-row.payment {
+  border-color: rgba(152, 240, 204, 0.24);
+}
+
+.billing-row.delivered,
+.billing-row.refund {
+  border-color: rgba(214, 177, 95, 0.3);
+}
+
+.billing-row.failed_payment,
+.billing-row.dispute {
+  border-color: rgba(255, 180, 169, 0.26);
+}
+
+.billing-row h3 {
+  font-size: 18px;
+  line-height: 1.2;
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.billing-row p {
+  color: var(--ink-muted);
+  font-size: 13px;
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.billing-row-meta {
+  color: var(--ink-soft);
+  display: grid;
+  font-size: 13px;
+  gap: 5px;
 }
 
 .ops-table,
@@ -1428,6 +1535,9 @@ h1 {
   .report-preview,
   .admin-heading,
   .admin-grid,
+  .billing-heading,
+  .billing-grid,
+  .billing-row,
   .queue-heading,
   .fix-queue-main,
   .fulfillment-grid,

@@ -142,6 +142,7 @@ function WaitlistPage() {
 function BetaApp() {
   const reportId = reportIdFromPath();
   const isAdminRoute = window.location.pathname === "/beta/admin";
+  const isBillingRoute = window.location.pathname.startsWith("/beta/billing");
   const inviteParams = new URLSearchParams(window.location.search);
   const [ownerEmail, setOwnerEmail] = useState(
     () => inviteParams.get("email") || window.sessionStorage.getItem(BETA_EMAIL_KEY) || ""
@@ -167,18 +168,22 @@ function BetaApp() {
       document.title = "SEO Fix Kit Ops";
       return;
     }
+    if (isBillingRoute) {
+      document.title = "SEO Fix Kit Billing";
+      return;
+    }
     if (report?.url) {
       document.title = `SEO Fix Kit report - ${safeHostnameLabel(report.url)}`;
       return;
     }
     document.title = "SEO Fix Kit Beta";
-  }, [isAdminRoute, report?.url]);
+  }, [isAdminRoute, isBillingRoute, report?.url]);
 
   useEffect(() => {
-    if (window.sessionStorage.getItem(BETA_SESSION_KEY) === "1" || reportId || isAdminRoute) {
+    if (window.sessionStorage.getItem(BETA_SESSION_KEY) === "1" || reportId || isAdminRoute || isBillingRoute) {
       refreshSession(setIsAuthed, setOwnerEmail);
     }
-  }, [reportId, isAdminRoute]);
+  }, [reportId, isAdminRoute, isBillingRoute]);
 
   useEffect(() => {
     if (!inviteParams.get("invite")) return;
@@ -281,7 +286,7 @@ function BetaApp() {
   if (isAdminRoute) {
     return (
       <main className="beta-shell">
-        <BetaTop onLock={lock} showOps />
+        <BetaTop onLock={lock} showBilling showOps />
         <AdminDashboard
           adminData={adminData}
           adminMessage={adminMessage}
@@ -346,9 +351,18 @@ function BetaApp() {
     );
   }
 
+  if (isBillingRoute) {
+    return (
+      <main className="beta-shell">
+        <BetaTop onLock={lock} showBilling showOps />
+        <BillingPortal ownerEmail={ownerEmail} />
+      </main>
+    );
+  }
+
   return (
     <main className="beta-shell">
-      <BetaTop onLock={lock} showOps />
+      <BetaTop onLock={lock} showBilling showOps />
 
       <section
         className={`beta-hero ${showingReport ? "beta-hero-compact" : ""}`}
@@ -392,7 +406,7 @@ function BetaApp() {
   );
 }
 
-function BetaTop({ onLock, showOps = false }) {
+function BetaTop({ onLock, showBilling = false, showOps = false }) {
   return (
     <header className="beta-top">
       <a className="brand-lockup" href="/" aria-label="SEO Fix Kit home">
@@ -401,6 +415,7 @@ function BetaTop({ onLock, showOps = false }) {
       </a>
       <nav>
         <a href="/">Public page</a>
+        {showBilling && <a href="/beta/billing">Billing</a>}
         {showOps && <a href="/beta/admin">Ops</a>}
         {onLock && (
           <button className="text-button" onClick={onLock} type="button">
@@ -1131,6 +1146,147 @@ function FixQuotePanel({ report, hasPriorityFixes }) {
   );
 }
 
+function BillingPortal({ ownerEmail }) {
+  const [billing, setBilling] = useState(null);
+  const [status, setStatus] = useState("loading");
+  const [message, setMessage] = useState("Loading billing.");
+
+  useEffect(() => {
+    loadBillingSummary(setBilling, setStatus, setMessage);
+  }, []);
+
+  const requests = billing?.requests || [];
+  const payments = billing?.payments || [];
+  const pricing = billing?.pricing || {};
+  const subscription = billing?.subscriptionState || {};
+  const priceLabel =
+    pricing.status === "available"
+      ? pricing.displayPrice
+      : status === "loading"
+        ? "Loading Dodo price"
+        : "Pricing unavailable";
+
+  return (
+    <section className="billing-shell">
+      <div className="section-heading billing-heading">
+        <div>
+          <p className="beta-eyebrow">Billing</p>
+          <h1>Fix Pack billing</h1>
+          <p className="session-note">Private beta session: {billing?.owner?.email || ownerEmail || "active"}</p>
+        </div>
+        <button
+          className="action-link"
+          disabled={status === "loading"}
+          onClick={() => loadBillingSummary(setBilling, setStatus, setMessage)}
+          type="button"
+        >
+          {status === "loading" ? "Refreshing" : "Refresh"}
+        </button>
+      </div>
+
+      {message && <p className={`form-message ${status}`}>{message}</p>}
+
+      <section className="metric-strip billing-metrics" aria-label="Billing summary">
+        <Metric label="Product" value={billing?.product?.name || "Fix Pack"} />
+        <Metric label="Requests" value={requests.length} />
+        <Metric label="Payments" value={payments.length} />
+        <Metric label="Subscription" value={subscription.status === "not_live" ? "None" : subscription.label || "Active"} />
+      </section>
+
+      <section className="billing-grid">
+        <div className="billing-panel">
+          <div className="section-heading">
+            <p className="beta-eyebrow">Dodo checkout</p>
+            <h2>{billing?.product?.name || "SEO Fix Pack"}</h2>
+          </div>
+          <div className={`price-preview ${pricing.status === "available" ? "available" : "error"}`}>
+            <strong>{priceLabel}</strong>
+            <span>
+              {pricing.status === "available"
+                ? "Pulled from Dodo before checkout."
+                : pricing.message || "Checkout waits until Dodo pricing is available."}
+            </span>
+          </div>
+          <p>{billing?.product?.description || "One proof-backed repair pass plus one rerun after fixes."}</p>
+          <p className="quiet-note">
+            {billing?.product?.checkoutNote || "Checkout starts from a report with proven fixes."}
+          </p>
+        </div>
+
+        <div className="billing-panel">
+          <div className="section-heading">
+            <p className="beta-eyebrow">Subscription</p>
+            <h2>{subscription.label || "No recurring subscription"}</h2>
+          </div>
+          <p>{subscription.message || "SEO Fix Kit currently sells one-time Fix Pack requests. Recurring plans are not live yet."}</p>
+          <p className="quiet-note">Provider: {billing?.provider?.name || "Dodo Payments"}</p>
+        </div>
+      </section>
+
+      <section className="billing-panel billing-list-panel">
+        <div className="section-heading">
+          <p className="beta-eyebrow">Requests</p>
+          <h2>Fix Pack status</h2>
+        </div>
+        <div className="billing-list">
+          {requests.map((request) => (
+            <article className={`billing-row ${request.status}`} key={request.id}>
+              <div>
+                <span className="status-pill">{request.statusLabel || statusLabel(request.status)}</span>
+                <h3>{request.targetHost || request.targetUrl}</h3>
+                <p>{request.issueCount || 0} findings · score {request.score ?? "unknown"}</p>
+              </div>
+              <div className="billing-row-meta">
+                {request.paidAt && <span>Paid {formatDate(request.paidAt)}</span>}
+                {request.dueAt && <span>Due {formatDate(request.dueAt)}</span>}
+                {request.nextUpdateAt && <span>Next update {formatDate(request.nextUpdateAt)}</span>}
+                {request.deliveredAt && <span>Delivered {formatDate(request.deliveredAt)}</span>}
+              </div>
+              <div className="queue-links">
+                {request.reportPath && <a href={request.reportPath}>Report</a>}
+                {request.briefPath && <a href={request.briefPath}>Brief</a>}
+                {request.deliveryUrl && <a href={request.deliveryUrl} target="_blank" rel="noreferrer">Delivery</a>}
+              </div>
+            </article>
+          ))}
+          {!requests.length && (
+            <p className="quiet-note">No Fix Pack requests yet. Run an audit, open a report with proven fixes, then start checkout from that report.</p>
+          )}
+        </div>
+      </section>
+
+      <section className="billing-panel billing-list-panel">
+        <div className="section-heading">
+          <p className="beta-eyebrow">Payment history</p>
+          <h2>Dodo records</h2>
+        </div>
+        <div className="billing-list">
+          {payments.map((payment) => (
+            <article className={`billing-row ${payment.type}`} key={`${payment.id}-${payment.type}`}>
+              <div>
+                <span className="status-pill">{payment.type.replaceAll("_", " ")}</span>
+                <h3>{payment.targetHost || payment.paymentId || "Dodo payment"}</h3>
+                <p>{payment.paymentId || payment.checkoutSessionId || "Payment identity pending"}</p>
+              </div>
+              <div className="billing-row-meta">
+                {payment.displayAmount && <span>{payment.displayAmount}</span>}
+                {payment.displayRefundAmount && <span>Refund {payment.displayRefundAmount}</span>}
+                {payment.paidAt && <span>Paid {formatDate(payment.paidAt)}</span>}
+                {payment.refundedAt && <span>Refunded {formatDate(payment.refundedAt)}</span>}
+                {payment.disputedAt && <span>Disputed {formatDate(payment.disputedAt)}</span>}
+              </div>
+              <div className="queue-links">
+                {payment.reportPath && <a href={payment.reportPath}>Report</a>}
+              </div>
+            </article>
+          ))}
+          {!payments.length && <p className="quiet-note">No paid Dodo records for this beta account yet.</p>}
+        </div>
+      </section>
+    </section>
+  );
+}
+
 function AdminDashboard({
   adminData,
   adminMessage,
@@ -1557,6 +1713,27 @@ async function requestFixQuote(reportId) {
     };
   } catch (error) {
     return { ok: false, error: error.message || "Checkout could not open." };
+  }
+}
+
+async function loadBillingSummary(setBilling, setStatus, setMessage) {
+  setStatus("loading");
+  setMessage("Loading billing.");
+  try {
+    const response = await fetch("/api/billing/summary", {
+      credentials: "same-origin",
+      headers: { accept: "application/json" }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok !== true) {
+      throw new Error(payload.error || "Could not load billing.");
+    }
+    setBilling(payload);
+    setStatus("success");
+    setMessage("Billing loaded.");
+  } catch (error) {
+    setStatus("error");
+    setMessage(error.message || "Could not load billing.");
   }
 }
 

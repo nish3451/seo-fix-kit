@@ -58,6 +58,7 @@ Cloudflare cannot run the local Express + Chromium server directly. The deployab
 - `/api/audit` runs only with a valid beta session
 - `/api/reports/:id` and `/api/reports/:id/brief.md` return saved private reports only to the report owner
 - `/api/beta/fix-request` creates a Dodo checkout session for the one-site SEO Fix Pack when Dodo config is present
+- `/api/billing/summary` powers the private customer billing portal with Dodo pricing, Fix Pack requests, payment history, and truthful subscription state
 - `/api/webhooks/dodo` verifies Dodo Standard Webhooks signatures and marks successful Fix Pack payments
 - rendered checks powered by Cloudflare Browser Run through the `BROWSER` binding
 - `/llms.txt` and same-URL Markdown for `/` kept truthful to the visible product
@@ -89,6 +90,8 @@ The protected admin APIs require the `ADMIN_EXPORT_TOKEN` Worker secret. Browser
 The paid repair CTA uses a hosted Dodo checkout session. The product is `SEO Fix Pack`, mapped through `DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID`; customer-facing copy must stay limited to one proof-backed repair pass plus one rerun, with no ranking promise.
 
 Visible pricing comes from Dodo's checkout preview endpoint. If the API key, product id, brand id, explicit environment, or webhook secret is missing, the app pauses checkout instead of showing a hardcoded fallback price.
+
+The private `/beta/billing` portal follows the BillingSDK self-serve billing pattern, but the implementation keeps Dodo calls inside the Worker. The official BillingSDK React transport currently adds generic client hooks around a separate API surface, so this repo uses the same customer-portal shape without moving Dodo provider logic or secrets into the browser.
 
 Cloudflare vars in `wrangler.jsonc` hold the public Dodo brand/product identifiers and environment mode:
 

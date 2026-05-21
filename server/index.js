@@ -81,6 +81,8 @@ app.post("/api/beta/fix-request", (req, res) => {
     ownerEmail: access.ownerEmail,
     targetUrl: report.url,
     targetHost: new URL(report.url).hostname,
+    score: report.score,
+    issueCount: report.summary?.totalFindings || 0,
     status: process.env.DODO_SEOFIXKIT_MOCK_CHECKOUT_URL ? "checkout_created" : "new",
     offer: FIX_PACK_OFFER,
     customerNote: "",
@@ -88,7 +90,8 @@ app.post("/api/beta/fix-request", (req, res) => {
     assignedTo: "",
     deliveryUrl: "",
     finalReportId: "",
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   };
   fixRequests.push(request);
   if (process.env.DODO_SEOFIXKIT_MOCK_CHECKOUT_URL) {
@@ -125,6 +128,59 @@ app.get("/api/pricing-preview", (req, res) => {
       status: "unavailable",
       source: "dodo"
     }
+  });
+});
+
+app.get("/api/billing/summary", (req, res) => {
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res.status(401).set("cache-control", "no-store").json({ error: "Private beta session required." });
+    return;
+  }
+
+  const ownerFixRequests = fixRequests
+    .filter((request) => request.ownerEmail === access.ownerEmail && !request.isTest)
+    .sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)));
+  res.set("cache-control", "no-store").json({
+    ok: true,
+    owner: {
+      email: access.ownerEmail
+    },
+    provider: {
+      name: "Dodo Payments",
+      source: "dodo",
+      environment: "local",
+      checkoutReady: false,
+      missing: ["workerRuntime"]
+    },
+    billingLayer: {
+      name: "BillingSDK-compatible customer portal",
+      mode: "worker-dodo-source-of-truth"
+    },
+    product: {
+      ...FIX_PACK_OFFER,
+      mode: "one_time_fix_pack",
+      checkoutStartsFrom: "report",
+      checkoutNote: "Start checkout from a report with proven fixes so payment stays tied to a repair brief."
+    },
+    pricing: {
+      status: "unavailable",
+      source: "dodo",
+      environment: "local",
+      missing: ["workerRuntime"],
+      message: "Dodo pricing preview is only available in the Cloudflare Worker runtime."
+    },
+    subscriptionState: {
+      status: "not_live",
+      label: "No recurring subscription",
+      message: "SEO Fix Kit currently sells one-time Fix Pack requests. Recurring plans are not live yet."
+    },
+    subscriptions: [],
+    requests: ownerFixRequests.map(localBillingFixRequestResponse),
+    payments: ownerFixRequests
+      .filter((request) => request.paymentId || request.paidAt || request.refundedAt || request.disputeEvent || request.status === "payment_failed")
+      .map(localBillingPaymentResponse),
+    generatedAt: new Date().toISOString()
   });
 });
 
@@ -661,6 +717,50 @@ function localFixRequestResponse(request) {
     beforeAfterSummary: request.beforeAfterSummary || null,
     createdAt: request.createdAt,
     updatedAt: request.updatedAt || request.createdAt
+  };
+}
+
+function localBillingFixRequestResponse(request) {
+  return {
+    ...localFixRequestResponse(request),
+    reportId: request.reportId,
+    reportPath: `/beta/reports/${request.reportId}`,
+    briefPath: `/api/reports/${request.reportId}/brief.md`
+  };
+}
+
+function localBillingPaymentResponse(request) {
+  const amountMinor = typeof request.paymentAmount === "number" ? request.paymentAmount : null;
+  const refundAmountMinor = typeof request.refundAmount === "number" ? request.refundAmount : null;
+  const type = request.refundedAt
+    ? "refund"
+    : request.disputeEvent
+      ? "dispute"
+      : request.status === "payment_failed"
+        ? "failed_payment"
+        : "payment";
+  return {
+    id: request.paymentId || request.checkoutSessionId || request.id,
+    type,
+    status: request.status || "",
+    statusLabel: localFixRequestStatusLabel(request.status),
+    paymentId: request.paymentId || "",
+    checkoutSessionId: request.checkoutSessionId || "",
+    refundId: request.refundId || "",
+    disputeEvent: request.disputeEvent || "",
+    amountMinor,
+    currency: request.paymentCurrency || "",
+    displayAmount: request.displayAmount || "",
+    refundAmountMinor,
+    refundCurrency: request.refundCurrency || "",
+    displayRefundAmount: request.displayRefundAmount || "",
+    targetHost: request.targetHost,
+    targetUrl: request.targetUrl,
+    reportPath: `/beta/reports/${request.reportId}`,
+    paidAt: request.paidAt || "",
+    refundedAt: request.refundedAt || "",
+    disputedAt: request.disputedAt || "",
+    createdAt: request.paidAt || request.refundedAt || request.disputedAt || request.updatedAt || request.createdAt || ""
   };
 }
 

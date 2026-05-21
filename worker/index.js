@@ -109,6 +109,10 @@ export default {
         return getFixPackPricingPreview(request, env);
       }
 
+      if (url.pathname === "/api/billing/summary" && request.method === "GET") {
+        return getBillingSummary(request, env);
+      }
+
       if (url.pathname === "/admin/session" && request.method === "POST") {
         return createAdminSession(request, env);
       }
@@ -1038,6 +1042,89 @@ async function getFixPackPricingPreview(request, env) {
   }
 }
 
+async function getBillingSummary(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Billing storage is not configured." }, 503);
+
+  const now = new Date().toISOString();
+  const dodoConfig = dodoCheckoutConfigStatus(env);
+  const pricing = await billingPricingState(request, env, access, dodoConfig);
+  const rows = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM fix_requests
+     WHERE owner_email = ?
+       AND is_test = 0
+     ORDER BY updated_at DESC
+     LIMIT 50`
+  )
+    .bind(access.ownerEmail)
+    .all();
+  const fixRows = rows.results || [];
+  const requests = fixRows.map((row) => billingFixRequestResponse(row, now));
+  const payments = fixRows
+    .filter((row) => row.payment_id || row.paid_at || row.refunded_at || row.dispute_event || row.status === "payment_failed")
+    .map(billingPaymentResponse);
+
+  return jsonNoStore({
+    ok: true,
+    owner: {
+      email: access.ownerEmail
+    },
+    provider: {
+      name: "Dodo Payments",
+      source: "dodo",
+      environment: dodoConfig.environment || "",
+      checkoutReady: dodoConfig.checkoutReady,
+      missing: dodoConfigMissing(dodoConfig)
+    },
+    billingLayer: {
+      name: "BillingSDK-compatible customer portal",
+      mode: "worker-dodo-source-of-truth"
+    },
+    product: {
+      ...FIX_PACK_OFFER,
+      mode: "one_time_fix_pack",
+      checkoutStartsFrom: "report",
+      checkoutNote: "Start checkout from a report with proven fixes so payment stays tied to a repair brief."
+    },
+    pricing,
+    subscriptionState: {
+      status: "not_live",
+      label: "No recurring subscription",
+      message: "SEO Fix Kit currently sells one-time Fix Pack requests. Recurring plans are not live yet."
+    },
+    subscriptions: [],
+    requests,
+    payments,
+    generatedAt: now
+  });
+}
+
+async function billingPricingState(request, env, access, config) {
+  if (!config.checkoutReady) {
+    return {
+      status: "unavailable",
+      source: "dodo",
+      environment: config.environment || "",
+      missing: dodoConfigMissing(config),
+      message: "Pricing is unavailable because checkout or webhook config is incomplete."
+    };
+  }
+
+  try {
+    return await previewDodoFixPackPricing(request, env, access);
+  } catch (error) {
+    return {
+      status: "unavailable",
+      source: "dodo",
+      environment: config.environment || "",
+      missing: [],
+      message: error?.message || "Dodo pricing preview is unavailable."
+    };
+  }
+}
+
 async function getOrCreateFixRequest(env, reportRow, access, summary, note, now, options = {}) {
   const existing = await env.WAITLIST_DB.prepare(
     `SELECT *
@@ -1135,6 +1222,53 @@ function fixRequestResponse(row, now = new Date().toISOString()) {
     beforeAfterSummary: parseJson(row.before_after_summary_json, null),
     createdAt: row.created_at || now,
     updatedAt: row.updated_at || now
+  };
+}
+
+function billingFixRequestResponse(row, now = new Date().toISOString()) {
+  return {
+    ...fixRequestResponse(row, now),
+    reportId: row.report_id,
+    reportPath: `/beta/reports/${row.report_id}`,
+    briefPath: `/api/reports/${row.report_id}/brief.md`
+  };
+}
+
+function billingPaymentResponse(row) {
+  const currency = normalizeCurrencyCode(row.payment_currency || row.refund_currency || "");
+  const amountMinor = numberOrNull(row.payment_amount);
+  const refundCurrency = normalizeCurrencyCode(row.refund_currency || "");
+  const refundAmountMinor = numberOrNull(row.refund_amount);
+  const type = row.refunded_at
+    ? "refund"
+    : row.dispute_event
+      ? "dispute"
+      : row.status === "payment_failed"
+        ? "failed_payment"
+        : "payment";
+
+  return {
+    id: row.payment_id || row.checkout_session_id || row.id,
+    type,
+    status: row.status || "",
+    statusLabel: fixRequestStatusLabel(row.status || "new"),
+    paymentId: row.payment_id || "",
+    checkoutSessionId: row.checkout_session_id || "",
+    refundId: row.refund_id || "",
+    disputeEvent: row.dispute_event || "",
+    amountMinor,
+    currency,
+    displayAmount: currency && amountMinor !== null ? formatMinorCurrency(amountMinor, currency) : "",
+    refundAmountMinor,
+    refundCurrency,
+    displayRefundAmount: refundCurrency && refundAmountMinor !== null ? formatMinorCurrency(refundAmountMinor, refundCurrency) : "",
+    targetHost: row.target_host,
+    targetUrl: row.target_url,
+    reportPath: `/beta/reports/${row.report_id}`,
+    paidAt: row.paid_at || "",
+    refundedAt: row.refunded_at || "",
+    disputedAt: row.disputed_at || "",
+    createdAt: row.paid_at || row.refunded_at || row.disputed_at || row.updated_at || row.created_at || ""
   };
 }
 
