@@ -168,6 +168,9 @@ function BetaApp() {
   const [accountData, setAccountData] = useState(null);
   const [accountStatus, setAccountStatus] = useState("idle");
   const [accountMessage, setAccountMessage] = useState("");
+  const [siteHost, setSiteHost] = useState("");
+  const [siteStatus, setSiteStatus] = useState("idle");
+  const [siteMessage, setSiteMessage] = useState("");
   const [adminToken, setAdminToken] = useState("");
   const [adminData, setAdminData] = useState(null);
   const [adminStatus, setAdminStatus] = useState("idle");
@@ -289,6 +292,36 @@ function BetaApp() {
     } catch (error) {
       setLoginStatus("error");
       setLoginMessage(error.message || "Could not send the access link.");
+    }
+  }
+
+  async function claimSite(event) {
+    event.preventDefault();
+    setSiteStatus("loading");
+    setSiteMessage("Creating verification challenge.");
+    try {
+      const payload = await postSiteClaim(siteHost);
+      setSiteStatus("success");
+      setSiteMessage(`Verification challenge ready for ${payload.site?.host || siteHost}.`);
+      setSiteHost("");
+      await loadAccountSummary(setAccountData, setAccountStatus, setAccountMessage);
+    } catch (error) {
+      setSiteStatus("error");
+      setSiteMessage(error.message || "Could not create site verification.");
+    }
+  }
+
+  async function verifySite(claimId) {
+    setSiteStatus("loading");
+    setSiteMessage("Checking DNS and HTTPS proof.");
+    try {
+      const payload = await postSiteVerify(claimId);
+      setSiteStatus(payload.verified ? "success" : "error");
+      setSiteMessage(payload.verified ? `${payload.site.host} is verified.` : payload.message || "Verification proof was not found yet.");
+      await loadAccountSummary(setAccountData, setAccountStatus, setAccountMessage);
+    } catch (error) {
+      setSiteStatus("error");
+      setSiteMessage(error.message || "Could not verify site.");
     }
   }
 
@@ -471,7 +504,13 @@ function BetaApp() {
       {!showingReport && (
         <CustomerDashboard
           accountData={accountData}
+          onSiteClaim={claimSite}
+          onSiteHostChange={setSiteHost}
+          onSiteVerify={verifySite}
           message={accountMessage}
+          siteHost={siteHost}
+          siteMessage={siteMessage}
+          siteStatus={siteStatus}
           status={accountStatus}
         />
       )}
@@ -509,24 +548,93 @@ function BetaTop({ onLock, showBilling = false, showOps = false }) {
   );
 }
 
-function CustomerDashboard({ accountData, message, status }) {
+function CustomerDashboard({
+  accountData,
+  message,
+  onSiteClaim,
+  onSiteHostChange,
+  onSiteVerify,
+  siteHost,
+  siteMessage,
+  siteStatus,
+  status
+}) {
   const metrics = accountData?.metrics || {};
   const reports = accountData?.recentReports || [];
   const fixRequests = accountData?.fixRequests || [];
   const nextActions = accountData?.nextActions || [];
+  const sites = accountData?.sites || [];
+  const verifiedSites = sites.filter((site) => site.status === "verified");
+  const pendingSites = sites.filter((site) => site.status !== "verified");
 
   return (
     <section className="account-dashboard" aria-label="Account overview">
       <div className="section-heading">
         <p className="beta-eyebrow">Your workspace</p>
-        <h2>{reports.length ? "Recent proof audits" : "Run your first proof audit"}</h2>
+        <h2>{verifiedSites.length ? "Recent proof audits" : "Verify a site first"}</h2>
         {message && status !== "success" && <p className={`form-message ${status}`}>{message}</p>}
       </div>
       <section className="metric-strip account-metrics" aria-label="Account summary">
         <Metric label="Reports" value={metrics.reports || 0} />
         <Metric label="Fix Packs" value={metrics.fixRequests || 0} />
-        <Metric label="Open" value={metrics.openFixRequests || 0} />
+        <Metric label="Verified sites" value={metrics.verifiedSites || verifiedSites.length || 0} />
       </section>
+      <div className="site-verification-panel">
+        <div>
+          <p className="beta-eyebrow">Site verification</p>
+          <h3>Prove you own the host before self-serve audits run.</h3>
+          <p>Founder override can still test manually. Customer sessions need an exact verified host.</p>
+        </div>
+        <form className="site-claim-form" onSubmit={onSiteClaim}>
+          <label htmlFor="site-host">Website host</label>
+          <div className="audit-row">
+            <input
+              id="site-host"
+              inputMode="url"
+              onChange={(event) => onSiteHostChange(event.target.value)}
+              placeholder="example.com"
+              required
+              type="text"
+              value={siteHost}
+            />
+            <button disabled={siteStatus === "loading"} type="submit">
+              {siteStatus === "loading" ? "Checking" : "Add site"}
+            </button>
+          </div>
+          {siteMessage && <p className={`form-message ${siteStatus}`}>{siteMessage}</p>}
+        </form>
+      </div>
+      {Boolean(sites.length) && (
+        <div className="site-claim-list">
+          {sites.map((site) => (
+            <article className={`site-claim-card ${site.status}`} key={site.id || site.host}>
+              <div>
+                <span className="status-pill">{site.status}</span>
+                <h3>{site.host}</h3>
+                {site.status === "verified" ? (
+                  <p>Verified by {site.verificationMethod || "site proof"}.</p>
+                ) : (
+                  <div className="verification-instructions">
+                    <p>Add either proof, then click verify.</p>
+                    <code>TXT {site.dnsName}: {site.dnsValue}</code>
+                    <code>{site.filePath}: {site.fileContents}</code>
+                  </div>
+                )}
+              </div>
+              {site.status !== "verified" && (
+                <button
+                  className="action-link"
+                  disabled={siteStatus === "loading"}
+                  onClick={() => onSiteVerify(site.id)}
+                  type="button"
+                >
+                  Verify now
+                </button>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
       <div className="account-grid">
         <div className="account-panel">
           <div className="section-heading">
@@ -582,15 +690,15 @@ function EmptyAuditState() {
       <div className="onboarding-steps">
         <article>
           <strong>1</strong>
-          <span>Paste your homepage, pricing page, or highest-value product page.</span>
+          <span>Verify the exact host with a DNS TXT record or HTTPS file.</span>
         </article>
         <article>
           <strong>2</strong>
-          <span>SEO Fix Kit renders it in a browser and crawls same-site links.</span>
+          <span>Paste your homepage, pricing page, or highest-value product page.</span>
         </article>
         <article>
           <strong>3</strong>
-          <span>Pay only if the saved report finds proven repairs worth shipping.</span>
+          <span>SEO Fix Kit renders the site and only queues proven repairs.</span>
         </article>
       </div>
     </div>
@@ -1870,6 +1978,34 @@ async function loadAccountSummary(setAccountData, setStatus, setMessage) {
     setStatus("error");
     setMessage(error.message || "Could not load your workspace.");
   }
+}
+
+async function postSiteClaim(host) {
+  const response = await fetch("/api/sites/claim", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ host })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not create site verification.");
+  }
+  return payload;
+}
+
+async function postSiteVerify(claimId) {
+  const response = await fetch("/api/sites/verify", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ claimId })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not verify site.");
+  }
+  return payload;
 }
 
 async function loadReport(id, setReport, setStatus, setMessage, onUnauthorized) {

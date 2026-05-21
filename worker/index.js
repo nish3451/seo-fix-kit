@@ -126,6 +126,18 @@ export default {
         return getAccountSummary(request, env);
       }
 
+      if (url.pathname === "/api/sites" && request.method === "GET") {
+        return listSiteClaims(request, env);
+      }
+
+      if (url.pathname === "/api/sites/claim" && request.method === "POST") {
+        return createSiteClaim(request, env);
+      }
+
+      if (url.pathname === "/api/sites/verify" && request.method === "POST") {
+        return verifySiteClaim(request, env);
+      }
+
       if (url.pathname === "/admin/session" && request.method === "POST") {
         return createAdminSession(request, env);
       }
@@ -1099,6 +1111,18 @@ async function runPrivateAudit(request, env) {
     return json({ error: publicUrlCheck.error }, 400);
   }
 
+  const authorization = await auditAuthorizationStatus(env, access, targetUrl);
+  if (!authorization.ok) {
+    return jsonNoStore(
+      {
+        error: authorization.error,
+        code: authorization.code,
+        site: authorization.site
+      },
+      authorization.status || 403
+    );
+  }
+
   const quota = await auditQuotaStatus(request, env, access, targetUrl);
   if (!quota.ok) {
     return jsonNoStore({ error: quota.error, resetAt: quota.resetAt }, 429);
@@ -1330,7 +1354,7 @@ async function getAccountSummary(request, env) {
   if (!access.ok) return betaAccessResponse(access);
   if (!env.WAITLIST_DB) return json({ error: "Account storage is not configured." }, 503);
 
-  const [reports, fixRequests] = await Promise.all([
+  const [reports, fixRequests, siteClaims] = await Promise.all([
     env.WAITLIST_DB.prepare(
       `SELECT id, url, target_host, score, summary_json, created_at, expires_at
        FROM audit_reports
@@ -1348,6 +1372,16 @@ async function getAccountSummary(request, env) {
          AND is_test = 0
        ORDER BY updated_at DESC
        LIMIT 12`
+    )
+      .bind(access.ownerEmail)
+      .all(),
+    env.WAITLIST_DB.prepare(
+      `SELECT *
+       FROM site_claims
+       WHERE owner_email = ?
+         AND revoked_at IS NULL
+       ORDER BY updated_at DESC
+       LIMIT 20`
     )
       .bind(access.ownerEmail)
       .all()
@@ -1369,6 +1403,8 @@ async function getAccountSummary(request, env) {
     };
   });
   const requests = (fixRequests.results || []).map((row) => billingFixRequestResponse(row));
+  const sites = (siteClaims.results || []).map(siteClaimResponse);
+  const verifiedSites = sites.filter((site) => site.status === "verified").length;
 
   return jsonNoStore({
     ok: true,
@@ -1379,15 +1415,20 @@ async function getAccountSummary(request, env) {
     metrics: {
       reports: recentReports.length,
       fixRequests: requests.length,
-      openFixRequests: requests.filter((request) => !["delivered", "refunded"].includes(request.status)).length
+      openFixRequests: requests.filter((request) => !["delivered", "refunded"].includes(request.status)).length,
+      verifiedSites
     },
     recentReports,
+    sites,
     fixRequests: requests,
-    nextActions: accountNextActions(recentReports, requests)
+    nextActions: accountNextActions(recentReports, requests, sites)
   });
 }
 
-function accountNextActions(reports, requests) {
+function accountNextActions(reports, requests, sites = []) {
+  if (!sites.some((site) => site.status === "verified")) {
+    return [{ id: "verify-site", label: "Verify your site", detail: "Add a DNS TXT record or HTTPS file before self-serve audits run." }];
+  }
   if (!reports.length) {
     return [{ id: "run-audit", label: "Run your first audit", detail: "Start with your homepage or highest-value product page." }];
   }
@@ -1398,6 +1439,264 @@ function accountNextActions(reports, requests) {
     return [{ id: "watch-delivery", label: "Watch delivery status", detail: "Your billing page shows due dates, notes, delivery links, and rerun proof." }];
   }
   return [{ id: "rerun-later", label: "Keep the report handy", detail: "Rerun after meaningful content, template, or metadata changes." }];
+}
+
+async function listSiteClaims(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Site claim storage is not configured." }, 503);
+
+  const rows = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM site_claims
+     WHERE owner_email = ?
+       AND revoked_at IS NULL
+     ORDER BY updated_at DESC
+     LIMIT 50`
+  )
+    .bind(access.ownerEmail)
+    .all();
+
+  return jsonNoStore({
+    ok: true,
+    sites: (rows.results || []).map(siteClaimResponse)
+  });
+}
+
+async function createSiteClaim(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Site claim storage is not configured." }, 503);
+
+  const body = await request.json().catch(() => ({}));
+  const host = claimHostFromInput(body.host || body.url || "");
+  if (!host) return jsonNoStore({ error: "Enter a public website host to verify." }, 400);
+
+  const existing = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM site_claims
+     WHERE owner_email = ?
+       AND host = ?
+       AND revoked_at IS NULL
+     ORDER BY created_at DESC
+     LIMIT 1`
+  )
+    .bind(access.ownerEmail, host)
+    .first();
+  if (existing?.id) {
+    return jsonNoStore({ ok: true, site: siteClaimResponse(existing) });
+  }
+
+  const now = new Date().toISOString();
+  const token = `sfk-${randomToken()}`;
+  const id = crypto.randomUUID();
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO site_claims
+      (id, owner_email, host, verification_token, status, verification_method, created_at, updated_at, verified_at, last_checked_at, revoked_at)
+     VALUES (?, ?, ?, ?, 'pending', NULL, ?, ?, NULL, NULL, NULL)`
+  )
+    .bind(id, access.ownerEmail, host, token, now, now)
+    .run();
+
+  const row = await env.WAITLIST_DB.prepare(`SELECT * FROM site_claims WHERE id = ? LIMIT 1`).bind(id).first();
+  return jsonNoStore({ ok: true, site: siteClaimResponse(row) });
+}
+
+async function verifySiteClaim(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Site claim storage is not configured." }, 503);
+
+  const body = await request.json().catch(() => ({}));
+  const claimId = cleanText(body.id || body.claimId || "", 80);
+  const host = claimHostFromInput(body.host || body.url || "");
+  const row = claimId
+    ? await env.WAITLIST_DB.prepare(
+        `SELECT *
+         FROM site_claims
+         WHERE id = ?
+           AND owner_email = ?
+           AND revoked_at IS NULL
+         LIMIT 1`
+      )
+        .bind(claimId, access.ownerEmail)
+        .first()
+    : host
+      ? await env.WAITLIST_DB.prepare(
+          `SELECT *
+           FROM site_claims
+           WHERE host = ?
+             AND owner_email = ?
+             AND revoked_at IS NULL
+           ORDER BY created_at DESC
+           LIMIT 1`
+        )
+          .bind(host, access.ownerEmail)
+          .first()
+      : null;
+
+  if (!row?.id) return jsonNoStore({ error: "Site claim not found." }, 404);
+
+  const [dnsVerified, fileVerified] = await Promise.all([
+    verifySiteClaimDns(row.host, row.verification_token),
+    verifySiteClaimHttpsFile(row.host, row.verification_token)
+  ]);
+  const now = new Date().toISOString();
+  if (dnsVerified.ok || fileVerified.ok) {
+    const method = dnsVerified.ok ? "dns-txt" : "https-file";
+    await env.WAITLIST_DB.prepare(
+      `UPDATE site_claims
+       SET status = 'verified',
+        verification_method = ?,
+        verified_at = COALESCE(verified_at, ?),
+        last_checked_at = ?,
+        updated_at = ?
+       WHERE id = ?`
+    )
+      .bind(method, now, now, now, row.id)
+      .run();
+    const updated = await env.WAITLIST_DB.prepare(`SELECT * FROM site_claims WHERE id = ? LIMIT 1`).bind(row.id).first();
+    return jsonNoStore({ ok: true, verified: true, site: siteClaimResponse(updated) });
+  }
+
+  await env.WAITLIST_DB.prepare(
+    `UPDATE site_claims
+     SET last_checked_at = ?,
+      updated_at = ?
+     WHERE id = ?`
+  )
+    .bind(now, now, row.id)
+    .run();
+  const updated = await env.WAITLIST_DB.prepare(`SELECT * FROM site_claims WHERE id = ? LIMIT 1`).bind(row.id).first();
+  return jsonNoStore({
+    ok: true,
+    verified: false,
+    site: siteClaimResponse(updated),
+    message: dnsVerified.error || fileVerified.error || "Verification record was not found yet."
+  });
+}
+
+async function auditAuthorizationStatus(env, access, targetUrl) {
+  if (access.accessMode === "founder-override") return { ok: true };
+  const host = safeHostname(targetUrl);
+  if (!host) return { ok: false, status: 400, error: "Enter a valid public website URL." };
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT id, host, status, verified_at
+     FROM site_claims
+     WHERE owner_email = ?
+       AND host = ?
+       AND status = 'verified'
+       AND revoked_at IS NULL
+     LIMIT 1`
+  )
+    .bind(access.ownerEmail, host)
+    .first();
+  if (row?.id) return { ok: true, site: siteClaimResponse(row) };
+  return {
+    ok: false,
+    status: 403,
+    code: "SITE_VERIFICATION_REQUIRED",
+    error: `Verify ${host} before running a self-serve audit.`,
+    site: siteClaimInstructions({ host, verification_token: "" })
+  };
+}
+
+function siteClaimResponse(row = {}) {
+  const instructions = siteClaimInstructions(row);
+  return {
+    id: row.id || "",
+    host: row.host || "",
+    status: row.status || "pending",
+    verificationMethod: row.verification_method || "",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+    verifiedAt: row.verified_at || "",
+    lastCheckedAt: row.last_checked_at || "",
+    ...instructions
+  };
+}
+
+function siteClaimInstructions(row = {}) {
+  const host = row.host || "";
+  const token = row.verification_token || "";
+  const proof = token ? siteVerificationText(token) : "";
+  return {
+    dnsName: host ? `_seofixkit.${host}` : "",
+    dnsType: "TXT",
+    dnsValue: proof,
+    filePath: "/.well-known/seofixkit.txt",
+    fileUrl: host ? `https://${host}/.well-known/seofixkit.txt` : "",
+    fileContents: proof
+  };
+}
+
+function siteVerificationText(token) {
+  return `seofixkit-site-verification=${token}`;
+}
+
+async function verifySiteClaimDns(host, token) {
+  const expected = siteVerificationText(token);
+  const dnsName = `_seofixkit.${host}`;
+  try {
+    const response = await fetch(
+      `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(dnsName)}&type=TXT`,
+      { headers: { accept: "application/dns-json" } }
+    );
+    if (!response.ok) return { ok: false, error: "DNS verification lookup failed." };
+    const payload = await response.json().catch(() => ({}));
+    const answers = Array.isArray(payload.Answer) ? payload.Answer : [];
+    const matched = answers.some((answer) => normalizeDnsTxt(answer.data).includes(expected));
+    return matched ? { ok: true } : { ok: false, error: "DNS TXT record was not found yet." };
+  } catch {
+    return { ok: false, error: "DNS verification lookup failed." };
+  }
+}
+
+async function verifySiteClaimHttpsFile(host, token) {
+  const expected = siteVerificationText(token);
+  try {
+    const response = await fetch(`https://${host}/.well-known/seofixkit.txt`, {
+      headers: { accept: "text/plain" }
+    });
+    if (!response.ok) return { ok: false, error: "Verification file was not found yet." };
+    const text = await readSmallText(response, 8192);
+    return text.includes(expected)
+      ? { ok: true }
+      : { ok: false, error: "Verification file does not contain the expected token yet." };
+  } catch {
+    return { ok: false, error: "Verification file was not reachable." };
+  }
+}
+
+async function readSmallText(response, maxBytes) {
+  const reader = response.body?.getReader?.();
+  if (!reader) return "";
+  const chunks = [];
+  let total = 0;
+  while (total < maxBytes) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    const remaining = maxBytes - total;
+    chunks.push(value.slice(0, remaining));
+    total += Math.min(value.byteLength, remaining);
+    if (value.byteLength > remaining) break;
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+function normalizeDnsTxt(value) {
+  return String(value || "")
+    .replace(/\\"/g, '"')
+    .replaceAll('" "', "")
+    .replaceAll('"', "")
+    .trim();
 }
 
 async function billingPricingState(request, env, access, config) {
@@ -3925,11 +4224,22 @@ function absolute(value, base) {
 }
 
 function normalizeUrl(input) {
-  const trimmed = input.trim();
+  const trimmed = String(input || "").trim();
   const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
   const url = new URL(withProtocol);
   url.hash = "";
   return url.href;
+}
+
+function claimHostFromInput(input) {
+  try {
+    const url = new URL(normalizeUrl(String(input || "").trim()));
+    const check = publicAuditUrlStatus(url.href);
+    if (!check.ok) return "";
+    return url.hostname.toLowerCase().replace(/\.$/, "");
+  } catch {
+    return "";
+  }
 }
 
 function normalizeEmail(input) {

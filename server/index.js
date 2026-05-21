@@ -14,6 +14,7 @@ const port = Number(process.env.PORT || 8787);
 const auditReports = new Map();
 const betaSessions = new Map();
 const accessTokens = new Map();
+const siteClaims = new Map();
 const fixRequests = [];
 const VERSION = "0.9.0";
 const SESSION_COOKIE = "sfk_beta_session";
@@ -257,6 +258,11 @@ app.get("/api/account/summary", (req, res) => {
     .sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)))
     .slice(0, 12)
     .map(localBillingFixRequestResponse);
+  const sites = [...siteClaims.values()]
+    .filter((claim) => claim.ownerEmail === access.ownerEmail && !claim.revokedAt)
+    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
+    .slice(0, 20)
+    .map(siteClaimResponse);
   res.set("cache-control", "no-store").json({
     ok: true,
     owner: {
@@ -266,14 +272,89 @@ app.get("/api/account/summary", (req, res) => {
     metrics: {
       reports: reports.length,
       fixRequests: requests.length,
-      openFixRequests: requests.filter((request) => !["delivered", "refunded"].includes(request.status)).length
+      openFixRequests: requests.filter((request) => !["delivered", "refunded"].includes(request.status)).length,
+      verifiedSites: sites.filter((site) => site.status === "verified").length
     },
     recentReports: reports,
+    sites,
     fixRequests: requests,
-    nextActions: reports.length
+    nextActions: !sites.some((site) => site.status === "verified")
+      ? [{ id: "verify-site", label: "Verify your site", detail: "Verify a host before running self-serve audits." }]
+      : reports.length
       ? [{ id: "review-fixes", label: "Review proven fixes", detail: "Open a report and start a Fix Pack only when the findings are real." }]
       : [{ id: "run-audit", label: "Run your first audit", detail: "Start with your homepage or highest-value product page." }]
   });
+});
+
+app.get("/api/sites", (req, res) => {
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res.status(401).set("cache-control", "no-store").json({ error: "Private beta session required." });
+    return;
+  }
+  const sites = [...siteClaims.values()]
+    .filter((claim) => claim.ownerEmail === access.ownerEmail && !claim.revokedAt)
+    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
+    .map(siteClaimResponse);
+  res.set("cache-control", "no-store").json({ ok: true, sites });
+});
+
+app.post("/api/sites/claim", (req, res) => {
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res.status(401).set("cache-control", "no-store").json({ error: "Private beta session required." });
+    return;
+  }
+  const host = claimHostFromInput(req.body?.host || req.body?.url || "");
+  if (!host) {
+    res.status(400).set("cache-control", "no-store").json({ error: "Enter a public website host to verify." });
+    return;
+  }
+  const existing = [...siteClaims.values()].find((claim) => claim.ownerEmail === access.ownerEmail && claim.host === host && !claim.revokedAt);
+  if (existing) {
+    res.set("cache-control", "no-store").json({ ok: true, site: siteClaimResponse(existing) });
+    return;
+  }
+  const now = new Date().toISOString();
+  const claim = {
+    id: randomUUID(),
+    ownerEmail: access.ownerEmail,
+    host,
+    verificationToken: `sfk-${randomBytes(32).toString("hex")}`,
+    status: "pending",
+    verificationMethod: "",
+    createdAt: now,
+    updatedAt: now,
+    verifiedAt: "",
+    lastCheckedAt: "",
+    revokedAt: ""
+  };
+  siteClaims.set(claim.id, claim);
+  res.set("cache-control", "no-store").json({ ok: true, site: siteClaimResponse(claim) });
+});
+
+app.post("/api/sites/verify", (req, res) => {
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res.status(401).set("cache-control", "no-store").json({ error: "Private beta session required." });
+    return;
+  }
+  const claimId = cleanText(req.body?.id || req.body?.claimId || "", 80);
+  const host = claimHostFromInput(req.body?.host || req.body?.url || "");
+  const claim = claimId
+    ? siteClaims.get(claimId)
+    : [...siteClaims.values()].find((item) => item.ownerEmail === access.ownerEmail && item.host === host && !item.revokedAt);
+  if (!claim || claim.ownerEmail !== access.ownerEmail || claim.revokedAt) {
+    res.status(404).set("cache-control", "no-store").json({ error: "Site claim not found." });
+    return;
+  }
+  const now = new Date().toISOString();
+  claim.status = "verified";
+  claim.verificationMethod = "local-dev";
+  claim.verifiedAt ||= now;
+  claim.lastCheckedAt = now;
+  claim.updatedAt = now;
+  res.set("cache-control", "no-store").json({ ok: true, verified: true, site: siteClaimResponse(claim) });
 });
 
 app.get("/api/beta/session", (req, res) => {
@@ -503,6 +584,15 @@ app.post("/api/audit", async (req, res) => {
     const urlCheck = publicAuditUrlStatus(normalized);
     if (!urlCheck.ok) {
       res.status(400).json({ error: urlCheck.error });
+      return;
+    }
+    const authorization = localAuditAuthorizationStatus(access, normalized);
+    if (!authorization.ok) {
+      res.status(403).set("cache-control", "no-store").json({
+        error: authorization.error,
+        code: "SITE_VERIFICATION_REQUIRED",
+        site: authorization.site
+      });
       return;
     }
 
@@ -954,6 +1044,17 @@ function normalizeUrl(input) {
   return url.href;
 }
 
+function claimHostFromInput(input) {
+  try {
+    const url = new URL(normalizeUrl(String(input || "").trim()));
+    const status = publicAuditUrlStatus(url.href);
+    if (!status.ok) return "";
+    return url.hostname.toLowerCase().replace(/\.$/, "");
+  } catch {
+    return "";
+  }
+}
+
 function normalizeEmail(input) {
   const email = String(input || "").trim().toLowerCase();
   if (email.length > 254) return "";
@@ -1031,6 +1132,52 @@ function publicAuditUrlStatus(value) {
   }
 
   return { ok: true };
+}
+
+function localAuditAuthorizationStatus(access, targetUrl) {
+  if (access.accessMode === "founder-override") return { ok: true };
+  const host = safeHost(targetUrl);
+  const claim = [...siteClaims.values()].find(
+    (item) =>
+      item.ownerEmail === access.ownerEmail &&
+      item.host === host &&
+      item.status === "verified" &&
+      !item.revokedAt
+  );
+  if (claim) return { ok: true, site: siteClaimResponse(claim) };
+  return {
+    ok: false,
+    error: `Verify ${host} before running a self-serve audit.`,
+    site: siteClaimInstructions({ host, verificationToken: "" })
+  };
+}
+
+function siteClaimResponse(claim = {}) {
+  return {
+    id: claim.id || "",
+    host: claim.host || "",
+    status: claim.status || "pending",
+    verificationMethod: claim.verificationMethod || "",
+    createdAt: claim.createdAt || "",
+    updatedAt: claim.updatedAt || "",
+    verifiedAt: claim.verifiedAt || "",
+    lastCheckedAt: claim.lastCheckedAt || "",
+    ...siteClaimInstructions(claim)
+  };
+}
+
+function siteClaimInstructions(claim = {}) {
+  const host = claim.host || "";
+  const token = claim.verificationToken || "";
+  const proof = token ? `seofixkit-site-verification=${token}` : "";
+  return {
+    dnsName: host ? `_seofixkit.${host}` : "",
+    dnsType: "TXT",
+    dnsValue: proof,
+    filePath: "/.well-known/seofixkit.txt",
+    fileUrl: host ? `https://${host}/.well-known/seofixkit.txt` : "",
+    fileContents: proof
+  };
 }
 
 function isPrivateHostname(host) {
