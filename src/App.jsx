@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 
 const BETA_SESSION_KEY = "seofixkit_beta_unlocked";
 const BETA_EMAIL_KEY = "seofixkit_beta_email";
-const ADMIN_TOKEN_KEY = "seofixkit_admin_token";
 
 export default function App() {
   if (window.location.pathname.startsWith("/beta")) {
@@ -151,7 +150,7 @@ function BetaApp() {
   const [auditStatus, setAuditStatus] = useState(reportId ? "loading" : "idle");
   const [auditMessage, setAuditMessage] = useState("");
   const [report, setReport] = useState(null);
-  const [adminToken, setAdminToken] = useState(() => window.sessionStorage.getItem(ADMIN_TOKEN_KEY) || "");
+  const [adminToken, setAdminToken] = useState("");
   const [adminData, setAdminData] = useState(null);
   const [adminStatus, setAdminStatus] = useState("idle");
   const [adminMessage, setAdminMessage] = useState("");
@@ -161,6 +160,13 @@ function BetaApp() {
       refreshSession(setIsAuthed, setOwnerEmail);
     }
   }, [reportId, isAdminRoute]);
+
+  useEffect(() => {
+    if (!inviteParams.get("invite")) return;
+    const cleanUrl = new URL(window.location.href);
+    cleanUrl.searchParams.delete("invite");
+    window.history.replaceState({}, "", `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
+  }, []);
 
   useEffect(() => {
     if (!isAuthed || !reportId) return;
@@ -253,6 +259,25 @@ function BetaApp() {
 
   const showingReport = Boolean(report && auditStatus === "success");
 
+  if (isAdminRoute) {
+    return (
+      <main className="beta-shell">
+        <BetaTop onLock={lock} showOps />
+        <AdminDashboard
+          adminData={adminData}
+          adminMessage={adminMessage}
+          adminStatus={adminStatus}
+          adminToken={adminToken}
+          onLoad={() => loadAdmin(adminToken, setAdminData, setAdminStatus, setAdminMessage, () => setAdminToken(""))}
+          onTokenChange={(value) => {
+            setAdminToken(value);
+          }}
+          onInviteCreated={() => loadAdmin("", setAdminData, setAdminStatus, setAdminMessage)}
+        />
+      </main>
+    );
+  }
+
   if (!isAuthed) {
     return (
       <main className="beta-shell beta-gate">
@@ -298,26 +323,6 @@ function BetaApp() {
             </a>
           </form>
         </section>
-      </main>
-    );
-  }
-
-  if (isAdminRoute) {
-    return (
-      <main className="beta-shell">
-        <BetaTop onLock={lock} showOps />
-        <AdminDashboard
-          adminData={adminData}
-          adminMessage={adminMessage}
-          adminStatus={adminStatus}
-          adminToken={adminToken}
-          onLoad={() => loadAdmin(adminToken, setAdminData, setAdminStatus, setAdminMessage)}
-          onTokenChange={(value) => {
-            setAdminToken(value);
-            window.sessionStorage.setItem(ADMIN_TOKEN_KEY, value);
-          }}
-          onInviteCreated={() => loadAdmin(adminToken, setAdminData, setAdminStatus, setAdminMessage)}
-        />
       </main>
     );
   }
@@ -629,6 +634,18 @@ function FixRequestStatusPanel({ fixRequest, checkoutReturned }) {
               <dd>{formatDate(fixRequest.deliveredAt)}</dd>
             </div>
           )}
+          {fixRequest.dueAt && (
+            <div>
+              <dt>Expected by</dt>
+              <dd>{formatDate(fixRequest.dueAt)}</dd>
+            </div>
+          )}
+          {fixRequest.nextUpdateAt && (
+            <div>
+              <dt>Next update</dt>
+              <dd>{formatDate(fixRequest.nextUpdateAt)}</dd>
+            </div>
+          )}
           {fixRequest.customerNote && (
             <div>
               <dt>Note</dt>
@@ -647,6 +664,12 @@ function FixRequestStatusPanel({ fixRequest, checkoutReturned }) {
               <dd><a href={fixRequest.finalReportPath}>Open rerun report</a></dd>
             </div>
           )}
+          {fixRequest.beforeAfterSummary && (
+            <div>
+              <dt>Rerun proof</dt>
+              <dd>{beforeAfterText(fixRequest.beforeAfterSummary)}</dd>
+            </div>
+          )}
         </dl>
       )}
     </section>
@@ -658,6 +681,8 @@ function checkoutMessage(status, checkoutReturned) {
   if (status === "in_progress") return "The repair pass is in progress. Delivery notes will appear here.";
   if (status === "delivered") return "Delivery is ready. Use the delivery and rerun links below.";
   if (status === "payment_failed") return "Payment did not complete. You can reopen checkout from this report.";
+  if (status === "refunded") return "This Fix Pack was refunded.";
+  if (status === "disputed") return "This payment needs manual support review.";
   if (checkoutReturned) return "Checkout returned. Payment confirmation can take a moment after Dodo finishes processing.";
   return "Checkout has been opened for this report.";
 }
@@ -669,9 +694,23 @@ function statusLabel(status) {
     paid: "Payment confirmed",
     in_progress: "Repair in progress",
     delivered: "Delivered",
-    payment_failed: "Payment failed"
+    payment_failed: "Payment failed",
+    refunded: "Refunded",
+    refund_failed: "Refund failed",
+    disputed: "Disputed"
   };
   return labels[status] || labels.new;
+}
+
+function beforeAfterText(summary) {
+  if (!summary) return "";
+  const beforeScore = Number(summary.beforeScore || 0);
+  const afterScore = Number(summary.afterScore || 0);
+  const beforeFindings = Number(summary.beforeFindings || 0);
+  const afterFindings = Number(summary.afterFindings || 0);
+  const scoreDelta = afterScore - beforeScore;
+  const fixed = Math.max(0, beforeFindings - afterFindings);
+  return `Score ${beforeScore} to ${afterScore} (${scoreDelta >= 0 ? "+" : ""}${scoreDelta}); findings ${beforeFindings} to ${afterFindings} (${fixed} reduced).`;
 }
 
 function formatDate(value) {
@@ -680,6 +719,14 @@ function formatDate(value) {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(new Date(value));
+}
+
+function datetimeLocalValue(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
 function FindingItem({ finding, plan, compact = false }) {
@@ -1018,6 +1065,7 @@ function AdminDashboard({
         adminToken={adminToken}
         emailConfigured={Boolean(metrics.emailNotificationsConfigured)}
         requests={adminData?.fixQueue || []}
+        opsHealth={adminData?.opsHealth || {}}
         statusCounts={metrics.fixRequestStatuses || {}}
         onUpdated={onLoad}
       />
@@ -1111,17 +1159,20 @@ function AdminDashboard({
   );
 }
 
-function FixPackQueue({ adminToken, emailConfigured, requests, statusCounts, onUpdated }) {
+function FixPackQueue({ adminToken, emailConfigured, requests, opsHealth, statusCounts, onUpdated }) {
   const [drafts, setDrafts] = useState({});
   const [savingId, setSavingId] = useState("");
   const [message, setMessage] = useState("");
 
   function draftFor(request) {
     return drafts[request.id] || {
-      status: request.status || "paid",
+      status: request.status || "checkout_created",
       assignedTo: request.assignedTo || "",
       deliveryUrl: request.deliveryUrl || "",
       finalReportId: request.finalReportId || "",
+      dueAt: request.dueAt || "",
+      nextUpdateAt: request.nextUpdateAt || "",
+      statusReason: request.statusReason || "",
       customerNote: request.customerNote || "",
       adminNote: request.adminNote || ""
     };
@@ -1162,6 +1213,7 @@ function FixPackQueue({ adminToken, emailConfigured, requests, statusCounts, onU
           <span>Paid {statusCounts.paid || 0}</span>
           <span>In progress {statusCounts.in_progress || 0}</span>
           <span>Delivered {statusCounts.delivered || 0}</span>
+          <span>Overdue {opsHealth.overdue || 0}</span>
           <span>{emailConfigured ? "Email on" : "Email config missing"}</span>
         </div>
       </div>
@@ -1174,6 +1226,7 @@ function FixPackQueue({ adminToken, emailConfigured, requests, statusCounts, onU
               <div className="fix-queue-main">
                 <div>
                   <span className="status-pill">{request.statusLabel || statusLabel(request.status)}</span>
+                  {request.isTest && <span className="status-pill test-pill">Test</span>}
                   <h3>{request.targetHost || request.targetUrl}</h3>
                   <p>{request.ownerEmail}</p>
                   <p>{request.issueCount || 0} findings · score {request.score ?? "unknown"}</p>
@@ -1192,7 +1245,7 @@ function FixPackQueue({ adminToken, emailConfigured, requests, statusCounts, onU
                     value={draft.status}
                   >
                     <option value="checkout_created">Checkout opened</option>
-                    <option value="paid">Paid</option>
+                    {request.status === "paid" && <option value="paid" disabled>Dodo paid</option>}
                     <option value="in_progress">In progress</option>
                     <option value="delivered">Delivered</option>
                   </select>
@@ -1222,6 +1275,22 @@ function FixPackQueue({ adminToken, emailConfigured, requests, statusCounts, onU
                   />
                 </label>
                 <label>
+                  Due
+                  <input
+                    onChange={(event) => updateDraft(request.id, { dueAt: event.target.value })}
+                    type="datetime-local"
+                    value={datetimeLocalValue(draft.dueAt)}
+                  />
+                </label>
+                <label>
+                  Next update
+                  <input
+                    onChange={(event) => updateDraft(request.id, { nextUpdateAt: event.target.value })}
+                    type="datetime-local"
+                    value={datetimeLocalValue(draft.nextUpdateAt)}
+                  />
+                </label>
+                <label>
                   Customer note
                   <textarea
                     onChange={(event) => updateDraft(request.id, { customerNote: event.target.value })}
@@ -1237,10 +1306,20 @@ function FixPackQueue({ adminToken, emailConfigured, requests, statusCounts, onU
                     value={draft.adminNote}
                   />
                 </label>
+                <label>
+                  Status reason
+                  <input
+                    onChange={(event) => updateDraft(request.id, { statusReason: event.target.value })}
+                    placeholder="Why this moved"
+                    value={draft.statusReason}
+                  />
+                </label>
               </div>
               <div className="queue-footer">
                 <div>
                   {request.paidAt && <span>Paid {formatDate(request.paidAt)}</span>}
+                  {request.dueAt && <span> · Due {formatDate(request.dueAt)}</span>}
+                  {request.beforeAfterSummary && <span> · {beforeAfterText(request.beforeAfterSummary)}</span>}
                   {request.lastNotificationAt && <span> · Notified {formatDate(request.lastNotificationAt)}</span>}
                   {request.notificationError && <span> · {request.notificationError}</span>}
                 </div>
@@ -1345,13 +1424,18 @@ async function requestFixQuote(reportId) {
   }
 }
 
-async function loadAdmin(token, setAdminData, setAdminStatus, setAdminMessage) {
+async function loadAdmin(token, setAdminData, setAdminStatus, setAdminMessage, onSessionReady = null) {
   setAdminStatus("loading");
   setAdminMessage("");
   try {
+    if (token) {
+      const session = await createAdminSession(token);
+      if (!session.ok) throw new Error(session.error || "Could not unlock admin session.");
+      onSessionReady?.();
+    }
     const response = await fetch("/admin/summary", {
       credentials: "same-origin",
-      headers: { authorization: `Bearer ${token}` }
+      headers: adminRequestHeaders("")
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || payload.ok !== true) throw new Error(payload.error || "Could not load ops.");
@@ -1364,15 +1448,28 @@ async function loadAdmin(token, setAdminData, setAdminStatus, setAdminMessage) {
   }
 }
 
+async function createAdminSession(token) {
+  try {
+    const response = await fetch("/admin/session", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok !== true) return { ok: false, error: payload.error || "Could not unlock admin session." };
+    return payload;
+  } catch (error) {
+    return { ok: false, error: error.message || "Could not unlock admin session." };
+  }
+}
+
 async function postAdminInvite(token, body) {
   try {
     const response = await fetch("/admin/invites", {
       method: "POST",
       credentials: "same-origin",
-      headers: {
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json"
-      },
+      headers: adminRequestHeaders(token, true),
       body: JSON.stringify(body)
     });
     const payload = await response.json().catch(() => ({}));
@@ -1388,10 +1485,7 @@ async function patchAdminFixRequest(token, id, body) {
     const response = await fetch(`/admin/fix-requests/${encodeURIComponent(id)}`, {
       method: "PATCH",
       credentials: "same-origin",
-      headers: {
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json"
-      },
+      headers: adminRequestHeaders(token, true),
       body: JSON.stringify(body)
     });
     const payload = await response.json().catch(() => ({}));
@@ -1402,6 +1496,13 @@ async function patchAdminFixRequest(token, id, body) {
   } catch (error) {
     return { ok: false, error: error.message || "Could not update Fix Pack request." };
   }
+}
+
+function adminRequestHeaders(token, json = false) {
+  const headers = {};
+  if (token) headers.authorization = `Bearer ${token}`;
+  if (json) headers["content-type"] = "application/json";
+  return headers;
 }
 
 function reportIdFromPath() {

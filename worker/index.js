@@ -1,11 +1,16 @@
 import puppeteer from "@cloudflare/puppeteer";
 import {
+  DODO_DISPUTE_EVENTS,
   DODO_PAYMENT_FAILURE_EVENTS,
+  DODO_PAYMENT_PROCESSING_EVENTS,
   DODO_PAYMENT_SUCCESS_EVENTS,
+  DODO_REFUND_FAILURE_EVENTS,
+  DODO_REFUND_SUCCESS_EVENTS,
   PAID_STATUSES,
   dodoAdaptiveCurrencyFeesInclusive,
   dodoApiKey,
   dodoBaseUrl,
+  dodoBrandId,
   dodoCountryFromRequest,
   dodoProductId,
   dodoProductMatches,
@@ -17,7 +22,9 @@ import {
 import {
   ADMIN_EDITABLE_FIX_REQUEST_STATUSES,
   adminNotificationEmail,
+  buildOpsDigestEmail,
   buildPaymentNotificationEmail,
+  buildStatusNotificationEmail,
   fixRequestStatusLabel,
   isResendEmailConfigured,
   normalizeFixRequestStatus
@@ -33,9 +40,11 @@ const DOCS = {
 };
 
 const MAX_HTML_BYTES = 1_000_000;
-const VERSION = "0.8.0";
+const VERSION = "0.9.0";
 const SESSION_COOKIE = "sfk_beta_session";
+const ADMIN_SESSION_COOKIE = "sfk_admin_session";
 const BETA_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
+const ADMIN_SESSION_TTL_SECONDS = 60 * 60 * 2;
 const REPORT_RETENTION_DAYS = 30;
 const DEFAULT_INVITE_TTL_DAYS = 14;
 const FIX_PACK_OFFER = {
@@ -44,11 +53,15 @@ const FIX_PACK_OFFER = {
   productKey: "seofixkit_fix_pack",
   description: "One proof-backed repair pass for this report plus one rerun after fixes."
 };
+const FIX_PACK_DUE_DAYS = 5;
+const FIX_PACK_NEXT_UPDATE_DAYS = 2;
+const PAID_LIKE_FIX_REQUEST_STATUSES = new Set(["paid", "in_progress", "delivered"]);
 
 export default {
   async scheduled(_event, env, ctx) {
     if (env.WAITLIST_DB) {
       ctx.waitUntil(cleanupExpiredRows(env));
+      ctx.waitUntil(sendDailyOpsDigest(env));
     }
   },
 
@@ -92,8 +105,16 @@ export default {
         return requestFixPack(request, env);
       }
 
+      if (url.pathname === "/admin/session" && request.method === "POST") {
+        return createAdminSession(request, env);
+      }
+
+      if (url.pathname === "/admin/session" && request.method === "DELETE") {
+        return revokeAdminSession(request, env);
+      }
+
       if (url.pathname === "/api/webhooks/dodo" && request.method === "POST") {
-        return handleDodoWebhook(request, env);
+        return handleDodoWebhook(request, env, ctx);
       }
 
       if (url.pathname.startsWith("/api/reports/")) {
@@ -126,44 +147,44 @@ export default {
 
       if (url.pathname === "/fixture/rendered-page") {
         return new Response(renderedFixture(url.origin), {
-          headers: { "content-type": "text/html; charset=utf-8" }
+          headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
         });
       }
 
       if (url.pathname === "/fixture/robots.txt") {
         return new Response(`User-agent: *\nAllow: /\n\nSitemap: ${url.origin}/fixture/sitemap.xml\n`, {
-          headers: { "content-type": "text/plain; charset=utf-8" }
+          headers: secureHeaders({ "content-type": "text/plain; charset=utf-8" })
         });
       }
 
       if (url.pathname === "/fixture/sitemap.xml") {
         return new Response(
           `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${url.origin}/fixture/rendered-page</loc></url></urlset>`,
-          { headers: { "content-type": "application/xml; charset=utf-8" } }
+          { headers: secureHeaders({ "content-type": "application/xml; charset=utf-8" }) }
         );
       }
 
       if (url.pathname === "/robots.txt") {
         return new Response(`User-agent: *\nAllow: /\n\nSitemap: ${url.origin}/sitemap.xml\n`, {
-          headers: { "content-type": "text/plain; charset=utf-8" }
+          headers: secureHeaders({ "content-type": "text/plain; charset=utf-8" })
         });
       }
 
       if (url.pathname === "/sitemap.xml") {
         return new Response(rootSitemap(url.origin), {
-          headers: { "content-type": "application/xml; charset=utf-8" }
+          headers: secureHeaders({ "content-type": "application/xml; charset=utf-8" })
         });
       }
 
       if (url.pathname === "/llms.txt") {
         return new Response(llmsText(url.origin), {
-          headers: { "content-type": "text/plain; charset=utf-8" }
+          headers: secureHeaders({ "content-type": "text/plain; charset=utf-8" })
         });
       }
 
       if (url.pathname === "/privacy") {
         return new Response(privacyHtml(url.origin), {
-          headers: { "content-type": "text/html; charset=utf-8" }
+          headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
         });
       }
 
@@ -178,11 +199,11 @@ export default {
         (request.headers.get("accept") || "").includes("text/markdown")
       ) {
         return new Response(homeMarkdown(url.origin), {
-          headers: { "content-type": "text/markdown; charset=utf-8" }
+          headers: secureHeaders({ "content-type": "text/markdown; charset=utf-8" })
         });
       }
 
-      return env.ASSETS.fetch(request);
+      return withSecurityHeaders(await env.ASSETS.fetch(request));
     } catch (error) {
       return json(
         {
@@ -280,8 +301,8 @@ async function exportLeadsCsv(request, env) {
 
   const admin = await adminAccessStatus(request, env, "export-leads");
   if (!admin.ok) {
-    return new Response("Unauthorized", {
-      status: 401,
+    return new Response(admin.error || "Unauthorized", {
+      status: admin.status || 401,
       headers: {
         "cache-control": "no-store",
         "www-authenticate": "Bearer"
@@ -338,12 +359,71 @@ async function exportLeadsCsv(request, env) {
   });
 }
 
+async function createAdminSession(request, env) {
+  if (!env.WAITLIST_DB) return jsonNoStore({ error: "Admin storage is not configured." }, 503);
+  const body = await request.json().catch(() => ({}));
+  const expected = String(env.ADMIN_EXPORT_TOKEN || "");
+  const provided = String(body.token || "").trim();
+  const actorEmail =
+    normalizeEmail(body.email || "") ||
+    cleanText(request.headers.get("cf-access-authenticated-user-email") || "", 254) ||
+    "bearer-admin";
+  if (!expected || !constantTimeEqual(provided, expected)) {
+    const quota = await adminFailureQuotaStatus(request, env);
+    await logAdminAction(request, env, "create-admin-session", false, actorEmail);
+    return jsonNoStore(
+      { error: quota.ok ? "Unauthorized" : quota.error, ...(quota.resetAt ? { resetAt: quota.resetAt } : {}) },
+      quota.ok ? 401 : 429
+    );
+  }
+
+  const token = randomToken();
+  const tokenHash = await sha256Hex(token);
+  const now = new Date().toISOString();
+  const expiresAt = isoSecondsFromNow(ADMIN_SESSION_TTL_SECONDS);
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO admin_sessions
+      (token_hash, actor_email, created_at, expires_at, last_seen_at, revoked_at, ip_hash, user_agent)
+     VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`
+  )
+    .bind(
+      tokenHash,
+      actorEmail,
+      now,
+      expiresAt,
+      now,
+      await requestIpHash(request),
+      cleanText(request.headers.get("user-agent") || "", 500)
+    )
+    .run();
+  await logAdminAction(request, env, "create-admin-session", true, actorEmail);
+  const response = jsonNoStore({ ok: true, actorEmail, expiresAt });
+  response.headers.append("set-cookie", adminSessionCookie(request, token, ADMIN_SESSION_TTL_SECONDS));
+  return response;
+}
+
+async function revokeAdminSession(request, env) {
+  const token = cookieValue(request, ADMIN_SESSION_COOKIE);
+  if (token && env.WAITLIST_DB) {
+    await env.WAITLIST_DB.prepare(
+      `UPDATE admin_sessions SET revoked_at = ?, last_seen_at = ? WHERE token_hash = ?`
+    )
+      .bind(new Date().toISOString(), new Date().toISOString(), await sha256Hex(token))
+      .run();
+  }
+  const response = jsonNoStore({ ok: true });
+  response.headers.append("set-cookie", clearAdminSessionCookie(request));
+  return response;
+}
+
 async function getAdminSummary(request, env) {
   const admin = await adminAccessStatus(request, env, "view-summary");
-  if (!admin.ok) return jsonNoStore({ error: "Unauthorized" }, 401);
+  if (!admin.ok) return adminDeniedJson(admin);
   if (!env.WAITLIST_DB) return json({ error: "Admin storage is not configured." }, 503);
   await logAdminAction(request, env, "view-summary", true, admin.actorEmail);
 
+  const includeTest = new URL(request.url).searchParams.get("includeTest") === "1";
+  const fixWhere = includeTest ? "" : "is_test = 0";
   const today = new Date().toISOString().slice(0, 10);
   const soon = isoDaysFromNow(7);
   const [
@@ -359,7 +439,9 @@ async function getAdminSummary(request, env) {
     recentInvites,
     fixStatusCounts,
     fixQueue,
-    notificationRows
+    notificationRows,
+    eventRows,
+    opsHealth
   ] = await Promise.all([
     countRows(env, "waitlist_leads"),
     countRows(env, "beta_invites"),
@@ -367,7 +449,7 @@ async function getAdminSummary(request, env) {
     countRows(env, "audit_reports"),
     countRows(env, "audit_reports", "created_at >= ?", [`${today}T00:00:00.000Z`]),
     countRows(env, "audit_reports", "expires_at IS NOT NULL AND expires_at <= ?", [soon]),
-    countRows(env, "fix_requests"),
+    countRows(env, "fix_requests", fixWhere),
     env.WAITLIST_DB.prepare(
       `SELECT id, url, target_host, owner_email, score, summary_json, created_at, expires_at
        FROM audit_reports
@@ -389,11 +471,13 @@ async function getAdminSummary(request, env) {
     env.WAITLIST_DB.prepare(
       `SELECT status, COUNT(*) AS count
        FROM fix_requests
+       ${fixWhere ? `WHERE ${fixWhere}` : ""}
        GROUP BY status`
     ).all(),
     env.WAITLIST_DB.prepare(
       `SELECT *
        FROM fix_requests
+       ${fixWhere ? `WHERE ${fixWhere}` : ""}
        ORDER BY
         CASE status
           WHEN 'paid' THEN 0
@@ -406,13 +490,21 @@ async function getAdminSummary(request, env) {
        LIMIT 50`
     ).all(),
     env.WAITLIST_DB.prepare(
-      `SELECT fix_request_id, recipient_type, recipient_email, status, provider, provider_message_id, error, created_at
+      `SELECT fix_request_id, event, recipient_type, recipient_email, status, provider, provider_message_id, error, created_at
        FROM fix_request_notifications
        ORDER BY created_at DESC
        LIMIT 100`
-    ).all()
+    ).all(),
+    env.WAITLIST_DB.prepare(
+      `SELECT fix_request_id, event, actor_type, actor_email, from_status, to_status, reason, created_at
+       FROM fix_request_events
+       ORDER BY created_at DESC
+       LIMIT 200`
+    ).all(),
+    buildOpsSnapshot(env, { includeTest })
   ]);
   const notificationsByFixRequest = groupNotificationsByFixRequest(notificationRows.results || []);
+  const eventsByFixRequest = groupEventsByFixRequest(eventRows.results || []);
 
   return jsonNoStore({
     ok: true,
@@ -429,6 +521,8 @@ async function getAdminSummary(request, env) {
       ),
       emailNotificationsConfigured: isResendEmailConfigured(env)
     },
+    opsHealth,
+    includeTest,
     offer: FIX_PACK_OFFER,
     recentAudits: (recentAudits.results || []).map((row) => {
       const summary = parseJson(row.summary_json, {});
@@ -458,14 +552,14 @@ async function getAdminSummary(request, env) {
       createdAt: invite.created_at
     })),
     fixQueue: (fixQueue.results || []).map((row) =>
-      fixRequestAdminResponse(row, notificationsByFixRequest.get(row.id) || [])
+      fixRequestAdminResponse(row, notificationsByFixRequest.get(row.id) || [], eventsByFixRequest.get(row.id) || [])
     )
   });
 }
 
 async function createInvite(request, env) {
   const admin = await adminAccessStatus(request, env, "create-invite");
-  if (!admin.ok) return jsonNoStore({ error: "Unauthorized" }, 401);
+  if (!admin.ok) return adminDeniedJson(admin);
   if (!env.WAITLIST_DB) return json({ error: "Invite storage is not configured." }, 503);
 
   const body = await request.json().catch(() => ({}));
@@ -508,7 +602,7 @@ async function createInvite(request, env) {
 
 async function updateFixRequestAdmin(request, env) {
   const admin = await adminAccessStatus(request, env, "update-fix-request");
-  if (!admin.ok) return jsonNoStore({ error: "Unauthorized" }, 401);
+  if (!admin.ok) return adminDeniedJson(admin);
   if (!env.WAITLIST_DB) return json({ error: "Fix request storage is not configured." }, 503);
 
   const id = decodeURIComponent(new URL(request.url).pathname.slice("/admin/fix-requests/".length));
@@ -521,12 +615,16 @@ async function updateFixRequestAdmin(request, env) {
 
   const body = await request.json().catch(() => ({}));
   const requestedStatus = normalizeFixRequestStatus(body.status, existing.status || "new");
-  if (!ADMIN_EDITABLE_FIX_REQUEST_STATUSES.has(requestedStatus)) {
+  const unchangedWebhookStatus = requestedStatus === existing.status && requestedStatus === "paid";
+  if (!ADMIN_EDITABLE_FIX_REQUEST_STATUSES.has(requestedStatus) && !unchangedWebhookStatus) {
     return jsonNoStore({ error: "Choose a valid fulfillment status." }, 400);
+  }
+  if (!isAllowedAdminStatusTransition(existing.status || "new", requestedStatus)) {
+    return jsonNoStore({ error: "This status change is blocked. Payment and refund states are controlled by Dodo." }, 409);
   }
   if (
     ["in_progress", "delivered"].includes(requestedStatus) &&
-    !existing.paid_at &&
+    (!existing.paid_at || !existing.payment_id) &&
     existing.status !== "paid" &&
     existing.status !== "in_progress" &&
     existing.status !== "delivered"
@@ -538,11 +636,30 @@ async function updateFixRequestAdmin(request, env) {
   const assignedTo = cleanText(body.assignedTo || body.assigned_to || "", 160);
   const adminNote = cleanText(body.adminNote || body.admin_note || "", 2000);
   const customerNote = cleanText(body.customerNote || body.customer_note || "", 2000);
-  const deliveryUrl = cleanUrlText(body.deliveryUrl || body.delivery_url || "", 600);
+  let deliveryUrl = cleanUrlText(body.deliveryUrl || body.delivery_url || "", 600);
   const finalReportId = cleanText(body.finalReportId || body.final_report_id || "", 180);
+  const dueAt = cleanIsoDateText(body.dueAt || body.due_at || existing.due_at || "");
+  const nextUpdateAt = cleanIsoDateText(body.nextUpdateAt || body.next_update_at || existing.next_update_at || "");
+  const statusReason = cleanText(body.statusReason || body.status_reason || "", 500);
+  const finalReportStatus = finalReportId
+    ? await validateFinalReportForFixRequest(env, existing, finalReportId)
+    : { ok: true, beforeAfterSummary: null };
+  if (!finalReportStatus.ok) return jsonNoStore({ error: finalReportStatus.error }, 400);
+  if (requestedStatus === "delivered" && !deliveryUrl && finalReportId) {
+    deliveryUrl = `${new URL(request.url).origin}/beta/reports/${encodeURIComponent(finalReportId)}`;
+  }
+  if (requestedStatus === "delivered" && (!deliveryUrl || !finalReportId || !customerNote)) {
+    return jsonNoStore(
+      { error: "Delivery needs a delivery link, validated final rerun report, and customer-facing note." },
+      400
+    );
+  }
   const inProgressAt =
     requestedStatus === "in_progress" && !existing.in_progress_at ? now : existing.in_progress_at || "";
   const deliveredAt = requestedStatus === "delivered" && !existing.delivered_at ? now : existing.delivered_at || "";
+  const beforeAfterSummaryJson = finalReportStatus.beforeAfterSummary
+    ? JSON.stringify(finalReportStatus.beforeAfterSummary)
+    : existing.before_after_summary_json || "";
 
   await env.WAITLIST_DB.prepare(
     `UPDATE fix_requests
@@ -552,8 +669,12 @@ async function updateFixRequestAdmin(request, env) {
          customer_note = ?,
          delivery_url = ?,
          final_report_id = ?,
+         due_at = ?,
+         next_update_at = ?,
+         status_reason = ?,
          in_progress_at = ?,
          delivered_at = ?,
+         before_after_summary_json = ?,
          updated_at = ?
      WHERE id = ?`
   )
@@ -564,20 +685,62 @@ async function updateFixRequestAdmin(request, env) {
       customerNote,
       deliveryUrl,
       finalReportId,
+      dueAt,
+      nextUpdateAt,
+      statusReason,
       inProgressAt,
       deliveredAt,
+      beforeAfterSummaryJson,
       now,
       id
     )
     .run();
+  await logFixRequestEvent(env, {
+    fixRequestId: id,
+    event: "admin_status_update",
+    actorType: "admin",
+    actorEmail: admin.actorEmail,
+    fromStatus: existing.status || "new",
+    toStatus: requestedStatus,
+    reason: statusReason || adminNote,
+    detail: {
+      assignedTo,
+      deliveryUrl,
+      finalReportId,
+      dueAt,
+      nextUpdateAt,
+      hadCustomerNote: Boolean(customerNote)
+    }
+  });
   await logAdminAction(request, env, "update-fix-request", true, admin.actorEmail, `${id}:${requestedStatus}`);
 
   const updated = await env.WAITLIST_DB.prepare("SELECT * FROM fix_requests WHERE id = ? LIMIT 1")
     .bind(id)
     .first();
+  if (requestedStatus === "in_progress" && existing.status !== "in_progress") {
+    await notifyFixRequestStatus(env, updated, "in_progress");
+  }
+  if (
+    requestedStatus === "delivered" &&
+    (!updated.delivery_notified_at ||
+      existing.status !== "delivered" ||
+      existing.delivery_url !== updated.delivery_url ||
+      existing.final_report_id !== updated.final_report_id)
+  ) {
+    await notifyFixRequestStatus(env, updated, "delivered");
+  }
   const notifications = await env.WAITLIST_DB.prepare(
-    `SELECT recipient_type, recipient_email, status, provider, provider_message_id, error, created_at
+    `SELECT event, recipient_type, recipient_email, status, provider, provider_message_id, error, created_at
      FROM fix_request_notifications
+     WHERE fix_request_id = ?
+     ORDER BY created_at DESC
+     LIMIT 20`
+  )
+    .bind(id)
+    .all();
+  const events = await env.WAITLIST_DB.prepare(
+    `SELECT event, actor_type, actor_email, from_status, to_status, reason, created_at
+     FROM fix_request_events
      WHERE fix_request_id = ?
      ORDER BY created_at DESC
      LIMIT 20`
@@ -587,7 +750,7 @@ async function updateFixRequestAdmin(request, env) {
 
   return jsonNoStore({
     ok: true,
-    request: fixRequestAdminResponse(updated, notifications.results || [])
+    request: fixRequestAdminResponse(updated, notifications.results || [], events.results || [])
   });
 }
 
@@ -722,9 +885,10 @@ async function requestFixPack(request, env) {
   const summary = parseJson(row.summary_json, {});
   const now = new Date().toISOString();
   const note = cleanText(body.note || "", 1000);
-  const fixRequest = await getOrCreateFixRequest(env, row, access, summary, note, now);
+  const isTest = Boolean(body.testMode || body.isTest) && access.accessMode === "founder-override";
+  const fixRequest = await getOrCreateFixRequest(env, row, access, summary, note, now, { isTest });
 
-  if (["paid", "in_progress", "delivered"].includes(fixRequest.status)) {
+  if (PAID_LIKE_FIX_REQUEST_STATUSES.has(fixRequest.status)) {
     return jsonNoStore({
       ok: true,
       mode: fixRequest.status,
@@ -804,7 +968,7 @@ async function requestFixPack(request, env) {
   });
 }
 
-async function getOrCreateFixRequest(env, reportRow, access, summary, note, now) {
+async function getOrCreateFixRequest(env, reportRow, access, summary, note, now, options = {}) {
   const existing = await env.WAITLIST_DB.prepare(
     `SELECT *
      FROM fix_requests
@@ -817,10 +981,12 @@ async function getOrCreateFixRequest(env, reportRow, access, summary, note, now)
   if (existing?.id) return existing;
 
   const id = crypto.randomUUID();
-  await env.WAITLIST_DB.prepare(
+  const isTest = options.isTest ? 1 : 0;
+  const insert = await env.WAITLIST_DB.prepare(
     `INSERT INTO fix_requests
-      (id, report_id, owner_email, target_url, target_host, score, issue_count, status, note, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?)`
+      (id, report_id, owner_email, target_url, target_host, score, issue_count, status, note, is_test, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'new', ?, ?, ?, ?)
+     ON CONFLICT(report_id, owner_email) DO NOTHING`
   )
     .bind(
       id,
@@ -831,10 +997,33 @@ async function getOrCreateFixRequest(env, reportRow, access, summary, note, now)
       reportRow.score,
       Number(summary.totalFindings || 0),
       note,
+      isTest,
       now,
       now
     )
     .run();
+  if (insert?.meta?.changes === 0) {
+    const raced = await env.WAITLIST_DB.prepare(
+      `SELECT *
+       FROM fix_requests
+       WHERE report_id = ? AND owner_email = ?
+       ORDER BY created_at DESC
+       LIMIT 1`
+    )
+      .bind(reportRow.id, access.ownerEmail)
+      .first();
+    if (raced?.id) return raced;
+  }
+  await logFixRequestEvent(env, {
+    fixRequestId: id,
+    event: "created",
+    actorType: "owner",
+    actorEmail: access.ownerEmail,
+    fromStatus: "",
+    toStatus: "new",
+    reason: note,
+    detail: { reportId: reportRow.id, isTest: Boolean(isTest) }
+  });
 
   return {
     id,
@@ -846,6 +1035,7 @@ async function getOrCreateFixRequest(env, reportRow, access, summary, note, now)
     issue_count: Number(summary.totalFindings || 0),
     status: "new",
     note,
+    is_test: isTest,
     created_at: now,
     updated_at: now
   };
@@ -867,12 +1057,18 @@ function fixRequestResponse(row, now = new Date().toISOString()) {
     inProgressAt: row.in_progress_at || "",
     deliveredAt: row.delivered_at || "",
     paidAt: row.paid_at || "",
+    dueAt: row.due_at || "",
+    nextUpdateAt: row.next_update_at || "",
+    statusReason: row.status_reason || "",
+    isTest: Boolean(row.is_test),
+    refundedAt: row.refunded_at || "",
+    beforeAfterSummary: parseJson(row.before_after_summary_json, null),
     createdAt: row.created_at || now,
     updatedAt: row.updated_at || now
   };
 }
 
-function fixRequestAdminResponse(row, notifications = [], now = new Date().toISOString()) {
+function fixRequestAdminResponse(row, notifications = [], events = [], now = new Date().toISOString()) {
   return {
     ...fixRequestResponse(row, now),
     reportId: row.report_id,
@@ -886,9 +1082,12 @@ function fixRequestAdminResponse(row, notifications = [], now = new Date().toISO
     paymentId: row.payment_id || "",
     lastNotificationAt: row.last_notification_at || "",
     notificationError: row.notification_error || "",
+    deliveryNotifiedAt: row.delivery_notified_at || "",
+    deliveryNotificationError: row.delivery_notification_error || "",
     reportPath: `/beta/reports/${row.report_id}`,
     briefPath: `/api/reports/${row.report_id}/brief.md`,
     notifications: notifications.map((notification) => ({
+      event: notification.event || "",
       recipientType: notification.recipient_type,
       recipientEmail: notification.recipient_email || "",
       status: notification.status,
@@ -896,6 +1095,15 @@ function fixRequestAdminResponse(row, notifications = [], now = new Date().toISO
       providerMessageId: notification.provider_message_id || "",
       error: notification.error || "",
       createdAt: notification.created_at
+    })),
+    events: events.map((event) => ({
+      event: event.event,
+      actorType: event.actor_type || "",
+      actorEmail: event.actor_email || "",
+      fromStatus: event.from_status || "",
+      toStatus: event.to_status || "",
+      reason: event.reason || "",
+      createdAt: event.created_at
     }))
   };
 }
@@ -907,6 +1115,73 @@ function groupNotificationsByFixRequest(rows) {
     groups.get(row.fix_request_id).push(row);
   }
   return groups;
+}
+
+function groupEventsByFixRequest(rows) {
+  const groups = new Map();
+  for (const row of rows) {
+    if (!groups.has(row.fix_request_id)) groups.set(row.fix_request_id, []);
+    groups.get(row.fix_request_id).push(row);
+  }
+  return groups;
+}
+
+function isAllowedAdminStatusTransition(currentStatus, requestedStatus) {
+  const current = normalizeFixRequestStatus(currentStatus, "new");
+  const requested = normalizeFixRequestStatus(requestedStatus, current);
+  if (current === requested) return ADMIN_EDITABLE_FIX_REQUEST_STATUSES.has(requested) || requested === "paid";
+  const allowed = {
+    new: new Set(["checkout_created"]),
+    checkout_created: new Set(["checkout_created"]),
+    payment_failed: new Set(["checkout_created"]),
+    paid: new Set(["in_progress", "delivered"]),
+    in_progress: new Set(["delivered"]),
+    delivered: new Set([]),
+    refunded: new Set([]),
+    refund_failed: new Set([]),
+    disputed: new Set([])
+  };
+  return Boolean(allowed[current]?.has(requested));
+}
+
+async function validateFinalReportForFixRequest(env, fixRequest, finalReportId) {
+  if (!isSafeReportId(finalReportId)) return { ok: false, error: "Final rerun report was not found." };
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT id, url, target_host, owner_email, score, summary_json, created_at, expires_at
+     FROM audit_reports
+     WHERE id = ?
+     LIMIT 1`
+  )
+    .bind(finalReportId)
+    .first();
+  if (!row?.id) return { ok: false, error: "Final rerun report was not found." };
+  if (row.expires_at && row.expires_at <= new Date().toISOString()) {
+    return { ok: false, error: "Final rerun report is expired. Run the audit again first." };
+  }
+  if (row.owner_email !== fixRequest.owner_email) {
+    return { ok: false, error: "Final rerun report belongs to another customer." };
+  }
+  const finalHost = row.target_host || safeHostname(row.url);
+  const originalHost = fixRequest.target_host || safeHostname(fixRequest.target_url);
+  if (finalHost !== originalHost) {
+    return { ok: false, error: "Final rerun report must be for the same website." };
+  }
+  if (fixRequest.paid_at && row.created_at && row.created_at < fixRequest.paid_at) {
+    return { ok: false, error: "Final rerun report must be created after payment." };
+  }
+  const summary = parseJson(row.summary_json, {});
+  return {
+    ok: true,
+    beforeAfterSummary: {
+      beforeReportId: fixRequest.report_id,
+      finalReportId: row.id,
+      beforeScore: Number(fixRequest.score || 0),
+      afterScore: Number(row.score || 0),
+      beforeFindings: Number(fixRequest.issue_count || 0),
+      afterFindings: Number(summary.totalFindings || 0),
+      generatedAt: new Date().toISOString()
+    }
+  };
 }
 
 async function createDodoFixPackCheckout(request, env, reportRow, fixRequest, access) {
@@ -925,7 +1200,8 @@ async function createDodoFixPackCheckout(request, env, reportRow, fixRequest, ac
       product_key: FIX_PACK_OFFER.productKey,
       fix_request_id: fixRequest.id,
       report_id: reportRow.id,
-      target_host: reportRow.target_host || new URL(reportRow.url).hostname.toLowerCase()
+      target_host: reportRow.target_host || new URL(reportRow.url).hostname.toLowerCase(),
+      test_mode: fixRequest.is_test ? "1" : "0"
     }
   };
   const country = dodoCountryFromRequest(request);
@@ -956,7 +1232,7 @@ async function createDodoFixPackCheckout(request, env, reportRow, fixRequest, ac
   };
 }
 
-async function handleDodoWebhook(request, env) {
+async function handleDodoWebhook(request, env, ctx) {
   if (!env.WAITLIST_DB || !dodoWebhookSecret(env)) {
     return jsonNoStore({ error: "Dodo webhook is not configured." }, 503);
   }
@@ -997,8 +1273,13 @@ async function handleDodoWebhook(request, env) {
   if (reserved.duplicate) return jsonNoStore({ received: true, duplicate: true });
 
   try {
-    const result = await processDodoPaymentWebhook(env, eventType, payment);
+    const result = await processDodoPaymentWebhook(env, eventType, payment, webhookId);
     await markDodoWebhookProcessed(env, webhookId, result.status || "processed", "", result.fixRequestId || payment.metadataFixRequestId || "");
+    if (result.paymentNotification?.fixRequest) {
+      const notification = notifyPaymentSucceeded(env, result.paymentNotification.fixRequest, payment);
+      if (ctx?.waitUntil) ctx.waitUntil(notification);
+      else await notification;
+    }
     return jsonNoStore({ received: true, ...result });
   } catch (error) {
     await markDodoWebhookProcessed(env, webhookId, "error", error?.message || "Webhook processing failed.", payment.metadataFixRequestId || "");
@@ -1009,23 +1290,8 @@ async function handleDodoWebhook(request, env) {
 async function reserveDodoWebhookEvent(env, { webhookId, eventType, payment, payloadHash, payloadText }) {
   if (!webhookId) throw new Error("Missing Dodo webhook id.");
   const now = new Date().toISOString();
-  const existing = await env.WAITLIST_DB.prepare("SELECT status FROM dodo_webhook_events WHERE webhook_id = ?")
-    .bind(webhookId)
-    .first();
-  if (existing?.status === "processed") return { duplicate: true };
-  if (existing) {
-    await env.WAITLIST_DB.prepare(
-      `UPDATE dodo_webhook_events
-       SET received_count = received_count + 1, last_received_at = ?, updated_at = ?
-       WHERE webhook_id = ?`
-    )
-      .bind(now, now, webhookId)
-      .run();
-    return { duplicate: false };
-  }
-
-  await env.WAITLIST_DB.prepare(
-    `INSERT INTO dodo_webhook_events
+  const inserted = await env.WAITLIST_DB.prepare(
+    `INSERT OR IGNORE INTO dodo_webhook_events
       (webhook_id, event_type, payment_id, fix_request_id, status, error, payload_hash, payload_json,
        received_count, first_received_at, last_received_at, processed_at, created_at, updated_at)
      VALUES (?, ?, ?, ?, 'received', '', ?, ?, 1, ?, ?, '', ?, ?)`
@@ -1043,18 +1309,35 @@ async function reserveDodoWebhookEvent(env, { webhookId, eventType, payment, pay
       now
     )
     .run();
-  return { duplicate: false };
+
+  if (inserted?.meta?.changes === 1) return { duplicate: false };
+
+  const existing = await env.WAITLIST_DB.prepare(
+    "SELECT status, payload_hash FROM dodo_webhook_events WHERE webhook_id = ?"
+  )
+    .bind(webhookId)
+    .first();
+  if (existing?.payload_hash && existing.payload_hash !== payloadHash) {
+    await markDodoWebhookProcessed(env, webhookId, "error", "Webhook id replayed with a different payload.", payment.metadataFixRequestId || "");
+    throw new Error("Webhook id replayed with a different payload.");
+  }
+  if (existing?.status === "processed" || existing?.status === "ignored") return { duplicate: true };
+  if (existing) {
+    await env.WAITLIST_DB.prepare(
+      `UPDATE dodo_webhook_events
+       SET received_count = received_count + 1, last_received_at = ?, updated_at = ?
+       WHERE webhook_id = ?`
+    )
+      .bind(now, now, webhookId)
+      .run();
+    return { duplicate: false };
+  }
+  throw new Error("Webhook receipt could not be reserved.");
 }
 
-async function processDodoPaymentWebhook(env, eventType, payment) {
+async function processDodoPaymentWebhook(env, eventType, payment, webhookId = "") {
   if (!payment.paymentId && !payment.checkoutSessionId && !payment.metadataFixRequestId) {
     return { ok: false, ignored: true, status: "ignored", reason: "missing_payment_identity" };
-  }
-  if (!dodoProductMatches(payment, dodoProductId(env))) {
-    return { ok: false, ignored: true, status: "ignored", reason: "product_mismatch" };
-  }
-  if (payment.metadataProductKey && payment.metadataProductKey !== FIX_PACK_OFFER.productKey) {
-    return { ok: false, ignored: true, status: "ignored", reason: "product_key_mismatch" };
   }
 
   const fixRequest = await findFixRequestForPayment(env, payment);
@@ -1063,23 +1346,82 @@ async function processDodoPaymentWebhook(env, eventType, payment) {
   }
 
   const now = new Date().toISOString();
+  const identity = dodoPaymentIdentityStatus(env, eventType, payment, fixRequest);
+  if (!identity.ok) {
+    await logFixRequestEvent(env, {
+      fixRequestId: fixRequest.id,
+      event: "payment_identity_rejected",
+      actorType: "dodo",
+      fromStatus: fixRequest.status || "new",
+      toStatus: fixRequest.status || "new",
+      reason: identity.reason,
+      detail: { eventType, paymentId: payment.paymentId, webhookId }
+    });
+    return { ok: false, ignored: true, status: "ignored", reason: identity.reason, fixRequestId: fixRequest.id };
+  }
+
   if (DODO_PAYMENT_SUCCESS_EVENTS.has(eventType)) {
     if (payment.status && !PAID_STATUSES.has(payment.status)) {
       return { ok: false, ignored: true, status: "ignored", reason: "not_paid", fixRequestId: fixRequest.id };
     }
     await env.WAITLIST_DB.prepare(
       `UPDATE fix_requests
-       SET status = 'paid',
+       SET status = CASE
+             WHEN status IN ('in_progress', 'delivered', 'refunded', 'disputed') THEN status
+             ELSE 'paid'
+           END,
            payment_id = ?,
            checkout_session_id = COALESCE(checkout_session_id, ?),
+           payment_amount = ?,
+           payment_currency = ?,
+           payment_customer_email = ?,
+           dodo_business_id = ?,
+           dodo_brand_id = ?,
            paid_at = COALESCE(paid_at, ?),
+           due_at = COALESCE(due_at, ?),
+           next_update_at = COALESCE(next_update_at, ?),
            updated_at = ?
        WHERE id = ?`
     )
-      .bind(payment.paymentId, payment.checkoutSessionId, now, now, fixRequest.id)
+      .bind(
+        payment.paymentId,
+        payment.checkoutSessionId,
+        payment.amount || null,
+        payment.currency || "",
+        payment.customerEmail || "",
+        payment.businessId || "",
+        payment.brandId || "",
+        now,
+        isoDaysFromNow(FIX_PACK_DUE_DAYS),
+        isoDaysFromNow(FIX_PACK_NEXT_UPDATE_DAYS),
+        now,
+        fixRequest.id
+      )
       .run();
-    await notifyPaymentSucceeded(env, fixRequest, payment);
-    return { ok: true, status: "processed", paid: true, fixRequestId: fixRequest.id };
+    await logFixRequestEvent(env, {
+      fixRequestId: fixRequest.id,
+      event: "payment_succeeded",
+      actorType: "dodo",
+      fromStatus: fixRequest.status || "new",
+      toStatus: PAID_LIKE_FIX_REQUEST_STATUSES.has(fixRequest.status) ? fixRequest.status : "paid",
+      reason: payment.paymentId,
+      detail: {
+        webhookId,
+        amount: payment.amount,
+        currency: payment.currency,
+        checkoutSessionId: payment.checkoutSessionId
+      }
+    });
+    const updated = await env.WAITLIST_DB.prepare("SELECT * FROM fix_requests WHERE id = ? LIMIT 1")
+      .bind(fixRequest.id)
+      .first();
+    return {
+      ok: true,
+      status: "processed",
+      paid: true,
+      fixRequestId: fixRequest.id,
+      paymentNotification: { fixRequest: updated || fixRequest }
+    };
   }
 
   if (DODO_PAYMENT_FAILURE_EVENTS.has(eventType)) {
@@ -1093,7 +1435,101 @@ async function processDodoPaymentWebhook(env, eventType, payment) {
     )
       .bind(payment.paymentId, payment.checkoutSessionId, now, fixRequest.id)
       .run();
+    await logFixRequestEvent(env, {
+      fixRequestId: fixRequest.id,
+      event: "payment_failed",
+      actorType: "dodo",
+      fromStatus: fixRequest.status || "new",
+      toStatus: fixRequest.paid_at ? fixRequest.status || "new" : "payment_failed",
+      reason: eventType,
+      detail: { webhookId, paymentId: payment.paymentId }
+    });
     return { ok: true, status: "processed", paid: false, fixRequestId: fixRequest.id };
+  }
+
+  if (DODO_PAYMENT_PROCESSING_EVENTS.has(eventType)) {
+    await logFixRequestEvent(env, {
+      fixRequestId: fixRequest.id,
+      event: "payment_processing",
+      actorType: "dodo",
+      fromStatus: fixRequest.status || "new",
+      toStatus: fixRequest.status || "new",
+      reason: eventType,
+      detail: { webhookId, paymentId: payment.paymentId }
+    });
+    return { ok: true, status: "processed", processing: true, fixRequestId: fixRequest.id };
+  }
+
+  if (DODO_REFUND_SUCCESS_EVENTS.has(eventType)) {
+    await env.WAITLIST_DB.prepare(
+      `UPDATE fix_requests
+       SET status = 'refunded',
+           refund_id = ?,
+           refund_amount = ?,
+           refund_currency = ?,
+           refunded_at = COALESCE(refunded_at, ?),
+           updated_at = ?
+       WHERE id = ?`
+    )
+      .bind(payment.refundId || "", payment.amount || null, payment.currency || "", now, now, fixRequest.id)
+      .run();
+    await logFixRequestEvent(env, {
+      fixRequestId: fixRequest.id,
+      event: "refund_succeeded",
+      actorType: "dodo",
+      fromStatus: fixRequest.status || "new",
+      toStatus: "refunded",
+      reason: payment.refundId || eventType,
+      detail: { webhookId, paymentId: payment.paymentId, amount: payment.amount, currency: payment.currency }
+    });
+    return { ok: true, status: "processed", refunded: true, fixRequestId: fixRequest.id };
+  }
+
+  if (DODO_REFUND_FAILURE_EVENTS.has(eventType)) {
+    await env.WAITLIST_DB.prepare(
+      `UPDATE fix_requests
+       SET status = CASE WHEN status = 'refunded' THEN status ELSE 'refund_failed' END,
+           refund_id = COALESCE(refund_id, ?),
+           refund_amount = COALESCE(refund_amount, ?),
+           refund_currency = COALESCE(refund_currency, ?),
+           updated_at = ?
+       WHERE id = ?`
+    )
+      .bind(payment.refundId || "", payment.amount || null, payment.currency || "", now, fixRequest.id)
+      .run();
+    await logFixRequestEvent(env, {
+      fixRequestId: fixRequest.id,
+      event: "refund_failed",
+      actorType: "dodo",
+      fromStatus: fixRequest.status || "new",
+      toStatus: fixRequest.status === "refunded" ? "refunded" : "refund_failed",
+      reason: payment.refundId || eventType,
+      detail: { webhookId, paymentId: payment.paymentId }
+    });
+    return { ok: true, status: "processed", refundFailed: true, fixRequestId: fixRequest.id };
+  }
+
+  if (DODO_DISPUTE_EVENTS.has(eventType)) {
+    await env.WAITLIST_DB.prepare(
+      `UPDATE fix_requests
+       SET status = CASE WHEN status = 'delivered' THEN status ELSE 'disputed' END,
+           dispute_event = ?,
+           disputed_at = COALESCE(disputed_at, ?),
+           updated_at = ?
+       WHERE id = ?`
+    )
+      .bind(eventType, now, now, fixRequest.id)
+      .run();
+    await logFixRequestEvent(env, {
+      fixRequestId: fixRequest.id,
+      event: "dispute_event",
+      actorType: "dodo",
+      fromStatus: fixRequest.status || "new",
+      toStatus: fixRequest.status === "delivered" ? "delivered" : "disputed",
+      reason: eventType,
+      detail: { webhookId, paymentId: payment.paymentId }
+    });
+    return { ok: true, status: "processed", disputed: true, fixRequestId: fixRequest.id };
   }
 
   return { ok: true, ignored: true, status: "ignored", reason: "unsupported_event", fixRequestId: fixRequest.id };
@@ -1112,7 +1548,53 @@ async function findFixRequestForPayment(env, payment) {
       .first();
     if (row?.id) return row;
   }
+  if (payment.paymentId) {
+    const row = await env.WAITLIST_DB.prepare("SELECT * FROM fix_requests WHERE payment_id = ? LIMIT 1")
+      .bind(payment.paymentId)
+      .first();
+    if (row?.id) return row;
+  }
   return null;
+}
+
+function dodoPaymentIdentityStatus(env, eventType, payment, fixRequest) {
+  if (DODO_REFUND_SUCCESS_EVENTS.has(eventType) || DODO_REFUND_FAILURE_EVENTS.has(eventType) || DODO_DISPUTE_EVENTS.has(eventType)) {
+    if (!payment.paymentId || !fixRequest.payment_id || payment.paymentId !== fixRequest.payment_id) {
+      return { ok: false, reason: "payment_id_mismatch" };
+    }
+    return { ok: true };
+  }
+
+  if (payment.metadataProductKey !== FIX_PACK_OFFER.productKey) {
+    return { ok: false, reason: payment.metadataProductKey ? "product_key_mismatch" : "missing_product_key" };
+  }
+  if (!dodoProductMatches(payment, dodoProductId(env))) {
+    return { ok: false, reason: payment.productIds.length ? "product_mismatch" : "missing_product_cart" };
+  }
+  if (payment.productQuantity !== 1) {
+    return { ok: false, reason: "product_quantity_mismatch" };
+  }
+  const expectedBrandId = dodoBrandId(env);
+  if (expectedBrandId && payment.brandId !== expectedBrandId) {
+    return { ok: false, reason: payment.brandId ? "brand_mismatch" : "missing_brand_id" };
+  }
+  const expectedBusinessId = String(env.DODO_SEOFIXKIT_BUSINESS_ID || "");
+  if (expectedBusinessId && payment.businessId !== expectedBusinessId) {
+    return { ok: false, reason: payment.businessId ? "business_mismatch" : "missing_business_id" };
+  }
+  if (payment.metadataReportId && payment.metadataReportId !== fixRequest.report_id) {
+    return { ok: false, reason: "report_id_mismatch" };
+  }
+  if (fixRequest.checkout_session_id && payment.checkoutSessionId && payment.checkoutSessionId !== fixRequest.checkout_session_id) {
+    return { ok: false, reason: "checkout_session_mismatch" };
+  }
+  if (payment.customerEmail && normalizeEmail(payment.customerEmail) !== fixRequest.owner_email) {
+    return { ok: false, reason: "customer_email_mismatch" };
+  }
+  if (!payment.amount || !payment.currency) {
+    return { ok: false, reason: "missing_payment_amount" };
+  }
+  return { ok: true };
 }
 
 async function markDodoWebhookProcessed(env, webhookId, status, error = "", fixRequestId = "") {
@@ -1176,6 +1658,9 @@ async function sendFixPackPaymentEmail({
   recipientEmail
 }) {
   const event = "payment_succeeded";
+  if (await hasSentFixRequestNotification(env, fixRequest.id, event, recipientType)) {
+    return { recipientType, status: "duplicate" };
+  }
   if (!recipientEmail) {
     await logFixRequestNotification(env, {
       fixRequestId: fixRequest.id,
@@ -1259,6 +1744,174 @@ async function sendFixPackPaymentEmail({
   }
 }
 
+async function notifyFixRequestStatus(env, fixRequest, status) {
+  const appOrigin = String(env.SEOFIXKIT_APP_ORIGIN || "https://seofixkit.com").replace(/\/+$/, "");
+  const report = await reportForNotification(env, fixRequest.report_id);
+  const event = status === "delivered" ? "delivery_ready" : "repair_started";
+  const beforeAfter = parseJson(fixRequest.before_after_summary_json, null);
+  const recipients = [
+    { type: "owner", email: normalizeEmail(fixRequest.owner_email) },
+    { type: "admin", email: adminNotificationEmail(env) }
+  ];
+  const results = [];
+
+  for (const recipient of recipients) {
+    results.push(
+      await sendFixPackStatusEmail({
+        env,
+        appOrigin,
+        fixRequest,
+        report,
+        status,
+        event,
+        beforeAfter,
+        recipientType: recipient.type,
+        recipientEmail: recipient.email
+      })
+    );
+  }
+
+  const now = new Date().toISOString();
+  const errors = results
+    .filter((result) => result.status !== "sent" && result.status !== "duplicate" && result.error)
+    .map((result) => `${result.recipientType}:${result.error}`)
+    .join("; ")
+    .slice(0, 1000);
+  if (status === "delivered") {
+    await env.WAITLIST_DB.prepare(
+      `UPDATE fix_requests
+       SET delivery_notified_at = COALESCE(delivery_notified_at, ?),
+           delivery_notification_error = ?,
+           last_notification_at = ?,
+           notification_error = ?,
+           updated_at = ?
+       WHERE id = ?`
+    )
+      .bind(now, errors, now, errors, now, fixRequest.id)
+      .run();
+  } else {
+    await env.WAITLIST_DB.prepare(
+      `UPDATE fix_requests
+       SET last_notification_at = ?,
+           notification_error = ?,
+           updated_at = ?
+       WHERE id = ?`
+    )
+      .bind(now, errors, now, fixRequest.id)
+      .run();
+  }
+}
+
+async function sendFixPackStatusEmail({
+  env,
+  appOrigin,
+  fixRequest,
+  report,
+  status,
+  event,
+  beforeAfter,
+  recipientType,
+  recipientEmail
+}) {
+  if (await hasSentFixRequestNotification(env, fixRequest.id, event, recipientType)) {
+    return { recipientType, status: "duplicate" };
+  }
+  if (!recipientEmail) {
+    await logFixRequestNotification(env, {
+      fixRequestId: fixRequest.id,
+      event,
+      recipientType,
+      recipientEmail: "",
+      status: "skipped",
+      provider: "resend",
+      error: "missing_recipient"
+    });
+    return { recipientType, status: "skipped", error: "missing_recipient" };
+  }
+
+  if (!isResendEmailConfigured(env)) {
+    await logFixRequestNotification(env, {
+      fixRequestId: fixRequest.id,
+      event,
+      recipientType,
+      recipientEmail,
+      status: "skipped",
+      provider: "resend",
+      error: "missing_resend_config"
+    });
+    return { recipientType, status: "skipped", error: "missing_resend_config" };
+  }
+
+  const email = buildStatusNotificationEmail({
+    appOrigin,
+    fixRequest,
+    report,
+    status,
+    beforeAfter,
+    recipientType
+  });
+  const body = {
+    from: env.SEOFIXKIT_EMAIL_FROM,
+    to: [recipientEmail],
+    subject: email.subject,
+    html: email.html,
+    text: email.text
+  };
+  if (env.SEOFIXKIT_REPLY_TO) body.reply_to = env.SEOFIXKIT_REPLY_TO;
+
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": `${fixRequest.id}:${event}:${recipientType}`,
+        "User-Agent": "seo-fix-kit-worker/0.9"
+      },
+      body: JSON.stringify(body)
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.message || `Resend returned ${response.status}`);
+    }
+    const providerMessageId = payload.id || "";
+    await logFixRequestNotification(env, {
+      fixRequestId: fixRequest.id,
+      event,
+      recipientType,
+      recipientEmail,
+      status: "sent",
+      provider: "resend",
+      providerMessageId
+    });
+    return { recipientType, status: "sent", providerMessageId };
+  } catch (error) {
+    const message = String(error?.message || "Email send failed.").slice(0, 1000);
+    await logFixRequestNotification(env, {
+      fixRequestId: fixRequest.id,
+      event,
+      recipientType,
+      recipientEmail,
+      status: "error",
+      provider: "resend",
+      error: message
+    });
+    return { recipientType, status: "error", error: message };
+  }
+}
+
+async function hasSentFixRequestNotification(env, fixRequestId, event, recipientType) {
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT id
+     FROM fix_request_notifications
+     WHERE fix_request_id = ? AND event = ? AND recipient_type = ? AND status = 'sent'
+     LIMIT 1`
+  )
+    .bind(fixRequestId, event, recipientType)
+    .first();
+  return Boolean(row?.id);
+}
+
 async function logFixRequestNotification(env, {
   fixRequestId,
   event,
@@ -1284,6 +1937,37 @@ async function logFixRequestNotification(env, {
       provider,
       providerMessageId,
       error,
+      new Date().toISOString()
+    )
+    .run();
+}
+
+async function logFixRequestEvent(env, {
+  fixRequestId,
+  event,
+  actorType,
+  actorEmail = "",
+  fromStatus = "",
+  toStatus = "",
+  reason = "",
+  detail = {}
+}) {
+  if (!env.WAITLIST_DB || !fixRequestId) return;
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO fix_request_events
+      (id, fix_request_id, event, actor_type, actor_email, from_status, to_status, reason, detail_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      crypto.randomUUID(),
+      fixRequestId,
+      cleanText(event, 80),
+      cleanText(actorType, 40),
+      cleanText(actorEmail, 254),
+      cleanText(fromStatus, 40),
+      cleanText(toStatus, 40),
+      cleanText(reason, 500),
+      JSON.stringify(detail || {}).slice(0, 4000),
       new Date().toISOString()
     )
     .run();
@@ -2549,6 +3233,21 @@ function cleanUrlText(input, maxLength) {
   }
 }
 
+function cleanIsoDateText(input) {
+  const value = cleanText(input, 80);
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function safeHostname(value) {
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
 function isSafeUuid(input) {
   return /^[a-f0-9-]{32,40}$/i.test(String(input || ""));
 }
@@ -2716,6 +3415,20 @@ async function loginQuotaStatus(request, env, ownerEmail = "", inviteCodeHash = 
   return checkQuotaSet(env, checks);
 }
 
+async function adminFailureQuotaStatus(request, env) {
+  const hour = hourWindow(new Date());
+  const ipHash = await requestIpHash(request);
+  return checkQuotaSet(env, [
+    {
+      bucket: `admin-fail:ip:${hour.key}:${ipHash}`,
+      limit: 20,
+      windowStart: hour.key,
+      resetAt: hour.resetAt,
+      error: "Too many admin attempts from this network. Try again later."
+    }
+  ]);
+}
+
 async function inviteAccessStatus(request, env, ownerEmail, inviteCode, inviteCodeHash) {
   if (!inviteCode) {
     return {
@@ -2807,15 +3520,52 @@ async function checkQuotaSet(env, checks) {
 }
 
 async function adminAccessStatus(request, env, action) {
+  const session = await adminSessionStatus(request, env);
+  if (session.ok) return { ok: true, actorEmail: session.actorEmail };
   const ok = isAdminAuthorized(request, env);
   const actorEmail =
     cleanText(request.headers.get("cf-access-authenticated-user-email") || "", 254) ||
     "bearer-admin";
   if (!ok) {
+    const quota = env.WAITLIST_DB ? await adminFailureQuotaStatus(request, env) : { ok: true };
     await logAdminAction(request, env, action, false, actorEmail);
-    return { ok: false, actorEmail };
+    if (!quota.ok) {
+      return { ok: false, status: 429, error: quota.error, resetAt: quota.resetAt, actorEmail };
+    }
+    return { ok: false, status: 401, error: "Unauthorized", actorEmail };
   }
   return { ok: true, actorEmail };
+}
+
+async function adminSessionStatus(request, env) {
+  if (!env.WAITLIST_DB) return { ok: false };
+  const token = cookieValue(request, ADMIN_SESSION_COOKIE);
+  if (!token) return { ok: false };
+  const tokenHash = await sha256Hex(token);
+  const now = new Date().toISOString();
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT actor_email, expires_at, revoked_at
+     FROM admin_sessions
+     WHERE token_hash = ?
+     LIMIT 1`
+  )
+    .bind(tokenHash)
+    .first();
+  if (!row?.actor_email || row.revoked_at || row.expires_at <= now) return { ok: false };
+  await env.WAITLIST_DB.prepare(`UPDATE admin_sessions SET last_seen_at = ? WHERE token_hash = ?`)
+    .bind(now, tokenHash)
+    .run();
+  return { ok: true, actorEmail: row.actor_email };
+}
+
+function adminDeniedJson(admin) {
+  return jsonNoStore(
+    {
+      error: admin.error || "Unauthorized",
+      ...(admin.resetAt ? { resetAt: admin.resetAt } : {})
+    },
+    admin.status || 401
+  );
 }
 
 async function logAdminAction(request, env, action, success, actorEmail = "", detail = "") {
@@ -2839,6 +3589,101 @@ async function logAdminAction(request, env, action, success, actorEmail = "", de
       .run();
   } catch {
     // Admin logging must not break the protected action itself.
+  }
+}
+
+async function buildOpsSnapshot(env, options = {}) {
+  const now = new Date().toISOString();
+  const today = now.slice(0, 10);
+  const fixWhere = options.includeTest ? "" : "is_test = 0";
+  const openWhere = `${fixWhere ? `${fixWhere} AND ` : ""}status IN ('paid', 'in_progress')`;
+  const [
+    openPaid,
+    inProgress,
+    overdue,
+    deliveredToday,
+    webhookErrors,
+    emailErrors,
+    oldestOpen,
+    lastDigest
+  ] = await Promise.all([
+    countRows(env, "fix_requests", openWhere),
+    countRows(env, "fix_requests", `${fixWhere ? `${fixWhere} AND ` : ""}status = 'in_progress'`),
+    countRows(env, "fix_requests", `${openWhere} AND due_at IS NOT NULL AND due_at < ?`, [now]),
+    countRows(env, "fix_requests", `${fixWhere ? `${fixWhere} AND ` : ""}delivered_at >= ?`, [`${today}T00:00:00.000Z`]),
+    countRows(env, "dodo_webhook_events", "status = 'error'"),
+    countRows(env, "fix_request_notifications", "status = 'error'"),
+    env.WAITLIST_DB.prepare(`SELECT created_at FROM fix_requests WHERE ${openWhere} ORDER BY created_at ASC LIMIT 1`).first(),
+    env.WAITLIST_DB.prepare(`SELECT digest_key, status, sent_at, error FROM ops_digest_runs ORDER BY created_at DESC LIMIT 1`).first()
+  ]);
+  return {
+    openPaid,
+    inProgress,
+    overdue,
+    deliveredToday,
+    webhookErrors,
+    emailErrors,
+    oldestOpenCreatedAt: oldestOpen?.created_at || "",
+    lastDigest: lastDigest || null
+  };
+}
+
+async function sendDailyOpsDigest(env) {
+  if (!env.WAITLIST_DB) return;
+  const digestKey = new Date().toISOString().slice(0, 10);
+  const now = new Date().toISOString();
+  const inserted = await env.WAITLIST_DB.prepare(
+    `INSERT OR IGNORE INTO ops_digest_runs (digest_key, status, summary_json, sent_at, error, created_at, updated_at)
+     VALUES (?, 'running', '', '', '', ?, ?)`
+  )
+    .bind(digestKey, now, now)
+    .run();
+  if (inserted?.meta?.changes === 0) return;
+
+  const snapshot = await buildOpsSnapshot(env);
+  const appOrigin = String(env.SEOFIXKIT_APP_ORIGIN || "https://seofixkit.com").replace(/\/+$/, "");
+  const adminEmail = adminNotificationEmail(env);
+  if (!adminEmail || !isResendEmailConfigured(env)) {
+    await env.WAITLIST_DB.prepare(
+      `UPDATE ops_digest_runs SET status = 'skipped', summary_json = ?, error = ?, updated_at = ? WHERE digest_key = ?`
+    )
+      .bind(JSON.stringify(snapshot), "missing_email_config", new Date().toISOString(), digestKey)
+      .run();
+    return;
+  }
+
+  const email = buildOpsDigestEmail({ appOrigin, snapshot });
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": `ops-digest:${digestKey}`,
+        "User-Agent": "seo-fix-kit-worker/0.9"
+      },
+      body: JSON.stringify({
+        from: env.SEOFIXKIT_EMAIL_FROM,
+        to: [adminEmail],
+        subject: email.subject,
+        html: email.html,
+        text: email.text,
+        ...(env.SEOFIXKIT_REPLY_TO ? { reply_to: env.SEOFIXKIT_REPLY_TO } : {})
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload?.message || `Resend returned ${response.status}`);
+    await env.WAITLIST_DB.prepare(
+      `UPDATE ops_digest_runs SET status = 'sent', summary_json = ?, sent_at = ?, error = '', updated_at = ? WHERE digest_key = ?`
+    )
+      .bind(JSON.stringify(snapshot), new Date().toISOString(), new Date().toISOString(), digestKey)
+      .run();
+  } catch (error) {
+    await env.WAITLIST_DB.prepare(
+      `UPDATE ops_digest_runs SET status = 'error', summary_json = ?, error = ?, updated_at = ? WHERE digest_key = ?`
+    )
+      .bind(JSON.stringify(snapshot), String(error?.message || "Digest failed.").slice(0, 1000), new Date().toISOString(), digestKey)
+      .run();
   }
 }
 
@@ -2926,6 +3771,16 @@ function clearSessionCookie(request) {
   return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure}`;
 }
 
+function adminSessionCookie(request, token, maxAge) {
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  return `${ADMIN_SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
+}
+
+function clearAdminSessionCookie(request) {
+  const secure = request && new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  return `${ADMIN_SESSION_COOKIE}=; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=0${secure}`;
+}
+
 function cookieValue(request, name) {
   const cookie = request.headers.get("cookie") || "";
   for (const part of cookie.split(";")) {
@@ -2994,6 +3849,7 @@ async function cleanupExpiredRows(env) {
   await env.WAITLIST_DB.batch([
     env.WAITLIST_DB.prepare(`DELETE FROM audit_reports WHERE expires_at IS NOT NULL AND expires_at < ?`).bind(now),
     env.WAITLIST_DB.prepare(`DELETE FROM beta_sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),
+    env.WAITLIST_DB.prepare(`DELETE FROM admin_sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),
     env.WAITLIST_DB.prepare(`DELETE FROM audit_usage WHERE updated_at < ?`).bind(isoSecondsFromNow(-7 * 24 * 60 * 60))
   ]);
 }
@@ -3139,18 +3995,18 @@ function trimSentence(value, max) {
 function json(value, status = 200) {
   return new Response(JSON.stringify(value, null, 2), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" }
+    headers: secureHeaders({ "content-type": "application/json; charset=utf-8" })
   });
 }
 
 function jsonNoStore(value, status = 200) {
   return new Response(JSON.stringify(value, null, 2), {
     status,
-    headers: {
+    headers: secureHeaders({
       "cache-control": "no-store",
       "content-type": "application/json; charset=utf-8",
       "x-robots-tag": "noindex, nofollow"
-    }
+    })
   });
 }
 
@@ -3158,11 +4014,45 @@ function withPrivateHeaders(response) {
   const headers = new Headers(response.headers);
   headers.set("cache-control", "no-store");
   headers.set("x-robots-tag", "noindex, nofollow");
+  return withSecurityHeaders(new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  }));
+}
+
+function withSecurityHeaders(response) {
+  const headers = secureHeaders(response.headers);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
     headers
   });
+}
+
+function secureHeaders(input = {}) {
+  const headers = new Headers(input);
+  headers.set("x-content-type-options", "nosniff");
+  headers.set("referrer-policy", "strict-origin-when-cross-origin");
+  headers.set("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  headers.set("x-frame-options", "DENY");
+  headers.set("strict-transport-security", "max-age=31536000; includeSubDomains; preload");
+  if ((headers.get("content-type") || "").includes("text/html")) {
+    headers.set(
+      "content-security-policy",
+      [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: https:",
+        "connect-src 'self'",
+        "form-action 'self' https://live.dodopayments.com https://test.dodopayments.com",
+        "base-uri 'self'",
+        "frame-ancestors 'none'"
+      ].join("; ")
+    );
+  }
+  return headers;
 }
 
 function wait(ms) {
@@ -3243,7 +4133,7 @@ function privacyHtml(origin) {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Privacy - SEO Fix Kit</title>
-    <meta name="description" content="SEO Fix Kit waitlist privacy note." />
+    <meta name="description" content="SEO Fix Kit privacy note for waitlist, private beta audits, payments, and fulfillment." />
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
       body { margin: 0; min-width: 320px; }
@@ -3258,14 +4148,18 @@ function privacyHtml(origin) {
     <main>
       <a href="${origin}/">SEO Fix Kit</a>
       <h1>Privacy</h1>
-      <p>SEO Fix Kit collects the email address you submit on the waitlist so we can contact you about private beta access and product updates.</p>
+      <p>SEO Fix Kit collects the information needed to run the private beta, create proof-backed SEO reports, process paid Fix Pack checkout, and deliver repair updates.</p>
       <ul>
         <li>We store your email address, signup source, UTM fields, landing path, referrer, browser user agent, country code when Cloudflare provides it, and signup timestamps.</li>
+        <li>Private beta audits store the website URL, rendered-page audit findings, screenshots or extracted page facts when available, report owner, beta session reference, target host, and report expiry timestamp.</li>
+        <li>Fix Pack records store checkout status, Dodo payment identifiers, payment amount and currency, fulfillment notes, final rerun report links, delivery notifications, and admin audit events.</li>
+        <li>Cloudflare hosts the app and database. Dodo processes checkout and payment webhooks. Resend sends payment, delivery, and ops emails.</li>
+        <li>Reports are retained for 30 days unless removed earlier. Admin logs, payment records, and notification logs are kept for operating, support, abuse prevention, and payment reconciliation.</li>
         <li>We do not sell the waitlist.</li>
         <li>We do not use the waitlist to send unrelated promotions.</li>
-        <li>To be removed from outreach, reply to any email we send and ask to be removed.</li>
+        <li>To be removed from outreach or request deletion of beta data, reply to any email we send and ask to be removed.</li>
       </ul>
-      <p>Last updated: May 20, 2026.</p>
+      <p>Last updated: May 21, 2026.</p>
     </main>
   </body>
 </html>`;

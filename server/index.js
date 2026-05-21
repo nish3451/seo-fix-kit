@@ -14,8 +14,9 @@ const port = Number(process.env.PORT || 8787);
 const auditReports = new Map();
 const betaSessions = new Map();
 const fixRequests = [];
-const VERSION = "0.8.0";
+const VERSION = "0.9.0";
 const SESSION_COOKIE = "sfk_beta_session";
+const ADMIN_SESSION_COOKIE = "sfk_admin_session";
 const BETA_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const REPORT_RETENTION_DAYS = 30;
 const FIX_PACK_OFFER = {
@@ -144,7 +145,7 @@ app.get("/admin/leads.csv", (req, res) => {
   const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
   const token = bearer;
 
-  if (!expected || token !== expected) {
+  if ((!expected || token !== expected) && cookieValue(req, ADMIN_SESSION_COOKIE) !== "local-admin") {
     res.status(401).type("text").send("Unauthorized");
     return;
   }
@@ -158,11 +159,30 @@ app.get("/admin/leads.csv", (req, res) => {
     .send("email,source,utm_source,utm_medium,utm_campaign,landing_path,created_at,updated_at\n");
 });
 
+app.post("/admin/session", (req, res) => {
+  const expected = process.env.ADMIN_EXPORT_TOKEN || "local-admin";
+  if (String(req.body?.token || "") !== expected) {
+    res.status(401).set("cache-control", "no-store").json({ error: "Unauthorized" });
+    return;
+  }
+  res
+    .set("cache-control", "no-store")
+    .set("set-cookie", adminSessionCookie(req))
+    .json({ ok: true, actorEmail: "local-admin", expiresAt: isoSecondsFromNow(60 * 60 * 2) });
+});
+
+app.delete("/admin/session", (req, res) => {
+  res
+    .set("cache-control", "no-store")
+    .set("set-cookie", clearAdminSessionCookie(req))
+    .json({ ok: true });
+});
+
 app.get("/admin/summary", (req, res) => {
   const expected = process.env.ADMIN_EXPORT_TOKEN || "local-admin";
   const auth = req.get("authorization") || "";
   const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
-  if (bearer !== expected) {
+  if (bearer !== expected && cookieValue(req, ADMIN_SESSION_COOKIE) !== "local-admin") {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
@@ -216,7 +236,7 @@ app.patch("/admin/fix-requests/:id", (req, res) => {
   const expected = process.env.ADMIN_EXPORT_TOKEN || "local-admin";
   const auth = req.get("authorization") || "";
   const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
-  if (bearer !== expected) {
+  if (bearer !== expected && cookieValue(req, ADMIN_SESSION_COOKIE) !== "local-admin") {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
@@ -226,8 +246,13 @@ app.patch("/admin/fix-requests/:id", (req, res) => {
     return;
   }
   const status = String(req.body?.status || request.status || "new");
-  if (!["checkout_created", "paid", "in_progress", "delivered"].includes(status)) {
+  const unchangedWebhookStatus = status === request.status && status === "paid";
+  if (!["checkout_created", "in_progress", "delivered"].includes(status) && !unchangedWebhookStatus) {
     res.status(400).json({ error: "Choose a valid fulfillment status." });
+    return;
+  }
+  if (["in_progress", "delivered"].includes(status) && !request.paidAt && request.status !== "paid" && request.status !== "in_progress" && request.status !== "delivered") {
+    res.status(409).json({ error: "Payment must be confirmed before fulfillment starts." });
     return;
   }
   request.status = status;
@@ -236,6 +261,9 @@ app.patch("/admin/fix-requests/:id", (req, res) => {
   request.customerNote = cleanText(req.body?.customerNote || "", 2000);
   request.deliveryUrl = cleanUrlText(req.body?.deliveryUrl || "", 600);
   request.finalReportId = cleanText(req.body?.finalReportId || "", 180);
+  request.dueAt = cleanIsoDateText(req.body?.dueAt || request.dueAt || "");
+  request.nextUpdateAt = cleanIsoDateText(req.body?.nextUpdateAt || request.nextUpdateAt || "");
+  request.statusReason = cleanText(req.body?.statusReason || "", 500);
   request.inProgressAt = status === "in_progress" && !request.inProgressAt ? new Date().toISOString() : request.inProgressAt;
   request.deliveredAt = status === "delivered" && !request.deliveredAt ? new Date().toISOString() : request.deliveredAt;
   request.updatedAt = new Date().toISOString();
@@ -246,7 +274,7 @@ app.post("/admin/invites", (req, res) => {
   const expected = process.env.ADMIN_EXPORT_TOKEN || "local-admin";
   const auth = req.get("authorization") || "";
   const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
-  if (bearer !== expected) {
+  if (bearer !== expected && cookieValue(req, ADMIN_SESSION_COOKIE) !== "local-admin") {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
@@ -476,6 +504,16 @@ function clearSessionCookie(req) {
   return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure}`;
 }
 
+function adminSessionCookie(req) {
+  const secure = req.protocol === "https" ? "; Secure" : "";
+  return `${ADMIN_SESSION_COOKIE}=local-admin; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${60 * 60 * 2}${secure}`;
+}
+
+function clearAdminSessionCookie(req) {
+  const secure = req?.protocol === "https" ? "; Secure" : "";
+  return `${ADMIN_SESSION_COOKIE}=; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=0${secure}`;
+}
+
 function cookieValue(req, name) {
   const cookie = req.get("cookie") || "";
   for (const part of cookie.split(";")) {
@@ -539,6 +577,11 @@ function localFixRequestResponse(request) {
     inProgressAt: request.inProgressAt || "",
     deliveredAt: request.deliveredAt || "",
     paidAt: request.paidAt || "",
+    dueAt: request.dueAt || "",
+    nextUpdateAt: request.nextUpdateAt || "",
+    statusReason: request.statusReason || "",
+    isTest: Boolean(request.isTest),
+    beforeAfterSummary: request.beforeAfterSummary || null,
     createdAt: request.createdAt,
     updatedAt: request.updatedAt || request.createdAt
   };
@@ -571,7 +614,10 @@ function localFixRequestStatusLabel(status) {
     paid: "Payment confirmed",
     in_progress: "Repair in progress",
     delivered: "Delivered",
-    payment_failed: "Payment failed"
+    payment_failed: "Payment failed",
+    refunded: "Refunded",
+    refund_failed: "Refund failed",
+    disputed: "Disputed"
   };
   return labels[status] || labels.new;
 }
@@ -627,6 +673,13 @@ function cleanUrlText(input, maxLength) {
   } catch {
     return "";
   }
+}
+
+function cleanIsoDateText(input) {
+  const value = cleanText(input, 80);
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
 function isoSecondsFromNow(seconds) {

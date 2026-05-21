@@ -6,13 +6,16 @@ Turn a paid SEO Fix Pack checkout into a tracked fulfillment workflow so an admi
 
 ## Requirements
 
-- Keep the existing Dodo checkout and webhook flow.
-- Track Fix Pack states in `fix_requests`: `checkout_created`, `paid`, `in_progress`, `delivered`, plus existing failure/new states.
-- Show paid Fix Pack requests in `/beta/admin` with status, owner, target, report links, notes, delivery URL, and final rerun link.
-- Let an authorized admin update status and fulfillment fields.
+- Keep the Dodo checkout and webhook flow as the payment source of truth.
+- Track Fix Pack states in `fix_requests`: `checkout_created`, webhook-only `paid`, `in_progress`, `delivered`, `payment_failed`, `refunded`, `refund_failed`, and `disputed`.
+- Show paid Fix Pack requests in `/beta/admin` with status, owner, target, report links, notes, delivery URL, due time, next-update time, final rerun link, notifications, and status events.
+- Let an authorized admin update fulfillment fields, but not manually mark a request paid.
 - Attach the customer-visible Fix Pack status to saved report responses.
 - Show a checkout return confirmation on the report page.
-- On payment success, send owner/admin notification email when email provider config exists; otherwise log that notification was skipped because config is missing.
+- On payment success, repair start, and delivery, send owner/admin notification email when email provider config exists; otherwise log that notification was skipped because config is missing.
+- Require delivery to include a customer note, delivery link, and validated final rerun report for the same owner and target host after payment.
+- Keep test/smoke requests out of the default admin queue unless `includeTest=1` is requested.
+- Send a daily admin ops digest with open, overdue, webhook-error, and email-error counts.
 - Preserve no-ranking-promise product truth.
 
 ## Non-Goals
