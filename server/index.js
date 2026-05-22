@@ -606,6 +606,31 @@ app.post("/api/audit", async (req, res) => {
       return;
     }
 
+    const existingJob = localActiveAuditJobForTarget(access, normalized);
+    if (existingJob) {
+      res
+        .status(202)
+        .set("cache-control", "no-store")
+        .json({
+          ok: true,
+          mode: "queued",
+          deduped: true,
+          job: localAuditJobResponse(existingJob),
+          jobId: existingJob.id,
+          statusUrl: `/api/audit/jobs/${existingJob.id}`
+        });
+      return;
+    }
+
+    const activeCount = localActiveAuditJobCount(access);
+    if (activeCount >= 3) {
+      res.status(429).set("cache-control", "no-store").json({
+        error: "You already have 3 audits running. Wait for one to finish before starting another.",
+        code: "AUDIT_JOBS_ACTIVE_LIMIT"
+      });
+      return;
+    }
+
     const job = createLocalAuditJob(access, normalized, Math.min(Math.max(Number(maxPages || 10), 1), 10));
     const origin = `http://${req.get("host")}`;
     setTimeout(() => processLocalAuditJob(job.id, origin), 0);
@@ -906,6 +931,27 @@ function cookieValue(req, name) {
     if (rawKey === name) return decodeURIComponent(rawValue.join("=") || "");
   }
   return "";
+}
+
+function localActiveAuditJobForTarget(access, targetUrl) {
+  return [...auditJobs.values()]
+    .filter(
+      (job) =>
+        job.ownerEmail === access.ownerEmail &&
+        job.targetUrl === targetUrl &&
+        ["queued", "running"].includes(job.status) &&
+        (!job.expiresAt || job.expiresAt > new Date().toISOString())
+    )
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0] || null;
+}
+
+function localActiveAuditJobCount(access) {
+  return [...auditJobs.values()].filter(
+    (job) =>
+      job.ownerEmail === access.ownerEmail &&
+      ["queued", "running"].includes(job.status) &&
+      (!job.expiresAt || job.expiresAt > new Date().toISOString())
+  ).length;
 }
 
 function createLocalAuditJob(access, targetUrl, maxPages) {

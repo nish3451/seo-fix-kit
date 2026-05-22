@@ -12,6 +12,8 @@ Make self-serve audits reliable enough for real customers by turning long-runnin
 - Completed jobs link to the saved private report.
 - Failed jobs preserve a safe error message so the user is not left guessing.
 - Existing site verification, access session, and audit quota rules still run before a job is accepted.
+- Duplicate submissions for the same account and target reuse the active job instead of starting another browser run.
+- A user can have at most 3 queued/running audits at a time.
 - The local development server mirrors the production job flow for browser testing.
 - Expired audit jobs are cleaned up with the rest of private beta data.
 

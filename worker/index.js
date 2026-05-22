@@ -1127,6 +1127,32 @@ async function runPrivateAudit(request, env, ctx) {
     );
   }
 
+  const existingJob = await activeAuditJobForTarget(env, access, targetUrl);
+  if (existingJob) {
+    return jsonNoStore(
+      {
+        ok: true,
+        mode: "queued",
+        deduped: true,
+        job: auditJobResponse(existingJob),
+        jobId: existingJob.id,
+        statusUrl: `/api/audit/jobs/${existingJob.id}`
+      },
+      202
+    );
+  }
+
+  const activeCount = await activeAuditJobCount(env, access);
+  if (activeCount >= 3) {
+    return jsonNoStore(
+      {
+        error: "You already have 3 audits running. Wait for one to finish before starting another.",
+        code: "AUDIT_JOBS_ACTIVE_LIMIT"
+      },
+      429
+    );
+  }
+
   const quota = await auditQuotaStatus(request, env, access, targetUrl);
   if (!quota.ok) {
     return jsonNoStore({ error: quota.error, resetAt: quota.resetAt }, 429);
@@ -1151,6 +1177,35 @@ async function runPrivateAudit(request, env, ctx) {
     },
     202
   );
+}
+
+async function activeAuditJobForTarget(env, access, targetUrl) {
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM audit_jobs
+     WHERE owner_email = ?
+       AND target_url = ?
+       AND status IN ('queued', 'running')
+       AND (expires_at IS NULL OR expires_at > ?)
+     ORDER BY created_at DESC
+     LIMIT 1`
+  )
+    .bind(access.ownerEmail, targetUrl, new Date().toISOString())
+    .first();
+  return row?.id ? row : null;
+}
+
+async function activeAuditJobCount(env, access) {
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT COUNT(*) AS count
+     FROM audit_jobs
+     WHERE owner_email = ?
+       AND status IN ('queued', 'running')
+       AND (expires_at IS NULL OR expires_at > ?)`
+  )
+    .bind(access.ownerEmail, new Date().toISOString())
+    .first();
+  return Number(row?.count || 0);
 }
 
 async function createAuditJob(env, access, targetUrl, maxPages) {
