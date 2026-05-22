@@ -27,6 +27,7 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Admin-created beta invite codes backed by D1 `beta_invites`; the shared beta password is only a founder override.
 - Single-use self-serve access tokens backed by D1 `access_tokens`.
 - Site ownership claims backed by D1 `site_claims`; non-founder audits require an exact verified host.
+- Queued audit jobs backed by D1 `audit_jobs`, with status polling before the private report loads.
 - Saved private report URLs backed by D1 `audit_reports`, tied to the beta owner email and invite where available.
 - 30-day report retention with cleanup for expired reports, sessions, and quota buckets.
 - D1-backed abuse controls across access links, login, waitlist, network, session, daily, and target-site audit buckets.
@@ -63,7 +64,8 @@ Cloudflare cannot run the local Express + Chromium server directly. The deployab
 - `/api/beta/session` checks the current beta session, and `/api/beta/logout` revokes it
 - `/api/account/summary` powers the customer workspace dashboard
 - `/api/sites`, `/api/sites/claim`, and `/api/sites/verify` manage DNS TXT / HTTPS file site ownership checks
-- `/api/audit` runs only with a valid beta session; non-founder sessions must verify the exact target host first
+- `/api/audit` creates a queued job only with a valid beta session; non-founder sessions must verify the exact target host first
+- `/api/audit/jobs/:id` returns queued/running/completed/failed status only to the job owner
 - `/api/reports/:id` and `/api/reports/:id/brief.md` return saved private reports only to the report owner
 - `/api/beta/fix-request` creates a Dodo checkout session for the one-site SEO Fix Pack when Dodo config is present
 - `/api/billing/summary` powers the private customer billing portal with Dodo pricing, Fix Pack requests, payment history, and truthful subscription state
@@ -89,7 +91,7 @@ Apply D1 migrations after creating or changing the waitlist schema:
 wrangler d1 migrations apply seofixkit_waitlist --remote
 ```
 
-Migration `0004_audit_usage.sql` adds the private beta quota table. Migration `0005_beta_controls.sql` adds beta sessions, report ownership, target-host indexing, and report expiry. Migration `0006_ops_funnel.sql` adds invite codes, invite-bound ownership, fix requests, and admin audit logging. Migration `0007_fix_pack_checkout.sql` adds Dodo checkout/payment tracking and webhook idempotency. Migration `0008_fix_pack_fulfillment.sql` adds the paid Fix Pack delivery queue and payment notification log. Migration `0009_product_hardening.sql` adds webhook-only payment guardrails, test request separation, due dates, delivery notification state, status events, admin sessions, and ops digests. Migration `0010_self_serve_access.sql` adds self-serve access tokens and explicit beta session access modes. Migration `0011_site_claims.sql` adds DNS TXT / HTTPS file site ownership verification.
+Migration `0004_audit_usage.sql` adds the private beta quota table. Migration `0005_beta_controls.sql` adds beta sessions, report ownership, target-host indexing, and report expiry. Migration `0006_ops_funnel.sql` adds invite codes, invite-bound ownership, fix requests, and admin audit logging. Migration `0007_fix_pack_checkout.sql` adds Dodo checkout/payment tracking and webhook idempotency. Migration `0008_fix_pack_fulfillment.sql` adds the paid Fix Pack delivery queue and payment notification log. Migration `0009_product_hardening.sql` adds webhook-only payment guardrails, test request separation, due dates, delivery notification state, status events, admin sessions, and ops digests. Migration `0010_self_serve_access.sql` adds self-serve access tokens and explicit beta session access modes. Migration `0011_site_claims.sql` adds DNS TXT / HTTPS file site ownership verification. Migration `0012_audit_jobs.sql` adds queued audit job status records.
 
 The protected admin APIs require the `ADMIN_EXPORT_TOKEN` Worker secret. Browser admin use exchanges the token for a short-lived HttpOnly admin session cookie; scripts may still use `Authorization: Bearer ...`. The private beta login uses invite codes or self-serve email links; `BETA_ACCESS_PASSWORD` remains as a founder override only.
 

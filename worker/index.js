@@ -150,6 +150,14 @@ export default {
         return handleDodoWebhook(request, env, ctx);
       }
 
+      if (url.pathname === "/api/audit" && request.method === "POST") {
+        return runPrivateAudit(request, env, ctx);
+      }
+
+      if (url.pathname.startsWith("/api/audit/jobs/") && request.method === "GET") {
+        return getAuditJob(request, env);
+      }
+
       if (url.pathname.startsWith("/api/reports/")) {
         return getSavedReport(request, env);
       }
@@ -168,10 +176,6 @@ export default {
 
       if (url.pathname === "/admin/leads.csv") {
         return exportLeadsCsv(request, env);
-      }
-
-      if (url.pathname === "/api/audit" && request.method === "POST") {
-        return runPrivateAudit(request, env);
       }
 
       if (url.pathname === "/api/demo-audit") {
@@ -1092,7 +1096,7 @@ async function betaLogout(request, env) {
   return response;
 }
 
-async function runPrivateAudit(request, env) {
+async function runPrivateAudit(request, env, ctx) {
   const body = await request.json().catch(() => ({}));
   const access = await betaAccessStatus(request, env);
   if (!access.ok) return betaAccessResponse(access);
@@ -1128,12 +1132,173 @@ async function runPrivateAudit(request, env) {
     return jsonNoStore({ error: quota.error, resetAt: quota.resetAt }, 429);
   }
 
-  const report = await auditUrl(targetUrl, env, {
-    maxPages: clampPageLimit(body.maxPages || 10),
-    appOrigin: new URL(request.url).origin
+  const job = await createAuditJob(env, access, targetUrl, clampPageLimit(body.maxPages || 10));
+  const appOrigin = new URL(request.url).origin;
+  const processing = processAuditJob(env, job.id, { appOrigin });
+  if (ctx?.waitUntil) {
+    ctx.waitUntil(processing);
+  } else {
+    await processing;
+  }
+
+  return jsonNoStore(
+    {
+      ok: true,
+      mode: "queued",
+      job: auditJobResponse(job),
+      jobId: job.id,
+      statusUrl: `/api/audit/jobs/${job.id}`
+    },
+    202
+  );
+}
+
+async function createAuditJob(env, access, targetUrl, maxPages) {
+  const now = new Date().toISOString();
+  const job = {
+    id: crypto.randomUUID(),
+    owner_email: access.ownerEmail,
+    owner_session_hash: access.sessionHash || "",
+    owner_invite_id: access.inviteId || "",
+    access_mode: access.accessMode || "invite",
+    target_url: targetUrl,
+    target_host: safeHostname(targetUrl),
+    max_pages: maxPages,
+    status: "queued",
+    report_id: "",
+    error: "",
+    created_at: now,
+    updated_at: now,
+    started_at: "",
+    completed_at: "",
+    expires_at: isoDaysFromNow(REPORT_RETENTION_DAYS)
+  };
+
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO audit_jobs
+      (id, owner_email, owner_session_hash, owner_invite_id, access_mode, target_url, target_host, max_pages, status, report_id, error, created_at, updated_at, started_at, completed_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      job.id,
+      job.owner_email,
+      job.owner_session_hash,
+      job.owner_invite_id || null,
+      job.access_mode,
+      job.target_url,
+      job.target_host,
+      job.max_pages,
+      job.status,
+      null,
+      null,
+      job.created_at,
+      job.updated_at,
+      null,
+      null,
+      job.expires_at
+    )
+    .run();
+
+  return job;
+}
+
+async function processAuditJob(env, jobId, context = {}) {
+  if (!env.WAITLIST_DB || !isSafeUuid(jobId)) return;
+
+  const startedAt = new Date().toISOString();
+  const claimed = await env.WAITLIST_DB.prepare(
+    `UPDATE audit_jobs
+     SET status = 'running', started_at = ?, updated_at = ?
+     WHERE id = ? AND status = 'queued'`
+  )
+    .bind(startedAt, startedAt, jobId)
+    .run();
+  if (Number(claimed?.meta?.changes || 0) !== 1) return;
+
+  const row = await env.WAITLIST_DB.prepare(`SELECT * FROM audit_jobs WHERE id = ? LIMIT 1`)
+    .bind(jobId)
+    .first();
+  if (!row?.id) return;
+
+  try {
+    const report = await auditUrl(row.target_url, env, {
+      maxPages: clampPageLimit(row.max_pages || 10),
+      appOrigin: context.appOrigin || "https://seofixkit.com"
+    });
+    const saved = await saveAuditReportWithContext(
+      report,
+      env,
+      {
+        ownerEmail: row.owner_email,
+        sessionHash: row.owner_session_hash || "",
+        inviteId: row.owner_invite_id || null,
+        accessMode: row.access_mode || "invite"
+      },
+      context.appOrigin || "https://seofixkit.com"
+    );
+    const completedAt = new Date().toISOString();
+    await env.WAITLIST_DB.prepare(
+      `UPDATE audit_jobs
+       SET status = 'completed', report_id = ?, error = NULL, completed_at = ?, updated_at = ?
+       WHERE id = ?`
+    )
+      .bind(saved.id, completedAt, completedAt, jobId)
+      .run();
+  } catch (error) {
+    const completedAt = new Date().toISOString();
+    const message = cleanText(error?.message || "The audit failed. Try another URL.", 260);
+    await env.WAITLIST_DB.prepare(
+      `UPDATE audit_jobs
+       SET status = 'failed', error = ?, completed_at = ?, updated_at = ?
+       WHERE id = ?`
+    )
+      .bind(message, completedAt, completedAt, jobId)
+      .run();
+  }
+}
+
+async function getAuditJob(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Audit job storage is not configured." }, 503);
+
+  const url = new URL(request.url);
+  const id = decodeURIComponent(url.pathname.slice("/api/audit/jobs/".length));
+  if (!isSafeUuid(id)) return json({ error: "Audit job not found." }, 404);
+
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM audit_jobs
+     WHERE id = ? AND owner_email = ?
+     LIMIT 1`
+  )
+    .bind(id, access.ownerEmail)
+    .first();
+  if (!row?.id) return json({ error: "Audit job not found." }, 404);
+
+  return jsonNoStore({
+    ok: true,
+    job: auditJobResponse(row)
   });
-  const saved = await saveAuditReport(report, request, env, access);
-  return jsonNoStore(saved);
+}
+
+function auditJobResponse(row = {}) {
+  const reportId = row.report_id || "";
+  return {
+    id: row.id || "",
+    status: row.status || "queued",
+    targetUrl: row.target_url || "",
+    targetHost: row.target_host || safeHostname(row.target_url || ""),
+    maxPages: Number(row.max_pages || 10),
+    reportId,
+    reportPath: reportId ? `/beta/reports/${reportId}` : "",
+    error: row.error || "",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+    startedAt: row.started_at || "",
+    completedAt: row.completed_at || "",
+    expiresAt: row.expires_at || ""
+  };
 }
 
 async function requestFixPack(request, env) {
@@ -1354,7 +1519,7 @@ async function getAccountSummary(request, env) {
   if (!access.ok) return betaAccessResponse(access);
   if (!env.WAITLIST_DB) return json({ error: "Account storage is not configured." }, 503);
 
-  const [reports, fixRequests, siteClaims] = await Promise.all([
+  const [reports, fixRequests, auditJobs, siteClaims] = await Promise.all([
     env.WAITLIST_DB.prepare(
       `SELECT id, url, target_host, score, summary_json, created_at, expires_at
        FROM audit_reports
@@ -1374,6 +1539,16 @@ async function getAccountSummary(request, env) {
        LIMIT 12`
     )
       .bind(access.ownerEmail)
+      .all(),
+    env.WAITLIST_DB.prepare(
+      `SELECT *
+       FROM audit_jobs
+       WHERE owner_email = ?
+         AND (expires_at IS NULL OR expires_at > ?)
+       ORDER BY updated_at DESC
+       LIMIT 12`
+    )
+      .bind(access.ownerEmail, new Date().toISOString())
       .all(),
     env.WAITLIST_DB.prepare(
       `SELECT *
@@ -1403,6 +1578,7 @@ async function getAccountSummary(request, env) {
     };
   });
   const requests = (fixRequests.results || []).map((row) => billingFixRequestResponse(row));
+  const recentAuditJobs = (auditJobs.results || []).map(auditJobResponse);
   const sites = (siteClaims.results || []).map(siteClaimResponse);
   const verifiedSites = sites.filter((site) => site.status === "verified").length;
 
@@ -1416,18 +1592,23 @@ async function getAccountSummary(request, env) {
       reports: recentReports.length,
       fixRequests: requests.length,
       openFixRequests: requests.filter((request) => !["delivered", "refunded"].includes(request.status)).length,
+      runningAudits: recentAuditJobs.filter((job) => ["queued", "running"].includes(job.status)).length,
       verifiedSites
     },
     recentReports,
+    recentAuditJobs,
     sites,
     fixRequests: requests,
-    nextActions: accountNextActions(recentReports, requests, sites)
+    nextActions: accountNextActions(recentReports, requests, sites, recentAuditJobs)
   });
 }
 
-function accountNextActions(reports, requests, sites = []) {
+function accountNextActions(reports, requests, sites = [], jobs = []) {
   if (!sites.some((site) => site.status === "verified")) {
     return [{ id: "verify-site", label: "Verify your site", detail: "Add a DNS TXT record or HTTPS file before self-serve audits run." }];
+  }
+  if (jobs.some((job) => ["queued", "running"].includes(job.status))) {
+    return [{ id: "audit-running", label: "Audit running", detail: "The report will appear as soon as rendering and proof collection finish." }];
   }
   if (!reports.length) {
     return [{ id: "run-audit", label: "Run your first audit", detail: "Start with your homepage or highest-value product page." }];
@@ -2925,6 +3106,10 @@ async function runPrivateDemoAudit(request, env) {
 
 async function saveAuditReport(report, request, env, access) {
   const origin = new URL(request.url).origin;
+  return saveAuditReportWithContext(report, env, access, origin);
+}
+
+async function saveAuditReportWithContext(report, env, access, origin) {
   const id = makePrivateReportId(report.url);
   const now = new Date().toISOString();
   const expiresAt = isoDaysFromNow(REPORT_RETENTION_DAYS);
@@ -4946,6 +5131,7 @@ async function cleanupExpiredRows(env) {
   const now = new Date().toISOString();
   await env.WAITLIST_DB.batch([
     env.WAITLIST_DB.prepare(`DELETE FROM audit_reports WHERE expires_at IS NOT NULL AND expires_at < ?`).bind(now),
+    env.WAITLIST_DB.prepare(`DELETE FROM audit_jobs WHERE expires_at IS NOT NULL AND expires_at < ?`).bind(now),
     env.WAITLIST_DB.prepare(`DELETE FROM access_tokens WHERE expires_at < ? OR (used_at IS NOT NULL AND used_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),
     env.WAITLIST_DB.prepare(`DELETE FROM beta_sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),
     env.WAITLIST_DB.prepare(`DELETE FROM admin_sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),

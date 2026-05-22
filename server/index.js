@@ -12,6 +12,7 @@ const rootDir = path.resolve(__dirname, "..");
 const app = express();
 const port = Number(process.env.PORT || 8787);
 const auditReports = new Map();
+const auditJobs = new Map();
 const betaSessions = new Map();
 const accessTokens = new Map();
 const siteClaims = new Map();
@@ -263,6 +264,11 @@ app.get("/api/account/summary", (req, res) => {
     .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
     .slice(0, 20)
     .map(siteClaimResponse);
+  const jobs = [...auditJobs.values()]
+    .filter((job) => job.ownerEmail === access.ownerEmail)
+    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
+    .slice(0, 12)
+    .map(localAuditJobResponse);
   res.set("cache-control", "no-store").json({
     ok: true,
     owner: {
@@ -273,13 +279,17 @@ app.get("/api/account/summary", (req, res) => {
       reports: reports.length,
       fixRequests: requests.length,
       openFixRequests: requests.filter((request) => !["delivered", "refunded"].includes(request.status)).length,
+      runningAudits: jobs.filter((job) => ["queued", "running"].includes(job.status)).length,
       verifiedSites: sites.filter((site) => site.status === "verified").length
     },
     recentReports: reports,
+    recentAuditJobs: jobs,
     sites,
     fixRequests: requests,
     nextActions: !sites.some((site) => site.status === "verified")
       ? [{ id: "verify-site", label: "Verify your site", detail: "Verify a host before running self-serve audits." }]
+      : jobs.some((job) => ["queued", "running"].includes(job.status))
+      ? [{ id: "audit-running", label: "Audit running", detail: "The report will appear when proof collection finishes." }]
       : reports.length
       ? [{ id: "review-fixes", label: "Review proven fixes", detail: "Open a report and start a Fix Pack only when the findings are real." }]
       : [{ id: "run-audit", label: "Run your first audit", detail: "Start with your homepage or highest-value product page." }]
@@ -596,15 +606,38 @@ app.post("/api/audit", async (req, res) => {
       return;
     }
 
-    const report = await auditUrl(normalized, {
-      maxPages: Math.min(Math.max(Number(maxPages || 10), 1), 10)
-    });
-    res.set("cache-control", "no-store").json(saveLocalReport(report, req, access));
+    const job = createLocalAuditJob(access, normalized, Math.min(Math.max(Number(maxPages || 10), 1), 10));
+    const origin = `http://${req.get("host")}`;
+    setTimeout(() => processLocalAuditJob(job.id, origin), 0);
+    res
+      .status(202)
+      .set("cache-control", "no-store")
+      .json({
+        ok: true,
+        mode: "queued",
+        job: localAuditJobResponse(job),
+        jobId: job.id,
+        statusUrl: `/api/audit/jobs/${job.id}`
+      });
   } catch (error) {
     res.status(500).json({
       error: error.message || "The audit failed. Try another URL."
     });
   }
+});
+
+app.get("/api/audit/jobs/:id", (req, res) => {
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res.status(401).set("cache-control", "no-store").json({ error: "Private beta session required." });
+    return;
+  }
+  const job = auditJobs.get(req.params.id);
+  if (!job || job.ownerEmail !== access.ownerEmail) {
+    res.status(404).set("cache-control", "no-store").json({ error: "Audit job not found." });
+    return;
+  }
+  res.set("cache-control", "no-store").json({ ok: true, job: localAuditJobResponse(job) });
 });
 
 app.get("/api/reports/:id/brief.md", (req, res) => {
@@ -875,9 +908,90 @@ function cookieValue(req, name) {
   return "";
 }
 
+function createLocalAuditJob(access, targetUrl, maxPages) {
+  const now = new Date().toISOString();
+  const job = {
+    id: randomUUID(),
+    ownerEmail: access.ownerEmail,
+    ownerSessionHash: access.sessionHash || "",
+    ownerInviteId: access.inviteId || "",
+    accessMode: access.accessMode || "self-serve",
+    targetUrl,
+    targetHost: safeHost(targetUrl),
+    maxPages,
+    status: "queued",
+    reportId: "",
+    error: "",
+    createdAt: now,
+    updatedAt: now,
+    startedAt: "",
+    completedAt: "",
+    expiresAt: isoDaysFromNow(REPORT_RETENTION_DAYS)
+  };
+  auditJobs.set(job.id, job);
+  return job;
+}
+
+function processLocalAuditJob(jobId, origin) {
+  const job = auditJobs.get(jobId);
+  if (!job || job.status !== "queued") return;
+
+  job.status = "running";
+  job.startedAt = new Date().toISOString();
+  job.updatedAt = job.startedAt;
+
+  setTimeout(async () => {
+    try {
+      const report = await auditUrl(job.targetUrl, {
+        maxPages: Math.min(Math.max(Number(job.maxPages || 10), 1), 10)
+      });
+      const saved = saveLocalReportWithOrigin(report, origin, {
+        ownerEmail: job.ownerEmail,
+        accessMode: job.accessMode,
+        sessionHash: job.ownerSessionHash,
+        inviteId: job.ownerInviteId || null
+      });
+      const completedAt = new Date().toISOString();
+      job.status = "completed";
+      job.reportId = saved.id;
+      job.error = "";
+      job.completedAt = completedAt;
+      job.updatedAt = completedAt;
+    } catch (error) {
+      const completedAt = new Date().toISOString();
+      job.status = "failed";
+      job.error = cleanText(error?.message || "The audit failed. Try another URL.", 260);
+      job.completedAt = completedAt;
+      job.updatedAt = completedAt;
+    }
+  }, 0);
+}
+
+function localAuditJobResponse(job = {}) {
+  return {
+    id: job.id || "",
+    status: job.status || "queued",
+    targetUrl: job.targetUrl || "",
+    targetHost: job.targetHost || safeHost(job.targetUrl || ""),
+    maxPages: Number(job.maxPages || 10),
+    reportId: job.reportId || "",
+    reportPath: job.reportId ? `/beta/reports/${job.reportId}` : "",
+    error: job.error || "",
+    createdAt: job.createdAt || "",
+    updatedAt: job.updatedAt || "",
+    startedAt: job.startedAt || "",
+    completedAt: job.completedAt || "",
+    expiresAt: job.expiresAt || ""
+  };
+}
+
 function saveLocalReport(report, req, access) {
-  const id = makePrivateReportId(report.url);
   const origin = `http://${req.get("host")}`;
+  return saveLocalReportWithOrigin(report, origin, access);
+}
+
+function saveLocalReportWithOrigin(report, origin, access) {
+  const id = makePrivateReportId(report.url);
   const expiresAt = isoDaysFromNow(REPORT_RETENTION_DAYS);
   const saved = {
     ...report,

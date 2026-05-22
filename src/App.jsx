@@ -344,6 +344,25 @@ function BetaApp() {
       if (!response.ok) {
         throw new Error(payload.error || "The audit failed.");
       }
+      if (payload.mode === "queued" && (payload.jobId || payload.job?.id)) {
+        const jobId = payload.jobId || payload.job.id;
+        setAuditMessage("Audit queued. Waiting for proof collection to start.");
+        const job = await pollAuditJob(jobId, setAuditMessage);
+        if (!job.reportId) {
+          throw new Error("Audit finished without a saved report.");
+        }
+        if (job.reportPath) {
+          window.history.replaceState(null, "", job.reportPath);
+        }
+        await loadReport(job.reportId, setReport, setAuditStatus, setAuditMessage, () => {
+          setIsAuthed(false);
+          window.sessionStorage.removeItem(BETA_SESSION_KEY);
+          window.sessionStorage.removeItem(BETA_EMAIL_KEY);
+        });
+        loadAccountSummary(setAccountData, setAccountStatus, setAccountMessage);
+        window.requestAnimationFrame(() => window.scrollTo(0, 0));
+        return;
+      }
       setReport(payload);
       setAuditStatus("success");
       setAuditMessage("Audit saved. Private report URL is ready.");
@@ -2027,6 +2046,41 @@ async function loadReport(id, setReport, setStatus, setMessage, onUnauthorized) 
     setStatus("error");
     setMessage(error.message || "Could not load report.");
   }
+}
+
+async function pollAuditJob(jobId, setMessage) {
+  const attempts = 80;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const response = await fetch(`/api/audit/jobs/${encodeURIComponent(jobId)}`, {
+      credentials: "same-origin"
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok !== true) {
+      throw new Error(payload.error || "Could not check audit progress.");
+    }
+
+    const job = payload.job || {};
+    if (job.status === "completed") {
+      setMessage("Audit complete. Loading private report.");
+      return job;
+    }
+    if (job.status === "failed") {
+      throw new Error(job.error || "The audit failed. Try another URL.");
+    }
+
+    setMessage(
+      job.status === "queued"
+        ? "Audit queued. Waiting for proof collection to start."
+        : "Rendering the site, crawling same-site links, and collecting proof."
+    );
+    await delay(Math.min(1500 + attempt * 100, 3500));
+  }
+
+  throw new Error("The audit is still running. Refresh this page in a moment.");
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
 async function fetchBrief(id) {
