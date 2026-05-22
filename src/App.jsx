@@ -249,6 +249,15 @@ function BetaApp() {
     loadAccountSummary(setAccountData, setAccountStatus, setAccountMessage);
   }, [isAuthed, reportId, isAdminRoute, isBillingRoute]);
 
+  useEffect(() => {
+    if (!isAuthed || reportId || isAdminRoute || isBillingRoute) return;
+    if (!Number(accountData?.metrics?.runningAudits || 0)) return;
+    const interval = window.setInterval(() => {
+      loadAccountSummary(setAccountData, setAccountStatus, setAccountMessage);
+    }, 3500);
+    return () => window.clearInterval(interval);
+  }, [isAuthed, reportId, isAdminRoute, isBillingRoute, accountData?.metrics?.runningAudits]);
+
   async function login(event) {
     event.preventDefault();
     setLoginStatus("submitting");
@@ -580,6 +589,7 @@ function CustomerDashboard({
 }) {
   const metrics = accountData?.metrics || {};
   const reports = accountData?.recentReports || [];
+  const auditJobs = accountData?.recentAuditJobs || [];
   const fixRequests = accountData?.fixRequests || [];
   const nextActions = accountData?.nextActions || [];
   const sites = accountData?.sites || [];
@@ -595,6 +605,7 @@ function CustomerDashboard({
       </div>
       <section className="metric-strip account-metrics" aria-label="Account summary">
         <Metric label="Reports" value={metrics.reports || 0} />
+        <Metric label="Running" value={metrics.runningAudits || 0} />
         <Metric label="Fix Packs" value={metrics.fixRequests || 0} />
         <Metric label="Verified sites" value={metrics.verifiedSites || verifiedSites.length || 0} />
       </section>
@@ -649,6 +660,24 @@ function CustomerDashboard({
                 >
                   Verify now
                 </button>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
+      {Boolean(auditJobs.length) && (
+        <div className="audit-job-list">
+          {auditJobs.slice(0, 5).map((job) => (
+            <article className={`audit-job-card ${job.status}`} key={job.id}>
+              <div>
+                <span className="status-pill">{statusLabel(job.status)}</span>
+                <h3>{job.targetHost || safeHostnameLabel(job.targetUrl)}</h3>
+                <p>{auditJobDetail(job)}</p>
+              </div>
+              {job.reportPath ? (
+                <a className="action-link" href={job.reportPath}>Open report</a>
+              ) : (
+                <span className="quiet-note">{job.status === "failed" ? "Needs rerun" : "Working"}</span>
               )}
             </article>
           ))}
@@ -1013,6 +1042,10 @@ function statusLabel(status) {
   const labels = {
     new: "Request saved",
     checkout_created: "Checkout opened",
+    queued: "Queued",
+    running: "Running",
+    completed: "Completed",
+    failed: "Failed",
     paid: "Payment confirmed",
     in_progress: "Repair in progress",
     delivered: "Delivered",
@@ -1022,6 +1055,19 @@ function statusLabel(status) {
     disputed: "Disputed"
   };
   return labels[status] || labels.new;
+}
+
+function auditJobDetail(job = {}) {
+  if (job.status === "completed") {
+    return `Report saved${job.completedAt ? ` ${formatDate(job.completedAt)}` : ""}.`;
+  }
+  if (job.status === "failed") {
+    return job.error || "Audit failed. Try another URL.";
+  }
+  if (job.status === "running") {
+    return "Rendering the site and collecting proof.";
+  }
+  return "Waiting for proof collection to start.";
 }
 
 function beforeAfterText(summary) {

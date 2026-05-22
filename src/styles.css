@@ -698,7 +698,23 @@ h1 {
   gap: 10px;
 }
 
+.audit-job-list {
+  display: grid;
+  gap: 10px;
+}
+
 .site-claim-card {
+  align-items: center;
+  background: rgba(251, 248, 239, 0.055);
+  border: 1px solid rgba(251, 248, 239, 0.12);
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 18px;
+}
+
+.audit-job-card {
   align-items: center;
   background: rgba(251, 248, 239, 0.055);
   border: 1px solid rgba(251, 248, 239, 0.12);
@@ -711,6 +727,30 @@ h1 {
 
 .site-claim-card.verified {
   border-color: rgba(152, 240, 204, 0.28);
+}
+
+.audit-job-card.running,
+.audit-job-card.queued {
+  border-color: rgba(217, 184, 108, 0.34);
+}
+
+.audit-job-card.completed {
+  border-color: rgba(152, 240, 204, 0.28);
+}
+
+.audit-job-card.failed {
+  border-color: rgba(255, 132, 132, 0.34);
+}
+
+.audit-job-card h3 {
+  font-size: 22px;
+  line-height: 1.12;
+  margin: 0;
+}
+
+.audit-job-card p {
+  color: var(--ink-soft);
+  line-height: 1.55;
 }
 
 .verification-instructions {
@@ -1254,7 +1294,7 @@ h1 {
 }
 
 .account-metrics {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .admin-grid {
@@ -1728,6 +1768,7 @@ h1 {
   .onboarding-steps,
   .site-verification-panel,
   .site-claim-card,
+  .audit-job-card,
   .billing-heading,
   .billing-grid,
   .billing-row,
