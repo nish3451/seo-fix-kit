@@ -114,7 +114,7 @@ Cloudflare secrets hold private credentials:
 
 - `DODO_SEOFIXKIT_API_KEY`
 - `DODO_SEOFIXKIT_WEBHOOK_SECRET`
-- `RESEND_API_KEY`
+- `PLUNK_API_KEY`
 
 The Dodo webhook endpoint is:
 
@@ -128,12 +128,14 @@ Paid requests move through `checkout_created`, webhook-only `paid`, `in_progress
 
 The admin queue can assign an owner, keep private notes, set customer-visible notes, set due and next-update times, attach a delivery URL, and link a validated final rerun report. Delivery requires a customer note, delivery link, and final rerun report for the same owner, same host, and after payment.
 
-Payment-success, repair-started, delivery-ready, and daily ops digest emails use Resend from the Worker. These Worker values must be set before email can send:
+Payment-success, repair-started, delivery-ready, and daily ops digest emails use Plunk from the Worker. These Worker values must be set before email can send:
 
-- `RESEND_API_KEY`
-- `SEOFIXKIT_EMAIL_FROM`
+- `PLUNK_API_KEY` (server secret key, must start with `sk_`)
+- `PLUNK_FROM_EMAIL` (for example `hello@seofixkit.com`, on a verified Plunk domain)
+- `PLUNK_FROM_NAME` (for example `SEO Fix Kit`)
 - `SEOFIXKIT_ADMIN_EMAIL`
-- optional `SEOFIXKIT_REPLY_TO`
+- optional `PLUNK_REPLY_TO`
+- optional `PLUNK_API_BASE_URL`
 
 ## Custom domain
 

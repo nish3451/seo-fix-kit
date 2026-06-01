@@ -11,7 +11,7 @@ Move SEO Fix Kit from invite-only beta toward self-serve SaaS without exposing B
 - A verified access link creates a normal customer beta session, not a founder override session.
 - The customer dashboard shows recent reports, Fix Pack requests, billing, and the next action.
 - Existing invite-code login and founder override must keep working.
-- Email sending must use Resend from the Worker; no email provider secrets may reach the browser.
+- Email sending must use Plunk from the Worker; no email provider secrets may reach the browser.
 - If access email cannot send, the app must fail visibly instead of pretending an email was sent.
 - Public policy/support pages must describe the paid Fix Pack limits, refunds/support path, data collection, and no ranking promise.
 

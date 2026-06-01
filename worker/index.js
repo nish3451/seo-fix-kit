@@ -27,7 +27,7 @@ import {
   buildPaymentNotificationEmail,
   buildStatusNotificationEmail,
   fixRequestStatusLabel,
-  isResendEmailConfigured,
+  isPlunkEmailConfigured,
   normalizeFixRequestStatus
 } from "../shared/fulfillment.js";
 
@@ -57,6 +57,7 @@ const FIX_PACK_OFFER = {
 const FIX_PACK_DUE_DAYS = 5;
 const FIX_PACK_NEXT_UPDATE_DAYS = 2;
 const PAID_LIKE_FIX_REQUEST_STATUSES = new Set(["paid", "in_progress", "delivered"]);
+const PLUNK_API_BASE_URL = "https://next-api.useplunk.com";
 
 export default {
   async scheduled(_event, env, ctx) {
@@ -81,7 +82,7 @@ export default {
           runtime: "cloudflare-worker",
           browserRun: Boolean(env.BROWSER),
           waitlistDb: Boolean(env.WAITLIST_DB),
-          emailNotifications: isResendEmailConfigured(env),
+          emailNotifications: isPlunkEmailConfigured(env),
           version: VERSION
         });
       }
@@ -371,7 +372,7 @@ async function requestAccessLink(request, env) {
   const quota = await accessLinkQuotaStatus(request, env, ownerEmail);
   if (!quota.ok) return jsonNoStore({ error: quota.error, resetAt: quota.resetAt }, 429);
 
-  if (!isResendEmailConfigured(env)) {
+  if (!isPlunkEmailConfigured(env)) {
     return jsonNoStore({ error: "Access email is not configured yet. Use an invite code for now." }, 503);
   }
 
@@ -488,26 +489,57 @@ async function sendAccessLinkEmail(env, { ownerEmail, accessUrl, expiresAt, toke
   ].join("");
 
   const body = {
-    from: env.SEOFIXKIT_EMAIL_FROM,
+    from: plunkSender(env, "SEO Fix Kit"),
     to: [ownerEmail],
     subject,
-    html,
-    text
+    body: html
   };
-  if (env.SEOFIXKIT_REPLY_TO) body.reply_to = env.SEOFIXKIT_REPLY_TO;
+  if (env.PLUNK_REPLY_TO) body.reply = env.PLUNK_REPLY_TO;
+  body.data = {
+    plainText: { value: text, persistent: false }
+  };
 
-  const response = await fetch("https://api.resend.com/emails", {
+  return sendPlunkEmail(env, body, "seo-fix-kit-worker/0.10");
+}
+
+function plunkSender(env, fallbackName) {
+  return {
+    email: normalizeEmail(env.PLUNK_FROM_EMAIL || ""),
+    name: String(env.PLUNK_FROM_NAME || fallbackName || "").trim()
+  };
+}
+
+function plunkMessageId(payload) {
+  const emails = payload?.data?.emails;
+  if (Array.isArray(emails)) {
+    return emails
+      .map((entry) => entry?.email)
+      .filter(Boolean)
+      .join(",");
+  }
+  return "";
+}
+
+async function sendPlunkEmail(env, body, userAgent) {
+  const baseUrl = String(env.PLUNK_API_BASE_URL || PLUNK_API_BASE_URL).replace(/\/+$/, "");
+  const response = await fetch(`${baseUrl}/v1/send`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      Authorization: `Bearer ${env.PLUNK_API_KEY}`,
       "Content-Type": "application/json",
-      "Idempotency-Key": `access:${tokenHash.slice(0, 32)}`,
-      "User-Agent": "seo-fix-kit-worker/0.10"
+      "User-Agent": userAgent
     },
     body: JSON.stringify(body)
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload?.message || `Resend returned ${response.status}`);
+  if (!response.ok || payload?.success === false) {
+    const message =
+      payload?.error?.message ||
+      payload?.message ||
+      payload?.error ||
+      `Plunk returned ${response.status}`;
+    throw new Error(String(message));
+  }
   return payload;
 }
 
@@ -777,7 +809,7 @@ async function getAdminSummary(request, env) {
       fixRequestStatuses: Object.fromEntries(
         (fixStatusCounts.results || []).map((row) => [row.status || "unknown", row.count || 0])
       ),
-      emailNotificationsConfigured: isResendEmailConfigured(env)
+      emailNotificationsConfigured: isPlunkEmailConfigured(env)
     },
     opsHealth,
     paymentHealth: {
@@ -2830,23 +2862,23 @@ async function sendFixPackPaymentEmail({
       recipientType,
       recipientEmail: "",
       status: "skipped",
-      provider: "resend",
+      provider: "plunk",
       error: "missing_recipient"
     });
     return { recipientType, status: "skipped", error: "missing_recipient" };
   }
 
-  if (!isResendEmailConfigured(env)) {
+  if (!isPlunkEmailConfigured(env)) {
     await logFixRequestNotification(env, {
       fixRequestId: fixRequest.id,
       event,
       recipientType,
       recipientEmail,
       status: "skipped",
-      provider: "resend",
-      error: "missing_resend_config"
+      provider: "plunk",
+      error: "missing_plunk_config"
     });
-    return { recipientType, status: "skipped", error: "missing_resend_config" };
+    return { recipientType, status: "skipped", error: "missing_plunk_config" };
   }
 
   const email = buildPaymentNotificationEmail({
@@ -2857,37 +2889,26 @@ async function sendFixPackPaymentEmail({
     recipientType
   });
   const body = {
-    from: env.SEOFIXKIT_EMAIL_FROM,
+    from: plunkSender(env, "SEO Fix Kit"),
     to: [recipientEmail],
     subject: email.subject,
-    html: email.html,
-    text: email.text
+    body: email.html,
+    data: {
+      plainText: { value: email.text, persistent: false }
+    }
   };
-  if (env.SEOFIXKIT_REPLY_TO) body.reply_to = env.SEOFIXKIT_REPLY_TO;
+  if (env.PLUNK_REPLY_TO) body.reply = env.PLUNK_REPLY_TO;
 
   try {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-        "Idempotency-Key": `${fixRequest.id}:${event}:${recipientType}`,
-        "User-Agent": "seo-fix-kit-worker/0.8"
-      },
-      body: JSON.stringify(body)
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(payload?.message || `Resend returned ${response.status}`);
-    }
-    const providerMessageId = payload.id || "";
+    const payload = await sendPlunkEmail(env, body, "seo-fix-kit-worker/0.8");
+    const providerMessageId = plunkMessageId(payload);
     await logFixRequestNotification(env, {
       fixRequestId: fixRequest.id,
       event,
       recipientType,
       recipientEmail,
       status: "sent",
-      provider: "resend",
+      provider: "plunk",
       providerMessageId
     });
     return { recipientType, status: "sent", providerMessageId };
@@ -2899,7 +2920,7 @@ async function sendFixPackPaymentEmail({
       recipientType,
       recipientEmail,
       status: "error",
-      provider: "resend",
+      provider: "plunk",
       error: message
     });
     return { recipientType, status: "error", error: message };
@@ -2985,23 +3006,23 @@ async function sendFixPackStatusEmail({
       recipientType,
       recipientEmail: "",
       status: "skipped",
-      provider: "resend",
+      provider: "plunk",
       error: "missing_recipient"
     });
     return { recipientType, status: "skipped", error: "missing_recipient" };
   }
 
-  if (!isResendEmailConfigured(env)) {
+  if (!isPlunkEmailConfigured(env)) {
     await logFixRequestNotification(env, {
       fixRequestId: fixRequest.id,
       event,
       recipientType,
       recipientEmail,
       status: "skipped",
-      provider: "resend",
-      error: "missing_resend_config"
+      provider: "plunk",
+      error: "missing_plunk_config"
     });
-    return { recipientType, status: "skipped", error: "missing_resend_config" };
+    return { recipientType, status: "skipped", error: "missing_plunk_config" };
   }
 
   const email = buildStatusNotificationEmail({
@@ -3013,37 +3034,26 @@ async function sendFixPackStatusEmail({
     recipientType
   });
   const body = {
-    from: env.SEOFIXKIT_EMAIL_FROM,
+    from: plunkSender(env, "SEO Fix Kit"),
     to: [recipientEmail],
     subject: email.subject,
-    html: email.html,
-    text: email.text
+    body: email.html,
+    data: {
+      plainText: { value: email.text, persistent: false }
+    }
   };
-  if (env.SEOFIXKIT_REPLY_TO) body.reply_to = env.SEOFIXKIT_REPLY_TO;
+  if (env.PLUNK_REPLY_TO) body.reply = env.PLUNK_REPLY_TO;
 
   try {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-        "Idempotency-Key": `${fixRequest.id}:${event}:${recipientType}`,
-        "User-Agent": "seo-fix-kit-worker/0.9"
-      },
-      body: JSON.stringify(body)
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(payload?.message || `Resend returned ${response.status}`);
-    }
-    const providerMessageId = payload.id || "";
+    const payload = await sendPlunkEmail(env, body, "seo-fix-kit-worker/0.9");
+    const providerMessageId = plunkMessageId(payload);
     await logFixRequestNotification(env, {
       fixRequestId: fixRequest.id,
       event,
       recipientType,
       recipientEmail,
       status: "sent",
-      provider: "resend",
+      provider: "plunk",
       providerMessageId
     });
     return { recipientType, status: "sent", providerMessageId };
@@ -3055,7 +3065,7 @@ async function sendFixPackStatusEmail({
       recipientType,
       recipientEmail,
       status: "error",
-      provider: "resend",
+      provider: "plunk",
       error: message
     });
     return { recipientType, status: "error", error: message };
@@ -4972,7 +4982,7 @@ async function sendDailyOpsDigest(env) {
     snapshot = await buildOpsSnapshot(env);
     const appOrigin = String(env.SEOFIXKIT_APP_ORIGIN || "https://seofixkit.com").replace(/\/+$/, "");
     const adminEmail = adminNotificationEmail(env);
-    if (!adminEmail || !isResendEmailConfigured(env)) {
+    if (!adminEmail || !isPlunkEmailConfigured(env)) {
       await env.WAITLIST_DB.prepare(
         `UPDATE ops_digest_runs SET status = 'skipped', summary_json = ?, error = ?, updated_at = ? WHERE digest_key = ?`
       )
@@ -4982,25 +4992,20 @@ async function sendDailyOpsDigest(env) {
     }
 
     const email = buildOpsDigestEmail({ appOrigin, snapshot });
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-        "Idempotency-Key": `ops-digest:${digestKey}`,
-        "User-Agent": "seo-fix-kit-worker/0.9"
-      },
-      body: JSON.stringify({
-        from: env.SEOFIXKIT_EMAIL_FROM,
+    await sendPlunkEmail(
+      env,
+      {
+        from: plunkSender(env, "SEO Fix Kit"),
         to: [adminEmail],
         subject: email.subject,
-        html: email.html,
-        text: email.text,
-        ...(env.SEOFIXKIT_REPLY_TO ? { reply_to: env.SEOFIXKIT_REPLY_TO } : {})
-      })
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload?.message || `Resend returned ${response.status}`);
+        body: email.html,
+        data: {
+          plainText: { value: email.text, persistent: false }
+        },
+        ...(env.PLUNK_REPLY_TO ? { reply: env.PLUNK_REPLY_TO } : {})
+      },
+      "seo-fix-kit-worker/0.9"
+    );
     await env.WAITLIST_DB.prepare(
       `UPDATE ops_digest_runs SET status = 'sent', summary_json = ?, sent_at = ?, error = '', updated_at = ? WHERE digest_key = ?`
     )
@@ -5567,7 +5572,7 @@ function privacyHtml(origin) {
         <li>We store your email address, signup source, UTM fields, landing path, referrer, browser user agent, country code when Cloudflare provides it, signup timestamps, and short-lived access-link records.</li>
         <li>Private audits store the website URL, rendered-page audit findings, screenshots or extracted page facts when available, report owner, beta session reference, target host, and report expiry timestamp.</li>
         <li>Fix Pack records store checkout status, Dodo payment identifiers, payment amount and currency, fulfillment notes, final rerun report links, delivery notifications, and admin audit events.</li>
-        <li>Cloudflare hosts the app and database. Dodo processes checkout and payment webhooks. Resend sends access, payment, delivery, and ops emails.</li>
+        <li>Cloudflare hosts the app and database. Dodo processes checkout and payment webhooks. Plunk sends access, payment, delivery, and ops emails.</li>
         <li>Reports are retained for 30 days unless removed earlier. Admin logs, payment records, and notification logs are kept for operating, support, abuse prevention, and payment reconciliation.</li>
         <li>We do not sell your email address.</li>
         <li>We do not send unrelated promotions.</li>

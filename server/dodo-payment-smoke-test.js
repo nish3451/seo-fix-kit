@@ -13,7 +13,7 @@ import {
   buildPaymentNotificationEmail,
   buildStatusNotificationEmail,
   fixRequestStatusLabel,
-  isResendEmailConfigured,
+  isPlunkEmailConfigured,
   normalizeFixRequestStatus
 } from "../shared/fulfillment.js";
 
@@ -94,11 +94,11 @@ assert.equal(fixRequestStatusLabel("refunded"), "Refunded");
 assert.equal(ADMIN_EDITABLE_FIX_REQUEST_STATUSES.has("paid"), false);
 assert.equal(ADMIN_EDITABLE_FIX_REQUEST_STATUSES.has("delivered"), true);
 assert.equal(DODO_REFUND_SUCCESS_EVENTS.has("refund.succeeded"), true);
-assert.equal(isResendEmailConfigured({}), false);
+assert.equal(isPlunkEmailConfigured({}), false);
 assert.equal(
-  isResendEmailConfigured({
-    RESEND_API_KEY: "re_test",
-    SEOFIXKIT_EMAIL_FROM: "SEO Fix Kit <hello@seofixkit.com>"
+  isPlunkEmailConfigured({
+    PLUNK_API_KEY: "sk_test",
+    PLUNK_FROM_EMAIL: "hello@seofixkit.com"
   }),
   true
 );

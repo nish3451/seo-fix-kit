@@ -1,0 +1,185 @@
+{
+  "runId": "2026-05-31T13-40-50-895Z",
+  "createdAt": "2026-05-31T13:40:50.934Z",
+  "baseUrl": "https://seofixkit.com",
+  "ownerEmail": "nish.audit.1780234850896@seofixkit.com",
+  "maxPages": 6,
+  "targets": [
+    {
+      "project": "SEO Fix Kit",
+      "url": "https://seofixkit.com/",
+      "kind": "marketing",
+      "audit": true,
+      "source": "proof-seo wrangler routes",
+      "note": "",
+      "preflight": {
+        "ok": true,
+        "status": 200,
+        "finalUrl": "https://seofixkit.com/",
+        "contentType": "text/html",
+        "bytes": 2167,
+        "title": "SEO Fix Kit - Proof-Backed SEO Repair Beta",
+        "ms": 133
+      },
+      "status": "failed",
+      "reason": "Verify seofixkit.com before running a self-serve audit."
+    },
+    {
+      "project": "AI Converter",
+      "url": "https://aiconverter.app/",
+      "kind": "marketing",
+      "audit": true,
+      "source": "aiconverter durable repo and live status",
+      "note": "",
+      "preflight": {
+        "ok": true,
+        "status": 200,
+        "finalUrl": "https://aiconverter.app/",
+        "contentType": "text/html; charset=utf-8",
+        "bytes": 6957,
+        "title": "AI Converter - Bank statement PDF to accounting CSV",
+        "ms": 67
+      },
+      "status": "failed",
+      "reason": "Verify aiconverter.app before running a self-serve audit."
+    },
+    {
+      "project": "0509",
+      "url": "https://0509.in/",
+      "kind": "marketing",
+      "audit": true,
+      "source": "0509 wrangler routes",
+      "note": "",
+      "preflight": {
+        "ok": true,
+        "status": 200,
+        "finalUrl": "https://0509.in/",
+        "contentType": "text/html",
+        "bytes": 16812,
+        "title": "Five to Nine | Meta ad proof for revenue teams",
+        "ms": 1485
+      },
+      "status": "failed",
+      "reason": "Verify 0509.in before running a self-serve audit."
+    },
+    {
+      "project": "Site Rep",
+      "url": "https://siterep.net/",
+      "kind": "marketing",
+      "audit": true,
+      "source": "siterep wrangler routes",
+      "note": "",
+      "preflight": {
+        "ok": true,
+        "status": 200,
+        "finalUrl": "https://siterep.net/",
+        "contentType": "text/html",
+        "bytes": 7139,
+        "title": "Site Rep | Source-backed website rep",
+        "ms": 590
+      },
+      "status": "failed",
+      "reason": "Verify siterep.net before running a self-serve audit."
+    },
+    {
+      "project": "TinyStudio",
+      "url": "https://tinystudio.io/",
+      "kind": "marketing",
+      "audit": true,
+      "source": "website-manager-api wrangler routes",
+      "note": "",
+      "preflight": {
+        "ok": true,
+        "status": 200,
+        "finalUrl": "https://tinystudio.io/",
+        "contentType": "text/html",
+        "bytes": 14393,
+        "title": "TinyStudio Revenue Leak Sprint",
+        "ms": 329
+      },
+      "status": "failed",
+      "reason": "Verify tinystudio.io before running a self-serve audit."
+    },
+    {
+      "project": "Tiny Studio portfolio",
+      "url": "https://tinystudio.in/",
+      "kind": "marketing",
+      "audit": true,
+      "source": "live public domain and iCloud domain file",
+      "note": "",
+      "preflight": {
+        "ok": true,
+        "status": 200,
+        "finalUrl": "https://tinystudio.in/",
+        "contentType": "text/html; charset=utf-8",
+        "bytes": 12850,
+        "title": "Tiny Studio | Promptly, Drishti, and 0509",
+        "ms": 470
+      },
+      "status": "failed",
+      "reason": "Verify tinystudio.in before running a self-serve audit."
+    },
+    {
+      "project": "Inish",
+      "url": "https://inish.in/",
+      "kind": "personal",
+      "audit": true,
+      "source": "live public domain and iCloud domain file",
+      "note": "",
+      "preflight": {
+        "ok": true,
+        "status": 200,
+        "finalUrl": "https://inish.in/",
+        "contentType": "text/html; charset=utf-8",
+        "bytes": 22132,
+        "title": "inish.in",
+        "ms": 533
+      },
+      "status": "failed",
+      "reason": "Verify inish.in before running a self-serve audit."
+    },
+    {
+      "project": "TinyStudio app",
+      "url": "https://app.tinystudio.io/",
+      "kind": "app-login",
+      "audit": false,
+      "source": "website-manager-api wrangler routes",
+      "note": "Operational app shell; preflight only unless explicitly auditing app metadata.",
+      "preflight": {
+        "ok": false,
+        "status": 410,
+        "finalUrl": "https://app.tinystudio.io/",
+        "contentType": "text/html; charset=utf-8",
+        "bytes": 1160,
+        "title": "TinyStudio App Retired",
+        "ms": 416
+      },
+      "status": "skipped",
+      "reason": "Operational app shell; preflight only unless explicitly auditing app metadata."
+    },
+    {
+      "project": "TinyStudio API",
+      "url": "https://api.tinystudio.io/",
+      "kind": "api",
+      "audit": false,
+      "source": "website-manager-api wrangler routes",
+      "note": "API host, not a public SEO target.",
+      "preflight": {
+        "ok": false,
+        "status": 410,
+        "finalUrl": "https://api.tinystudio.io/",
+        "contentType": "application/json",
+        "bytes": 160,
+        "title": "",
+        "ms": 297
+      },
+      "status": "skipped",
+      "reason": "API host, not a public SEO target."
+    }
+  ],
+  "repeatedIssues": [],
+  "recommendation": {
+    "offer": "No paid offer yet",
+    "reason": "No live project audits completed."
+  }
+}

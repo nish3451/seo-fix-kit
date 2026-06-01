@@ -36,11 +36,13 @@ export function fixRequestStatusLabel(status) {
   return labels[normalizeFixRequestStatus(status)] || labels.new;
 }
 
-export function isResendEmailConfigured(env) {
+export function isPlunkEmailConfigured(env) {
+  const apiKey = String(env?.PLUNK_API_KEY || "").trim();
+  const fromEmail = normalizeEmail(env?.PLUNK_FROM_EMAIL || "");
   return Boolean(
-    env?.RESEND_API_KEY &&
-      env?.SEOFIXKIT_EMAIL_FROM &&
-      String(env.SEOFIXKIT_EMAIL_FROM).includes("@")
+    apiKey.startsWith("sk_") &&
+      fromEmail &&
+      fromEmail.includes("@")
   );
 }
 
