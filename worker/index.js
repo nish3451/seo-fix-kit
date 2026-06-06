@@ -27,7 +27,7 @@ import {
   buildPaymentNotificationEmail,
   buildStatusNotificationEmail,
   fixRequestStatusLabel,
-  isPlunkEmailConfigured,
+  isPostmarkEmailConfigured,
   normalizeFixRequestStatus
 } from "../shared/fulfillment.js";
 import {
@@ -157,7 +157,7 @@ const FIX_PACK_OFFER = {
 const FIX_PACK_DUE_DAYS = 5;
 const FIX_PACK_NEXT_UPDATE_DAYS = 2;
 const PAID_LIKE_FIX_REQUEST_STATUSES = new Set(["paid", "in_progress", "delivered"]);
-const PLUNK_API_BASE_URL = "https://next-api.useplunk.com";
+const POSTMARK_API_BASE_URL = "https://api.postmarkapp.com";
 
 export default {
   async scheduled(_event, env, ctx) {
@@ -186,7 +186,7 @@ export default {
           runtime: "cloudflare-worker",
           browserRun: Boolean(env.BROWSER),
           waitlistDb: Boolean(env.WAITLIST_DB),
-          emailNotifications: isPlunkEmailConfigured(env),
+          emailNotifications: isPostmarkEmailConfigured(env),
           version: VERSION
         });
       }
@@ -680,7 +680,7 @@ async function requestAccessLink(request, env) {
   const quota = await accessLinkQuotaStatus(request, env, ownerEmail);
   if (!quota.ok) return jsonNoStore({ error: quota.error, resetAt: quota.resetAt }, 429);
 
-  if (!isPlunkEmailConfigured(env)) {
+  if (!isPostmarkEmailConfigured(env)) {
     return jsonNoStore({ error: "Access email is not configured yet. Use an invite code for now." }, 503);
   }
 
@@ -796,56 +796,63 @@ async function sendAccessLinkEmail(env, { ownerEmail, accessUrl, expiresAt, toke
     "<p>SEO Fix Kit audits produce proof-backed repair briefs. No ranking promises are made.</p>"
   ].join("");
 
-  const body = {
-    from: plunkSender(env, "SEO Fix Kit"),
-    to: [ownerEmail],
-    subject,
-    body: html
-  };
-  if (env.PLUNK_REPLY_TO) body.reply = env.PLUNK_REPLY_TO;
-  body.data = {
-    plainText: { value: text, persistent: false }
-  };
-
-  return sendPlunkEmail(env, body, "seo-fix-kit-worker/0.10");
+  return sendPostmarkEmail(
+    env,
+    postmarkMessage(env, {
+      to: ownerEmail,
+      subject,
+      text,
+      html,
+      tag: "access-link"
+    }),
+    "seo-fix-kit-worker/0.11"
+  );
 }
 
-function plunkSender(env, fallbackName) {
+function postmarkMessage(env, { to, subject, text, html, tag, metadata = {} }) {
+  const replyTo = normalizeEmail(env.SEOFIXKIT_REPLY_TO || env.POSTMARK_REPLY_TO || "");
   return {
-    email: normalizeEmail(env.PLUNK_FROM_EMAIL || ""),
-    name: String(env.PLUNK_FROM_NAME || fallbackName || "").trim()
+    From: postmarkSender(env),
+    To: Array.isArray(to) ? to.join(",") : to,
+    Subject: subject,
+    TextBody: text,
+    HtmlBody: html,
+    MessageStream: String(env.POSTMARK_MESSAGE_STREAM || "outbound").trim() || "outbound",
+    TrackOpens: false,
+    TrackLinks: "None",
+    ...(tag ? { Tag: tag } : {}),
+    ...(replyTo ? { ReplyTo: replyTo } : {}),
+    ...(Object.keys(metadata).length ? { Metadata: metadata } : {})
   };
 }
 
-function plunkMessageId(payload) {
-  const emails = payload?.data?.emails;
-  if (Array.isArray(emails)) {
-    return emails
-      .map((entry) => entry?.email)
-      .filter(Boolean)
-      .join(",");
-  }
-  return "";
+function postmarkSender(env) {
+  return String(env.SEOFIXKIT_EMAIL_FROM || env.POSTMARK_FROM_EMAIL || "").trim();
 }
 
-async function sendPlunkEmail(env, body, userAgent) {
-  const baseUrl = String(env.PLUNK_API_BASE_URL || PLUNK_API_BASE_URL).replace(/\/+$/, "");
-  const response = await fetch(`${baseUrl}/v1/send`, {
+function postmarkMessageId(payload) {
+  return payload?.MessageID || payload?.MessageId || "";
+}
+
+async function sendPostmarkEmail(env, body, userAgent) {
+  const baseUrl = String(env.POSTMARK_API_BASE_URL || POSTMARK_API_BASE_URL).replace(/\/+$/, "");
+  const response = await fetch(`${baseUrl}/email`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${env.PLUNK_API_KEY}`,
+      "X-Postmark-Server-Token": env.POSTMARK_SERVER_TOKEN,
       "Content-Type": "application/json",
+      Accept: "application/json",
       "User-Agent": userAgent
     },
     body: JSON.stringify(body)
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload?.success === false) {
+  if (!response.ok || Number(payload?.ErrorCode || 0) !== 0) {
     const message =
-      payload?.error?.message ||
+      payload?.Message ||
       payload?.message ||
       payload?.error ||
-      `Plunk returned ${response.status}`;
+      `Postmark returned ${response.status}`;
     throw new Error(String(message));
   }
   return payload;
@@ -1117,7 +1124,7 @@ async function getAdminSummary(request, env) {
       fixRequestStatuses: Object.fromEntries(
         (fixStatusCounts.results || []).map((row) => [row.status || "unknown", row.count || 0])
       ),
-      emailNotificationsConfigured: isPlunkEmailConfigured(env)
+      emailNotificationsConfigured: isPostmarkEmailConfigured(env)
     },
     opsHealth,
     paymentHealth: {
@@ -6650,23 +6657,23 @@ async function sendFixPackPaymentEmail({
       recipientType,
       recipientEmail: "",
       status: "skipped",
-      provider: "plunk",
+      provider: "postmark",
       error: "missing_recipient"
     });
     return { recipientType, status: "skipped", error: "missing_recipient" };
   }
 
-  if (!isPlunkEmailConfigured(env)) {
+  if (!isPostmarkEmailConfigured(env)) {
     await logFixRequestNotification(env, {
       fixRequestId: fixRequest.id,
       event,
       recipientType,
       recipientEmail,
       status: "skipped",
-      provider: "plunk",
-      error: "missing_plunk_config"
+      provider: "postmark",
+      error: "missing_postmark_config"
     });
-    return { recipientType, status: "skipped", error: "missing_plunk_config" };
+    return { recipientType, status: "skipped", error: "missing_postmark_config" };
   }
 
   const email = buildPaymentNotificationEmail({
@@ -6676,27 +6683,30 @@ async function sendFixPackPaymentEmail({
     payment,
     recipientType
   });
-  const body = {
-    from: plunkSender(env, "SEO Fix Kit"),
-    to: [recipientEmail],
-    subject: email.subject,
-    body: email.html,
-    data: {
-      plainText: { value: email.text, persistent: false }
-    }
-  };
-  if (env.PLUNK_REPLY_TO) body.reply = env.PLUNK_REPLY_TO;
-
   try {
-    const payload = await sendPlunkEmail(env, body, "seo-fix-kit-worker/0.8");
-    const providerMessageId = plunkMessageId(payload);
+    const payload = await sendPostmarkEmail(
+      env,
+      postmarkMessage(env, {
+        to: recipientEmail,
+        subject: email.subject,
+        text: email.text,
+        html: email.html,
+        tag: "fix-pack-payment",
+        metadata: {
+          fix_request_id: String(fixRequest.id || ""),
+          recipient_type: recipientType
+        }
+      }),
+      "seo-fix-kit-worker/0.11"
+    );
+    const providerMessageId = postmarkMessageId(payload);
     await logFixRequestNotification(env, {
       fixRequestId: fixRequest.id,
       event,
       recipientType,
       recipientEmail,
       status: "sent",
-      provider: "plunk",
+      provider: "postmark",
       providerMessageId
     });
     return { recipientType, status: "sent", providerMessageId };
@@ -6708,7 +6718,7 @@ async function sendFixPackPaymentEmail({
       recipientType,
       recipientEmail,
       status: "error",
-      provider: "plunk",
+      provider: "postmark",
       error: message
     });
     return { recipientType, status: "error", error: message };
@@ -6794,23 +6804,23 @@ async function sendFixPackStatusEmail({
       recipientType,
       recipientEmail: "",
       status: "skipped",
-      provider: "plunk",
+      provider: "postmark",
       error: "missing_recipient"
     });
     return { recipientType, status: "skipped", error: "missing_recipient" };
   }
 
-  if (!isPlunkEmailConfigured(env)) {
+  if (!isPostmarkEmailConfigured(env)) {
     await logFixRequestNotification(env, {
       fixRequestId: fixRequest.id,
       event,
       recipientType,
       recipientEmail,
       status: "skipped",
-      provider: "plunk",
-      error: "missing_plunk_config"
+      provider: "postmark",
+      error: "missing_postmark_config"
     });
-    return { recipientType, status: "skipped", error: "missing_plunk_config" };
+    return { recipientType, status: "skipped", error: "missing_postmark_config" };
   }
 
   const email = buildStatusNotificationEmail({
@@ -6821,27 +6831,31 @@ async function sendFixPackStatusEmail({
     beforeAfter,
     recipientType
   });
-  const body = {
-    from: plunkSender(env, "SEO Fix Kit"),
-    to: [recipientEmail],
-    subject: email.subject,
-    body: email.html,
-    data: {
-      plainText: { value: email.text, persistent: false }
-    }
-  };
-  if (env.PLUNK_REPLY_TO) body.reply = env.PLUNK_REPLY_TO;
-
   try {
-    const payload = await sendPlunkEmail(env, body, "seo-fix-kit-worker/0.9");
-    const providerMessageId = plunkMessageId(payload);
+    const payload = await sendPostmarkEmail(
+      env,
+      postmarkMessage(env, {
+        to: recipientEmail,
+        subject: email.subject,
+        text: email.text,
+        html: email.html,
+        tag: event === "delivery_ready" ? "fix-pack-delivery" : "fix-pack-status",
+        metadata: {
+          fix_request_id: String(fixRequest.id || ""),
+          recipient_type: recipientType,
+          status: String(status || "")
+        }
+      }),
+      "seo-fix-kit-worker/0.11"
+    );
+    const providerMessageId = postmarkMessageId(payload);
     await logFixRequestNotification(env, {
       fixRequestId: fixRequest.id,
       event,
       recipientType,
       recipientEmail,
       status: "sent",
-      provider: "plunk",
+      provider: "postmark",
       providerMessageId
     });
     return { recipientType, status: "sent", providerMessageId };
@@ -6853,7 +6867,7 @@ async function sendFixPackStatusEmail({
       recipientType,
       recipientEmail,
       status: "error",
-      provider: "plunk",
+      provider: "postmark",
       error: message
     });
     return { recipientType, status: "error", error: message };
@@ -10210,7 +10224,7 @@ async function sendDailyOpsDigest(env) {
     snapshot = await buildOpsSnapshot(env);
     const appOrigin = String(env.SEOFIXKIT_APP_ORIGIN || "https://seofixkit.com").replace(/\/+$/, "");
     const adminEmail = adminNotificationEmail(env);
-    if (!adminEmail || !isPlunkEmailConfigured(env)) {
+    if (!adminEmail || !isPostmarkEmailConfigured(env)) {
       await env.WAITLIST_DB.prepare(
         `UPDATE ops_digest_runs SET status = 'skipped', summary_json = ?, error = ?, updated_at = ? WHERE digest_key = ?`
       )
@@ -10220,19 +10234,16 @@ async function sendDailyOpsDigest(env) {
     }
 
     const email = buildOpsDigestEmail({ appOrigin, snapshot });
-    await sendPlunkEmail(
+    await sendPostmarkEmail(
       env,
-      {
-        from: plunkSender(env, "SEO Fix Kit"),
-        to: [adminEmail],
+      postmarkMessage(env, {
+        to: adminEmail,
         subject: email.subject,
-        body: email.html,
-        data: {
-          plainText: { value: email.text, persistent: false }
-        },
-        ...(env.PLUNK_REPLY_TO ? { reply: env.PLUNK_REPLY_TO } : {})
-      },
-      "seo-fix-kit-worker/0.9"
+        text: email.text,
+        html: email.html,
+        tag: "ops-digest"
+      }),
+      "seo-fix-kit-worker/0.11"
     );
     await env.WAITLIST_DB.prepare(
       `UPDATE ops_digest_runs SET status = 'sent', summary_json = ?, sent_at = ?, error = '', updated_at = ? WHERE digest_key = ?`
@@ -10864,7 +10875,7 @@ function privacyHtml(origin) {
         <li>We store your email address, signup source, UTM fields, landing path, referrer, browser user agent, country code when Cloudflare provides it, signup timestamps, and short-lived access-link records.</li>
         <li>Private audits store the website URL, rendered-page audit findings, screenshots or extracted page facts when available, report owner, beta session reference, target host, and report expiry timestamp.</li>
         <li>Fix Pack records store checkout status, Dodo payment identifiers, payment amount and currency, fulfillment notes, final rerun report links, delivery notifications, and admin audit events.</li>
-        <li>Cloudflare hosts the app and database. Dodo processes checkout and payment webhooks. Plunk sends access, payment, delivery, and ops emails.</li>
+        <li>Cloudflare hosts the app and database. Dodo processes checkout and payment webhooks. Postmark sends access, payment, delivery, and ops emails.</li>
         <li>Reports are retained for 30 days unless removed earlier. Admin logs, payment records, and notification logs are kept for operating, support, abuse prevention, and payment reconciliation.</li>
         <li>We do not sell your email address.</li>
         <li>We do not send unrelated promotions.</li>

@@ -36,14 +36,10 @@ export function fixRequestStatusLabel(status) {
   return labels[normalizeFixRequestStatus(status)] || labels.new;
 }
 
-export function isPlunkEmailConfigured(env) {
-  const apiKey = String(env?.PLUNK_API_KEY || "").trim();
-  const fromEmail = normalizeEmail(env?.PLUNK_FROM_EMAIL || "");
-  return Boolean(
-    apiKey.startsWith("sk_") &&
-      fromEmail &&
-      fromEmail.includes("@")
-  );
+export function isPostmarkEmailConfigured(env) {
+  const serverToken = String(env?.POSTMARK_SERVER_TOKEN || "").trim();
+  const fromEmail = normalizeEmail(senderEmail(env?.SEOFIXKIT_EMAIL_FROM || env?.POSTMARK_FROM_EMAIL || ""));
+  return Boolean(serverToken && fromEmail);
 }
 
 export function adminNotificationEmail(env) {
@@ -222,6 +218,12 @@ function safeHost(value) {
   } catch {
     return "site";
   }
+}
+
+function senderEmail(value) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/<([^>]+)>/);
+  return match ? match[1] : raw;
 }
 
 function cleanEmailLine(value) {
