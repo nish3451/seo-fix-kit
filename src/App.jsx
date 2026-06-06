@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { CRAWL_DEPTH_TIERS, DEFAULT_CRAWL_PAGES, SELF_SERVE_MAX_CRAWL_PAGES } from "../shared/crawl-depth.js";
+import { RENDERED_CRAWL_TARGETS } from "../shared/rendered-crawl-scale.js";
 
 const BETA_SESSION_KEY = "seofixkit_beta_unlocked";
 const BETA_EMAIL_KEY = "seofixkit_beta_email";
@@ -162,6 +164,17 @@ function BetaApp() {
   const [loginStatus, setLoginStatus] = useState(accessToken ? "submitting" : "idle");
   const [loginMessage, setLoginMessage] = useState("");
   const [targetUrl, setTargetUrl] = useState("");
+  const [maxPages, setMaxPages] = useState(String(DEFAULT_CRAWL_PAGES));
+  const [renderedCrawlTarget, setRenderedCrawlTarget] = useState("0");
+  const [competitorUrls, setCompetitorUrls] = useState("");
+  const [backlinkRows, setBacklinkRows] = useState("");
+  const [keywordRows, setKeywordRows] = useState("");
+  const [localBusinessName, setLocalBusinessName] = useState("");
+  const [localPhone, setLocalPhone] = useState("");
+  const [localAddress, setLocalAddress] = useState("");
+  const [googleBusinessProfileUrl, setGoogleBusinessProfileUrl] = useState("");
+  const [localKeywords, setLocalKeywords] = useState("");
+  const [localCitations, setLocalCitations] = useState("");
   const [auditStatus, setAuditStatus] = useState(reportId ? "loading" : "idle");
   const [auditMessage, setAuditMessage] = useState("");
   const [report, setReport] = useState(null);
@@ -171,6 +184,14 @@ function BetaApp() {
   const [siteHost, setSiteHost] = useState("");
   const [siteStatus, setSiteStatus] = useState("idle");
   const [siteMessage, setSiteMessage] = useState("");
+  const [scheduleStatus, setScheduleStatus] = useState("idle");
+  const [scheduleMessage, setScheduleMessage] = useState("");
+  const [developerData, setDeveloperData] = useState(null);
+  const [developerStatus, setDeveloperStatus] = useState("idle");
+  const [developerMessage, setDeveloperMessage] = useState("");
+  const [apiTokenSecret, setApiTokenSecret] = useState("");
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
   const [adminToken, setAdminToken] = useState("");
   const [adminData, setAdminData] = useState(null);
   const [adminStatus, setAdminStatus] = useState("idle");
@@ -247,6 +268,7 @@ function BetaApp() {
   useEffect(() => {
     if (!isAuthed || reportId || isAdminRoute || isBillingRoute) return;
     loadAccountSummary(setAccountData, setAccountStatus, setAccountMessage);
+    loadDeveloperSummary(setDeveloperData, setDeveloperStatus, setDeveloperMessage);
   }, [isAuthed, reportId, isAdminRoute, isBillingRoute]);
 
   useEffect(() => {
@@ -334,10 +356,112 @@ function BetaApp() {
     }
   }
 
+  async function createSchedule(url) {
+    setScheduleStatus("loading");
+    setScheduleMessage("Adding weekly monitor.");
+    try {
+      const payload = await postAuditSchedule(url, { intervalDays: 7, maxPages: DEFAULT_CRAWL_PAGES });
+      setScheduleStatus("success");
+      setScheduleMessage(`${payload.schedule?.targetHost || safeHostnameLabel(url)} will be checked weekly.`);
+      await loadAccountSummary(setAccountData, setAccountStatus, setAccountMessage);
+    } catch (error) {
+      setScheduleStatus("error");
+      setScheduleMessage(error.message || "Could not add monitor.");
+    }
+  }
+
+  async function deleteSchedule(scheduleId) {
+    setScheduleStatus("loading");
+    setScheduleMessage("Pausing monitor.");
+    try {
+      await pauseAuditSchedule(scheduleId);
+      setScheduleStatus("success");
+      setScheduleMessage("Monitor paused.");
+      await loadAccountSummary(setAccountData, setAccountStatus, setAccountMessage);
+    } catch (error) {
+      setScheduleStatus("error");
+      setScheduleMessage(error.message || "Could not pause monitor.");
+    }
+  }
+
+  async function createApiToken() {
+    setDeveloperStatus("loading");
+    setDeveloperMessage("Creating API key.");
+    setApiTokenSecret("");
+    try {
+      const payload = await postDeveloperToken();
+      setApiTokenSecret(payload.tokenSecret || "");
+      setDeveloperStatus("success");
+      setDeveloperMessage(payload.message || "API key created.");
+      await loadDeveloperSummary(setDeveloperData, setDeveloperStatus, setDeveloperMessage);
+    } catch (error) {
+      setDeveloperStatus("error");
+      setDeveloperMessage(error.message || "Could not create API key.");
+    }
+  }
+
+  async function revokeApiToken(tokenId) {
+    setDeveloperStatus("loading");
+    setDeveloperMessage("Revoking API key.");
+    try {
+      await deleteDeveloperToken(tokenId);
+      setDeveloperStatus("success");
+      setDeveloperMessage("API key revoked.");
+      await loadDeveloperSummary(setDeveloperData, setDeveloperStatus, setDeveloperMessage);
+    } catch (error) {
+      setDeveloperStatus("error");
+      setDeveloperMessage(error.message || "Could not revoke API key.");
+    }
+  }
+
+  async function createWebhook(event) {
+    event.preventDefault();
+    setDeveloperStatus("loading");
+    setDeveloperMessage("Adding webhook.");
+    setWebhookSecret("");
+    try {
+      const payload = await postDeveloperWebhook(webhookUrl);
+      setWebhookUrl("");
+      setWebhookSecret(payload.signingSecret || "");
+      setDeveloperStatus("success");
+      setDeveloperMessage("Webhook added.");
+      await loadDeveloperSummary(setDeveloperData, setDeveloperStatus, setDeveloperMessage);
+    } catch (error) {
+      setDeveloperStatus("error");
+      setDeveloperMessage(error.message || "Could not add webhook.");
+    }
+  }
+
+  async function revokeWebhook(webhookId) {
+    setDeveloperStatus("loading");
+    setDeveloperMessage("Revoking webhook.");
+    try {
+      await deleteDeveloperWebhook(webhookId);
+      setDeveloperStatus("success");
+      setDeveloperMessage("Webhook revoked.");
+      await loadDeveloperSummary(setDeveloperData, setDeveloperStatus, setDeveloperMessage);
+    } catch (error) {
+      setDeveloperStatus("error");
+      setDeveloperMessage(error.message || "Could not revoke webhook.");
+    }
+  }
+
   async function runAudit(event) {
     event.preventDefault();
     setAuditStatus("loading");
-    setAuditMessage("Rendering the site, crawling same-site links, and collecting proof.");
+    const localSeo = {
+      businessName: localBusinessName,
+      phone: localPhone,
+      address: localAddress,
+      googleBusinessProfileUrl,
+      localKeywords,
+      citations: localCitations
+    };
+    setAuditMessage(
+      competitorUrls.trim() || backlinkRows.trim() || keywordRows.trim() || Object.values(localSeo).some((value) => String(value || "").trim())
+        ? "Rendering the site, checking comparison inputs, and collecting proof."
+        : "Rendering the site, crawling same-site links, and collecting proof."
+    );
     setReport(null);
 
     try {
@@ -347,7 +471,7 @@ function BetaApp() {
         headers: {
           "content-type": "application/json"
         },
-        body: JSON.stringify({ url: targetUrl, maxPages: 10 })
+        body: JSON.stringify({ url: targetUrl, maxPages: Number(maxPages), renderedCrawlTarget: Number(renderedCrawlTarget), competitorUrls, backlinkRows, keywordRows, localSeo })
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -526,16 +650,133 @@ function BetaApp() {
               {auditStatus === "loading" ? "Auditing" : "Run audit"}
             </button>
           </div>
+          <label htmlFor="crawl-depth">Crawl depth</label>
+          <select
+            id="crawl-depth"
+            onChange={(event) => setMaxPages(event.target.value)}
+            value={maxPages}
+          >
+            {CRAWL_DEPTH_TIERS.map((tier) => (
+              <option key={tier.id} value={tier.pages}>
+                {tier.label} - {tier.pages} pages
+              </option>
+            ))}
+          </select>
+          <p className="field-note">Self-serve deep crawls currently run up to {SELF_SERVE_MAX_CRAWL_PAGES.toLocaleString()} pages.</p>
+          <label htmlFor="rendered-crawl-target">Rendered scale target</label>
+          <select
+            id="rendered-crawl-target"
+            onChange={(event) => setRenderedCrawlTarget(event.target.value)}
+            value={renderedCrawlTarget}
+          >
+            <option value="0">No staged target</option>
+            {RENDERED_CRAWL_TARGETS.slice(1).map((tier) => (
+              <option key={tier.id} value={tier.pages}>
+                {tier.label} - {tier.pages.toLocaleString()} pages
+              </option>
+            ))}
+          </select>
+          <p className="field-note">Large targets create a staged batch plan. They do not claim full rendered coverage until every batch completes.</p>
+          <label htmlFor="competitor-urls">Competitors</label>
+          <textarea
+            id="competitor-urls"
+            onChange={(event) => setCompetitorUrls(event.target.value)}
+            placeholder="https://competitor.com"
+            rows="3"
+            value={competitorUrls}
+          />
+          <label htmlFor="backlink-rows">Backlinks</label>
+          <textarea
+            id="backlink-rows"
+            onChange={(event) => setBacklinkRows(event.target.value)}
+            placeholder="https://source.com/page,https://example.com/page,anchor text"
+            rows="4"
+            value={backlinkRows}
+          />
+          <label htmlFor="keyword-rows">Keyword rows</label>
+          <textarea
+            id="keyword-rows"
+            onChange={(event) => setKeywordRows(event.target.value)}
+            placeholder="query,page,clicks,impressions,ctr,position,previous_clicks,previous_position"
+            rows="4"
+            value={keywordRows}
+          />
+          <div className="local-seo-fields">
+            <label htmlFor="local-business-name">Local business</label>
+            <input
+              id="local-business-name"
+              onChange={(event) => setLocalBusinessName(event.target.value)}
+              placeholder="Bright Dental Austin"
+              type="text"
+              value={localBusinessName}
+            />
+            <label htmlFor="local-phone">Phone</label>
+            <input
+              id="local-phone"
+              onChange={(event) => setLocalPhone(event.target.value)}
+              placeholder="+1 512 555 0199"
+              type="tel"
+              value={localPhone}
+            />
+            <label htmlFor="local-address">Address</label>
+            <textarea
+              id="local-address"
+              onChange={(event) => setLocalAddress(event.target.value)}
+              placeholder="123 Main St, Austin, TX 78701"
+              rows="2"
+              value={localAddress}
+            />
+            <label htmlFor="google-business-profile-url">Google Business Profile</label>
+            <input
+              id="google-business-profile-url"
+              inputMode="url"
+              onChange={(event) => setGoogleBusinessProfileUrl(event.target.value)}
+              placeholder="https://maps.google.com/?cid=..."
+              type="url"
+              value={googleBusinessProfileUrl}
+            />
+            <label htmlFor="local-keywords">Local keywords</label>
+            <textarea
+              id="local-keywords"
+              onChange={(event) => setLocalKeywords(event.target.value)}
+              placeholder="dentist Austin"
+              rows="3"
+              value={localKeywords}
+            />
+            <label htmlFor="local-citations">Citations</label>
+            <textarea
+              id="local-citations"
+              onChange={(event) => setLocalCitations(event.target.value)}
+              placeholder="https://directory.com/profile,Bright Dental Austin,+1 512 555 0199,123 Main St Austin TX"
+              rows="3"
+              value={localCitations}
+            />
+          </div>
         </form>
       </section>
 
       {!showingReport && (
         <CustomerDashboard
           accountData={accountData}
+          developerData={developerData}
+          developerMessage={developerMessage}
+          developerStatus={developerStatus}
+          apiTokenSecret={apiTokenSecret}
+          webhookSecret={webhookSecret}
+          webhookUrl={webhookUrl}
+          onApiTokenCreate={createApiToken}
+          onApiTokenRevoke={revokeApiToken}
+          onScheduleCreate={createSchedule}
+          onScheduleDelete={deleteSchedule}
           onSiteClaim={claimSite}
           onSiteHostChange={setSiteHost}
           onSiteVerify={verifySite}
+          onWebhookCreate={createWebhook}
+          onWebhookRevoke={revokeWebhook}
+          onWebhookUrlChange={setWebhookUrl}
           message={accountMessage}
+          scheduleMessage={scheduleMessage}
+          scheduleStatus={scheduleStatus}
           siteHost={siteHost}
           siteMessage={siteMessage}
           siteStatus={siteStatus}
@@ -578,10 +819,25 @@ function BetaTop({ onLock, showBilling = false, showOps = false }) {
 
 function CustomerDashboard({
   accountData,
+  developerData,
+  developerMessage,
+  developerStatus,
+  apiTokenSecret,
+  webhookSecret,
+  webhookUrl,
+  onApiTokenCreate,
+  onApiTokenRevoke,
   message,
+  onScheduleCreate,
+  onScheduleDelete,
   onSiteClaim,
   onSiteHostChange,
   onSiteVerify,
+  onWebhookCreate,
+  onWebhookRevoke,
+  onWebhookUrlChange,
+  scheduleMessage,
+  scheduleStatus,
   siteHost,
   siteMessage,
   siteStatus,
@@ -593,6 +849,7 @@ function CustomerDashboard({
   const fixRequests = accountData?.fixRequests || [];
   const nextActions = accountData?.nextActions || [];
   const sites = accountData?.sites || [];
+  const schedules = accountData?.schedules || [];
   const verifiedSites = sites.filter((site) => site.status === "verified");
   const pendingSites = sites.filter((site) => site.status !== "verified");
 
@@ -608,6 +865,7 @@ function CustomerDashboard({
         <Metric label="Running" value={metrics.runningAudits || 0} />
         <Metric label="Fix Packs" value={metrics.fixRequests || 0} />
         <Metric label="Verified sites" value={metrics.verifiedSites || verifiedSites.length || 0} />
+        <Metric label="Monitors" value={metrics.monitors || schedules.length || 0} />
       </section>
       <div className="site-verification-panel">
         <div>
@@ -634,33 +892,86 @@ function CustomerDashboard({
           {siteMessage && <p className={`form-message ${siteStatus}`}>{siteMessage}</p>}
         </form>
       </div>
+      {scheduleMessage && <p className={`form-message ${scheduleStatus}`}>{scheduleMessage}</p>}
       {Boolean(sites.length) && (
         <div className="site-claim-list">
-          {sites.map((site) => (
-            <article className={`site-claim-card ${site.status}`} key={site.id || site.host}>
-              <div>
-                <span className="status-pill">{site.status}</span>
-                <h3>{site.host}</h3>
+          {sites.map((site) => {
+            const monitor = schedules.find((schedule) => hostKey(schedule.targetHost || schedule.targetUrl) === hostKey(site.host));
+            return (
+              <article className={`site-claim-card ${site.status}`} key={site.id || site.host}>
+                <div>
+                  <span className="status-pill">{site.status}</span>
+                  <h3>{site.host}</h3>
+                  {site.status === "verified" ? (
+                    <p>{monitor ? `Monitoring ${monitor.cadenceLabel?.toLowerCase() || "weekly"}.` : `Verified by ${site.verificationMethod || "site proof"}.`}</p>
+                  ) : (
+                    <div className="verification-instructions">
+                      <p>Add either proof, then click verify.</p>
+                      <code>TXT {site.dnsName}: {site.dnsValue}</code>
+                      <code>{site.filePath}: {site.fileContents}</code>
+                    </div>
+                  )}
+                </div>
                 {site.status === "verified" ? (
-                  <p>Verified by {site.verificationMethod || "site proof"}.</p>
+                  monitor ? (
+                    <button
+                      className="action-link"
+                      disabled={scheduleStatus === "loading"}
+                      onClick={() => onScheduleDelete(monitor.id)}
+                      type="button"
+                    >
+                      Pause monitor
+                    </button>
+                  ) : (
+                    <button
+                      className="action-link"
+                      disabled={scheduleStatus === "loading"}
+                      onClick={() => onScheduleCreate(`https://${site.host}/`)}
+                      type="button"
+                    >
+                      Monitor weekly
+                    </button>
+                  )
                 ) : (
-                  <div className="verification-instructions">
-                    <p>Add either proof, then click verify.</p>
-                    <code>TXT {site.dnsName}: {site.dnsValue}</code>
-                    <code>{site.filePath}: {site.fileContents}</code>
-                  </div>
+                  <button
+                    className="action-link"
+                    disabled={siteStatus === "loading"}
+                    onClick={() => onSiteVerify(site.id)}
+                    type="button"
+                  >
+                    Verify now
+                  </button>
                 )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+      {Boolean(schedules.length) && (
+        <div className="audit-schedule-list">
+          {schedules.map((schedule) => (
+            <article className={`audit-schedule-card ${schedule.lastError ? "failed" : "active"}`} key={schedule.id}>
+              <div>
+                <span className="status-pill">{schedule.cadenceLabel || "Weekly"}</span>
+                <h3>{schedule.targetHost || safeHostnameLabel(schedule.targetUrl)}</h3>
+                <p>{auditScheduleDetail(schedule)}</p>
+                {schedule.lastError && <p className="quiet-note">{schedule.lastError}</p>}
               </div>
-              {site.status !== "verified" && (
+              <div className="schedule-actions">
+                {schedule.lastReportPath ? (
+                  <a className="action-link" href={schedule.lastReportPath}>Latest report</a>
+                ) : (
+                  <span className="quiet-note">Waiting for first run</span>
+                )}
                 <button
                   className="action-link"
-                  disabled={siteStatus === "loading"}
-                  onClick={() => onSiteVerify(site.id)}
+                  disabled={scheduleStatus === "loading"}
+                  onClick={() => onScheduleDelete(schedule.id)}
                   type="button"
                 >
-                  Verify now
+                  Pause
                 </button>
-              )}
+              </div>
             </article>
           ))}
         </div>
@@ -726,6 +1037,144 @@ function CustomerDashboard({
           </div>
         </div>
       </div>
+      <DeveloperApiPanel
+        apiTokenSecret={apiTokenSecret}
+        developerData={developerData}
+        developerMessage={developerMessage}
+        developerStatus={developerStatus}
+        onApiTokenCreate={onApiTokenCreate}
+        onApiTokenRevoke={onApiTokenRevoke}
+        onWebhookCreate={onWebhookCreate}
+        onWebhookRevoke={onWebhookRevoke}
+        onWebhookUrlChange={onWebhookUrlChange}
+        webhookSecret={webhookSecret}
+        webhookUrl={webhookUrl}
+      />
+    </section>
+  );
+}
+
+function DeveloperApiPanel({
+  apiTokenSecret,
+  developerData,
+  developerMessage,
+  developerStatus,
+  onApiTokenCreate,
+  onApiTokenRevoke,
+  onWebhookCreate,
+  onWebhookRevoke,
+  onWebhookUrlChange,
+  webhookSecret,
+  webhookUrl
+}) {
+  const tokens = developerData?.tokens || [];
+  const webhooks = developerData?.webhooks || [];
+  return (
+    <section className="developer-api-panel" aria-label="Developer API">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Developer API</p>
+        <h3>Run proof audits from your own tools.</h3>
+        {developerMessage && <p className={`form-message ${developerStatus}`}>{developerMessage}</p>}
+      </div>
+      <div className="developer-api-grid">
+        <div className="developer-api-column">
+          <div className="developer-api-header">
+            <div>
+              <span>API keys</span>
+              <strong>{tokens.length}/5 active</strong>
+            </div>
+            <button
+              className="action-link"
+              disabled={developerStatus === "loading"}
+              onClick={onApiTokenCreate}
+              type="button"
+            >
+              Create API key
+            </button>
+          </div>
+          {apiTokenSecret && (
+            <div className="secret-box">
+              <span>Copy now</span>
+              <code>{apiTokenSecret}</code>
+              <button className="text-button accent-text" onClick={() => copyText(apiTokenSecret)} type="button">
+                Copy
+              </button>
+            </div>
+          )}
+          <div className="developer-api-list">
+            {tokens.map((token) => (
+              <div className="developer-api-row" key={token.id}>
+                <div>
+                  <strong>{token.label || "API key"}</strong>
+                  <span>{token.tokenPrefix || "hidden"}{token.lastUsedAt ? ` · used ${formatDate(token.lastUsedAt)}` : ""}</span>
+                </div>
+                <button
+                  className="text-button"
+                  disabled={developerStatus === "loading"}
+                  onClick={() => onApiTokenRevoke(token.id)}
+                  type="button"
+                >
+                  Revoke
+                </button>
+              </div>
+            ))}
+            {!tokens.length && <p className="quiet-note">No active API keys.</p>}
+          </div>
+        </div>
+        <div className="developer-api-column">
+          <form className="developer-webhook-form" onSubmit={onWebhookCreate}>
+            <label htmlFor="webhook-url">Webhook URL</label>
+            <div className="audit-row">
+              <input
+                id="webhook-url"
+                inputMode="url"
+                onChange={(event) => onWebhookUrlChange(event.target.value)}
+                placeholder="https://example.com/seofixkit-webhook"
+                required
+                type="url"
+                value={webhookUrl}
+              />
+              <button disabled={developerStatus === "loading"} type="submit">
+                Add webhook
+              </button>
+            </div>
+          </form>
+          {webhookSecret && (
+            <div className="secret-box">
+              <span>Signing secret</span>
+              <code>{webhookSecret}</code>
+              <button className="text-button accent-text" onClick={() => copyText(webhookSecret)} type="button">
+                Copy
+              </button>
+            </div>
+          )}
+          <div className="developer-api-list">
+            {webhooks.map((webhook) => (
+              <div className="developer-api-row" key={webhook.id}>
+                <div>
+                  <strong>{safeUrlLabel(webhook.url)}</strong>
+                  <span>{(webhook.events || []).join(", ")}{webhook.lastDeliveryStatus ? ` · ${webhook.lastDeliveryStatus}` : ""}</span>
+                </div>
+                <button
+                  className="text-button"
+                  disabled={developerStatus === "loading"}
+                  onClick={() => onWebhookRevoke(webhook.id)}
+                  type="button"
+                >
+                  Revoke
+                </button>
+              </div>
+            ))}
+            {!webhooks.length && <p className="quiet-note">No active webhooks.</p>}
+          </div>
+        </div>
+      </div>
+      <div className="api-command-strip">
+        <code>POST /v1/audits</code>
+        <code>GET /v1/audits/{"{audit_id}"}</code>
+        <code>GET /v1/audits/{"{audit_id}"}/issues</code>
+        <code>GET /v1/projects</code>
+      </div>
     </section>
   );
 }
@@ -786,6 +1235,20 @@ function ReportView({ report }) {
     [report]
   );
   const topFixes = report.repairPlan || [];
+  const competitorBenchmark = report.competitorBenchmark || null;
+  const crawlInventory = report.crawlInventory || report.crawl_inventory || null;
+  const renderedCrawlScale = report.renderedCrawlScale || report.rendered_crawl_scale || null;
+  const crawlIntelligence = report.crawlIntelligence || report.crawl_intelligence || null;
+  const reportDelta = report.reportDelta || report.report_delta || null;
+  const resourceWaterfall =
+    report.resourceWaterfall ||
+    report.resource_waterfall ||
+    report.pages?.[0]?.resourceWaterfall ||
+    null;
+  const backlinkAudit = report.backlinkAudit || null;
+  const localSeoAudit = report.localSeoAudit || null;
+  const keywordRankAudit = report.keywordRankAudit || report.keyword_rank_audit || null;
+  const platformSeoAudit = report.platformSeoAudit || report.platform_seo_audit || null;
   const pageSummaries = report.pageSummaries || summarizePages(report.pages || [], report.findings || [], report.url);
   const shareUrl = report.reportUrl || `${window.location.origin}${report.reportPath || window.location.pathname}`;
   const topThree = topFixes.slice(0, 3);
@@ -834,12 +1297,36 @@ function ReportView({ report }) {
       )}
 
       <section className="metric-strip" aria-label="Audit summary">
-        <Metric label="Pages" value={`${report.summary?.pagesScanned || 0}/${report.summary?.maxPages || 10}`} />
+        <Metric label="Pages" value={`${formatCount(report.summary?.pagesScanned || 0)}/${formatCount(report.summary?.maxPages || DEFAULT_CRAWL_PAGES)}`} />
         <Metric label="Critical" value={report.summary?.critical || 0} />
         <Metric label="Warnings" value={report.summary?.warnings || 0} />
         <Metric label="Notices" value={report.summary?.notices || 0} />
         <Metric label="Proof guards" value={report.summary?.guardedFalsePositives || 0} />
       </section>
+
+      {competitorBenchmark?.status === "ready" && <CompetitorBenchmarkPanel benchmark={competitorBenchmark} />}
+
+      {["ready", "empty"].includes(crawlInventory?.status) && <CrawlInventoryPanel inventory={crawlInventory} />}
+
+      {renderedCrawlScale?.status === "ready" && <RenderedCrawlScalePanel plan={renderedCrawlScale} />}
+
+      {crawlIntelligence?.status === "ready" && <CrawlIntelligencePanel audit={crawlIntelligence} />}
+
+      {["ready", "first_run"].includes(reportDelta?.status) && <ReportDeltaPanel delta={reportDelta} />}
+
+      {backlinkAudit?.status === "ready" && <BacklinkAuditPanel audit={backlinkAudit} />}
+
+      {localSeoAudit?.status === "ready" && <LocalSeoAuditPanel audit={localSeoAudit} />}
+
+      {keywordRankAudit?.status === "ready" && <KeywordRankAuditPanel audit={keywordRankAudit} />}
+
+      {platformSeoAudit?.status === "ready" && <PlatformSeoAuditPanel audit={platformSeoAudit} />}
+
+      {report.performance && <PerformancePanel performance={report.performance} />}
+
+      {["ready", "empty"].includes(resourceWaterfall?.status) && (
+        <ResourceWaterfallPanel waterfall={resourceWaterfall} />
+      )}
 
       <section className="verdict-panel">
         <div>
@@ -872,13 +1359,20 @@ function ReportView({ report }) {
           className="action-link"
           href={`/api/reports/${report.id}/brief.md`}
           onClick={(event) => {
-          event.preventDefault();
+            event.preventDefault();
             fetchBrief(report.id);
           }}
         >
           Download brief
         </a>
+        <a className="action-link" href={`/api/reports/${report.id}/client.pdf`}>
+          Download branded PDF
+        </a>
       </section>
+
+      <ClientReportPanel report={report} />
+
+      <TeamRepairBoard report={report} />
 
       <section className="guard-section">
         <div className="section-heading">
@@ -944,6 +1438,1180 @@ function ReportView({ report }) {
   );
 }
 
+function ReportDeltaPanel({ delta }) {
+  const summary = delta.summary || {};
+  const firstRun = delta.status === "first_run";
+  const scoreDelta = Number(summary.scoreDelta || 0);
+  const issueDelta = Number(summary.issuesDelta || 0);
+  const fixedIssues = delta.fixedIssues || [];
+  const newIssues = delta.newIssues || [];
+
+  return (
+    <section className="report-delta-panel">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Audit history</p>
+        <h2>
+          {firstRun
+            ? "First saved audit for this host."
+            : scoreDelta > 0
+              ? `Score improved by ${scoreDelta} points.`
+              : scoreDelta < 0
+                ? `Score dropped by ${Math.abs(scoreDelta)} points.`
+                : "Score held steady since the last audit."}
+        </h2>
+        <p>{firstRun ? "Future reruns will show fixed, new, and still-open issues here." : "Compares this report with the previous saved audit for the same owner and host."}</p>
+      </div>
+
+      <div className="report-delta-metrics" aria-label="Audit history delta">
+        <Metric label="Score change" value={firstRun ? "New" : signedNumber(scoreDelta)} />
+        <Metric label="Issue change" value={firstRun ? summary.issuesNow || 0 : signedNumber(issueDelta)} />
+        <Metric label="Fixed" value={summary.fixedIssuesCount || 0} />
+        <Metric label="New" value={summary.newIssuesCount || 0} />
+        <Metric label="Still open" value={summary.persistentIssuesCount || 0} />
+      </div>
+
+      {!firstRun && (
+        <div className="report-delta-grid">
+          <DeltaIssueColumn title="Fixed since last audit" empty="No proven issues disappeared yet." issues={fixedIssues} tone="fixed" />
+          <DeltaIssueColumn title="New since last audit" empty="No new proven issues appeared." issues={newIssues} tone="new" />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function DeltaIssueColumn({ title, empty, issues, tone }) {
+  return (
+    <article className={`report-delta-column ${tone}`}>
+      <strong>{title}</strong>
+      {issues.slice(0, 5).map((issue) => (
+        <div className="report-delta-issue" key={`${issue.title}-${issue.pageUrl}-${issue.severity}`}>
+          <span>{issue.severity || "notice"}</span>
+          <b>{issue.title}</b>
+          <small>{issue.pageLabel || safeHostnameLabel(issue.pageUrl || "")}</small>
+        </div>
+      ))}
+      {!issues.length && <p>{empty}</p>}
+    </article>
+  );
+}
+
+function CrawlInventoryPanel({ inventory }) {
+  const summary = inventory.summary || {};
+  const sampleUrls = inventory.sampleUrls || [];
+  const warnings = inventory.warnings || [];
+
+  return (
+    <section className="crawl-inventory-panel">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Crawl inventory</p>
+        <h2>
+          {summary.urlsDiscovered
+            ? `${formatCount(summary.urlsDiscovered)} sitemap ${summary.urlsDiscovered === 1 ? "URL" : "URLs"} discovered.`
+            : "No sitemap inventory URLs were discovered."}
+        </h2>
+        <p>Sitemap inventory proof up to CrawlRaven public scale. Rendered repairs still use the selected crawl depth.</p>
+      </div>
+
+      <div className="crawl-inventory-metrics" aria-label="Crawl inventory summary">
+        <Metric label="Inventory URLs" value={formatCount(summary.urlsDiscovered || 0)} />
+        <Metric label="Rendered proof" value={`${formatCount(summary.renderedPagesCovered || 0)}/${formatCount(summary.renderedPagesScanned || 0)}`} />
+        <Metric label="Coverage" value={`${summary.coveragePercent || 0}%`} />
+        <Metric label="Sitemaps" value={formatCount(summary.sitemapsFetched || 0)} />
+        <Metric label="Inventory cap" value={formatCount(summary.inventoryLimit || 50000)} />
+      </div>
+
+      {sampleUrls.length > 0 && (
+        <div className="crawl-inventory-grid">
+          {sampleUrls.slice(0, 8).map((item) => (
+            <article className="crawl-inventory-row" key={item.url}>
+              <span>Discovered</span>
+              <strong>{safeHostnameLabel(item.url)}</strong>
+              <small>{item.url}</small>
+              {item.lastmod && <p>Last updated {item.lastmod}</p>}
+            </article>
+          ))}
+        </div>
+      )}
+
+      {warnings.length > 0 && (
+        <div className="crawl-inventory-warnings">
+          {warnings.slice(0, 4).map((warning) => (
+            <p key={warning}>{warning}</p>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function RenderedCrawlScalePanel({ plan }) {
+  const summary = plan.summary || {};
+  const batches = plan.batches || [];
+  const repairs = plan.repairOpportunities || [];
+  const highestPriority = repairs[0];
+
+  return (
+    <section className="rendered-crawl-scale-panel">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Rendered crawl scale</p>
+        <h2>{formatCount(summary.plannedUrlCount || summary.requestedTargetPages || 0)} URLs staged for rendered crawl proof.</h2>
+        <p>Large-crawl manifest for CrawlRaven-scale parity. This is a plan, not a completed 50K rendered crawl claim.</p>
+      </div>
+
+      <div className="rendered-crawl-scale-metrics" aria-label="Rendered crawl scale summary">
+        <Metric label="Rendered now" value={formatCount(summary.renderedPages || 0)} />
+        <Metric label="Target" value={formatCount(summary.requestedTargetPages || 0)} />
+        <Metric label="Inventory" value={formatCount(summary.inventoryUrlsAvailable || 0)} />
+        <Metric label="Batches" value={formatCount(summary.plannedBatches || 0)} />
+        <Metric label="Coverage" value={`${summary.renderedCoveragePercent || 0}%`} />
+        <Metric label="Batch size" value={formatCount(summary.batchSize || 1000)} />
+      </div>
+
+      {highestPriority && (
+        <article className="rendered-crawl-scale-priority">
+          <span>{highestPriority.severity}</span>
+          <strong>{highestPriority.title}</strong>
+          <p>{highestPriority.proof}</p>
+          <small>{highestPriority.estimatedEffort || "30-90 min"} - {highestPriority.workType || "technical"}</small>
+        </article>
+      )}
+
+      <div className="rendered-crawl-scale-grid">
+        {batches.slice(0, 5).map((batch) => (
+          <article className={`rendered-crawl-scale-row ${batch.status === "rendered" ? "is-live" : "is-lost"}`} key={batch.batch}>
+            <div>
+              <span>{batch.status}</span>
+              <strong>Batch {batch.batch}</strong>
+              <small>{formatCount(batch.startIndex)}-{formatCount(batch.endIndex)} of staged URLs</small>
+            </div>
+            <p>{batch.sampleUrls?.length ? batch.sampleUrls.slice(0, 3).join(", ") : `${formatCount(batch.plannedUrlCount)} planned rendered URLs.`}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CrawlIntelligencePanel({ audit }) {
+  const summary = audit.summary || {};
+  const checks = audit.checks || {};
+  const repairs = audit.repairOpportunities || [];
+  const highestPriority = repairs[0];
+
+  return (
+    <section className="crawl-intelligence-panel">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Crawl intelligence</p>
+        <h2>Rendered link graph with duplicate and orphan proof.</h2>
+        <p>Self-serve crawl-budget, orphan, duplicate-content, parameter, and cannibalization checks from rendered pages.</p>
+      </div>
+
+      <div className="crawl-intelligence-metrics" aria-label="Crawl intelligence summary">
+        <Metric label="Edges" value={summary.linkedEdges || 0} />
+        <Metric label="Max depth" value={summary.maxDepth || 0} />
+        <Metric label="Orphans" value={summary.orphanInventoryCandidates || 0} />
+        <Metric label="Duplicate pairs" value={summary.duplicateContentPairs || 0} />
+        <Metric label="Cannibalization" value={summary.cannibalizationGroups || 0} />
+        <Metric label="URL params" value={summary.parameterizedLinks || 0} />
+      </div>
+
+      {highestPriority && (
+        <article className="crawl-intelligence-priority">
+          <span>{highestPriority.severity}</span>
+          <strong>{highestPriority.title}</strong>
+          <p>{highestPriority.proof}</p>
+          <small>{highestPriority.estimatedEffort || "30-90 min"} - {highestPriority.workType || "technical"}</small>
+        </article>
+      )}
+
+      <div className="crawl-intelligence-grid">
+        {(checks.orphanInventoryCandidates || []).slice(0, 3).map((item) => (
+          <article className="crawl-intelligence-row is-lost" key={`orphan-${item.url}`}>
+            <div>
+              <span>Orphan candidate</span>
+              <strong>{item.label || item.url}</strong>
+              <small>{item.lastmod || "Sitemap URL"}</small>
+            </div>
+            <p>{item.url}</p>
+          </article>
+        ))}
+        {(checks.duplicateTitles || []).slice(0, 3).map((group) => (
+          <article className="crawl-intelligence-row is-lost" key={`title-${group.value}`}>
+            <div>
+              <span>Duplicate title</span>
+              <strong>{group.value}</strong>
+              <small>{group.pages.length} pages</small>
+            </div>
+            <p>{group.pages.map((page) => page.label).join(", ")}</p>
+          </article>
+        ))}
+        {(checks.duplicateContentPairs || []).slice(0, 3).map((pair) => (
+          <article className="crawl-intelligence-row is-lost" key={`content-${pair.left.url}-${pair.right.url}`}>
+            <div>
+              <span>Duplicate content</span>
+              <strong>{pair.similarityPercent}% similar</strong>
+              <small>{pair.left.label} and {pair.right.label}</small>
+            </div>
+            <p>{pair.left.title || pair.right.title || "Rendered content overlap"}</p>
+          </article>
+        ))}
+        {(checks.cannibalizationGroups || []).slice(0, 3).map((group) => (
+          <article className="crawl-intelligence-row is-lost" key={`cannibal-${group.keyword}`}>
+            <div>
+              <span>Cannibalization</span>
+              <strong>{group.keyword}</strong>
+              <small>{group.pages.length} pages</small>
+            </div>
+            <p>{group.pages.map((page) => page.label).join(", ")}</p>
+          </article>
+        ))}
+        {(checks.parameterizedLinks || []).slice(0, 3).map((link) => (
+          <article className="crawl-intelligence-row is-lost" key={`param-${link.href}`}>
+            <div>
+              <span>URL parameter</span>
+              <strong>{link.pageLabel || "page"}</strong>
+              <small>{link.text || "Rendered internal link"}</small>
+            </div>
+            <p>{link.href}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CompetitorBenchmarkPanel({ benchmark }) {
+  const summary = benchmark.summary || {};
+  const target = benchmark.target || {};
+  const competitors = benchmark.competitors || [];
+  const repairs = benchmark.repairOpportunities || [];
+
+  return (
+    <section className="competitor-benchmark-panel">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Competitor benchmark</p>
+        <h2>
+          {summary.scoreGapToBest > 0
+            ? `${summary.bestCompetitorHost} is ${summary.scoreGapToBest} points ahead.`
+            : "You match or beat the strongest competitor snapshot."}
+        </h2>
+        <p>Homepage proof snapshot. This is not backlink, keyword-volume, or rank-tracking data.</p>
+      </div>
+
+      <div className="benchmark-metrics" aria-label="Competitor benchmark summary">
+        <Metric label="Your rank" value={`${summary.targetRank || 1}/${summary.totalSitesRanked || competitors.length + 1}`} />
+        <Metric label="Your score" value={target.score || 0} />
+        <Metric label="Best rival" value={summary.bestCompetitorScore || 0} />
+        <Metric label="Avg rival" value={summary.competitorAverageScore || 0} />
+        <Metric label="Gap repairs" value={repairs.length} />
+      </div>
+
+      <div className="benchmark-grid">
+        <article className="benchmark-site benchmark-target">
+          <div>
+            <span>Your site</span>
+            <strong>{target.host || safeHostnameLabel(target.url)}</strong>
+          </div>
+          <b>{target.score || 0}/100</b>
+        </article>
+        {competitors.map((site) => (
+          <article className="benchmark-site" key={site.url}>
+            <div>
+              <span>Competitor</span>
+              <strong>{site.host || safeHostnameLabel(site.url)}</strong>
+              <small>
+                {site.strengths?.length
+                  ? `Avoids: ${site.strengths.slice(0, 3).join(", ")}`
+                  : `${site.issueCount || 0} issues in snapshot`}
+              </small>
+            </div>
+            <b>{site.score || 0}/100</b>
+          </article>
+        ))}
+      </div>
+
+      <div className="benchmark-repairs">
+        {repairs.slice(0, 5).map((repair) => (
+          <article className="benchmark-repair" key={`${repair.priority}-${repair.title}`}>
+            <span>{repair.severity}</span>
+            <strong>{repair.title}</strong>
+            <p>{repair.proof}</p>
+            <small>{repair.estimatedEffort || "15-30 min"} - {repair.workType || "review"}</small>
+          </article>
+        ))}
+        {!repairs.length && <p className="quiet-note">No competitor-backed repair gaps were found in this snapshot.</p>}
+      </div>
+    </section>
+  );
+}
+
+function BacklinkAuditPanel({ audit }) {
+  const summary = audit.summary || {};
+  const rows = audit.rows || [];
+  const repairs = audit.repairOpportunities || [];
+  const highestPriority = repairs[0];
+
+  return (
+    <section className="backlink-audit-panel">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Backlink audit</p>
+        <h2>
+          {summary.repairOpportunityCount
+            ? `${summary.repairOpportunityCount} link repair ${summary.repairOpportunityCount === 1 ? "action" : "actions"} found.`
+            : "Imported backlinks are clean in this proof pass."}
+        </h2>
+        <p>Self-serve backlink import with live source-page proof and link-edge history. This is not proprietary backlink discovery.</p>
+      </div>
+
+      <div className="backlink-metrics" aria-label="Backlink audit summary">
+        <Metric label="Imported" value={summary.imported || rows.length} />
+        <Metric label="Live" value={summary.live || 0} />
+        <Metric label="Lost" value={summary.lost || 0} />
+        <Metric label="Risky" value={summary.toxicRisk || 0} />
+        <Metric label="Broken" value={summary.brokenTargets || 0} />
+      </div>
+
+      {highestPriority && (
+        <article className="backlink-priority">
+          <span>{highestPriority.severity}</span>
+          <strong>{highestPriority.title}</strong>
+          <p>{highestPriority.proof}</p>
+          <small>{highestPriority.estimatedEffort || "30-90 min"} - {highestPriority.workType || "review"}</small>
+        </article>
+      )}
+
+      <div className="backlink-grid">
+        {rows.slice(0, 6).map((row) => (
+          <article className={`backlink-row ${row.live ? "is-live" : "is-lost"}`} key={row.id || `${row.sourceUrl}-${row.targetUrl}`}>
+            <div>
+              <span>{row.live ? "Live" : "Lost"}</span>
+              <strong>{safeHostnameLabel(row.sourceUrl)}</strong>
+              <small>{row.discoveredAnchorText || row.anchorText || "No anchor text captured"}</small>
+            </div>
+            <p>{row.proof}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function LocalSeoAuditPanel({ audit }) {
+  const summary = audit.summary || {};
+  const repairs = audit.repairOpportunities || [];
+  const citations = audit.citationRows || [];
+  const keywords = audit.keywordChecks || [];
+  const highestPriority = repairs[0];
+
+  return (
+    <section className="local-seo-panel">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Local SEO audit</p>
+        <h2>
+          {summary.repairOpportunityCount
+            ? `${summary.repairOpportunityCount} local repair ${summary.repairOpportunityCount === 1 ? "action" : "actions"} found.`
+            : "Local SEO proof passed for the supplied inputs."}
+        </h2>
+        <p>Self-serve NAP, citation, schema, profile-link, and local keyword checks.</p>
+      </div>
+
+      <div className="local-seo-metrics" aria-label="Local SEO audit summary">
+        <Metric label="NAP found" value={`${summary.napFieldsFoundOnSite || 0}/${summary.napFieldsSupplied || 0}`} />
+        <Metric label="Schema" value={summary.localSchemaFound ? "Yes" : "No"} />
+        <Metric label="GBP link" value={summary.googleBusinessProfileLinked ? "Yes" : "No"} />
+        <Metric label="Citations" value={`${summary.citationRowsPassed || 0}/${summary.citationRowsChecked || 0}`} />
+        <Metric label="Keywords" value={`${summary.localKeywordsCovered || 0}/${summary.localKeywordsChecked || 0}`} />
+      </div>
+
+      {highestPriority && (
+        <article className="local-seo-priority">
+          <span>{highestPriority.severity}</span>
+          <strong>{highestPriority.title}</strong>
+          <p>{highestPriority.proof}</p>
+          <small>{highestPriority.estimatedEffort || "30-90 min"} - {highestPriority.workType || "review"}</small>
+        </article>
+      )}
+
+      <div className="local-seo-grid">
+        {citations.slice(0, 4).map((row) => (
+          <article className={`local-seo-row ${row.ok ? "is-live" : "is-lost"}`} key={row.id || row.sourceUrl}>
+            <div>
+              <span>{row.ok ? "Consistent" : "Mismatch"}</span>
+              <strong>{safeHostnameLabel(row.sourceUrl)}</strong>
+              <small>{row.mismatches?.length ? `Missing ${row.mismatches.join(", ")}` : "NAP matched"}</small>
+            </div>
+            <p>{row.proof}</p>
+          </article>
+        ))}
+        {keywords.slice(0, 4).map((item) => (
+          <article className={`local-seo-row ${item.found ? "is-live" : "is-lost"}`} key={item.keyword}>
+            <div>
+              <span>{item.found ? "Covered" : "Missing"}</span>
+              <strong>{item.keyword}</strong>
+              <small>{item.pages?.length ? item.pages.map((page) => page.label).join(", ") : "No rendered page match"}</small>
+            </div>
+            <p>{item.found ? "Keyword appears naturally in rendered page content." : "Keyword was not found in the rendered pages crawled."}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function KeywordRankAuditPanel({ audit }) {
+  const summary = audit.summary || {};
+  const checks = audit.checks || {};
+  const repairs = audit.repairOpportunities || [];
+  const highestPriority = repairs[0];
+
+  return (
+    <section className="keyword-rank-panel">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Keyword audit</p>
+        <h2>
+          {summary.repairOpportunityCount
+            ? `${summary.repairOpportunityCount} keyword repair ${summary.repairOpportunityCount === 1 ? "action" : "actions"} found.`
+            : "Imported keyword rows are clean in this proof pass."}
+        </h2>
+        <p>Self-serve Search Console or rank-tracker import with rendered landing-page proof and trend history. This is not live volume or continuous rank tracking.</p>
+      </div>
+
+      <div className="keyword-rank-metrics" aria-label="Keyword audit summary">
+        <Metric label="Rows" value={summary.imported || 0} />
+        <Metric label="Queries" value={summary.queries || 0} />
+        <Metric label="Clicks" value={formatCount(summary.totalClicks || 0)} />
+        <Metric label="Impressions" value={formatCount(summary.totalImpressions || 0)} />
+        <Metric label="CTR" value={formatPercent(summary.averageCtr || 0)} />
+        <Metric label="Avg pos" value={formatPosition(summary.averagePosition || 0)} />
+      </div>
+
+      {highestPriority && (
+        <article className="keyword-rank-priority">
+          <span>{highestPriority.severity}</span>
+          <strong>{highestPriority.title}</strong>
+          <p>{highestPriority.proof}</p>
+          <small>{highestPriority.estimatedEffort || "30-90 min"} - {highestPriority.workType || "content"}</small>
+        </article>
+      )}
+
+      <div className="keyword-rank-grid">
+        {(checks.lowCtrRows || []).slice(0, 3).map((row) => (
+          <KeywordRankRow
+            key={`ctr-${row.id}`}
+            label="Low CTR"
+            title={row.query}
+            detail={`${row.pageLabel} - ${formatPercent(row.ctr)} CTR at position ${formatPosition(row.position)}`}
+            proof={`${formatCount(row.impressions)} impressions and ${formatCount(row.clicks)} clicks.`}
+          />
+        ))}
+        {(checks.pageTwoRows || []).slice(0, 3).map((row) => (
+          <KeywordRankRow
+            key={`page-two-${row.id}`}
+            label="Page two"
+            title={row.query}
+            detail={`${row.pageLabel} - position ${formatPosition(row.position)}`}
+            proof={`${formatCount(row.impressions)} impressions from a query close to traffic.`}
+          />
+        ))}
+        {(checks.decliningRows || []).slice(0, 3).map((row) => (
+          <KeywordRankRow
+            key={`decline-${row.id}`}
+            label="Declining"
+            title={row.query}
+            detail={`${formatCount(row.previousClicks)} to ${formatCount(row.clicks)} clicks`}
+            proof={`${row.pageLabel} changed from position ${formatPosition(row.previousPosition)} to ${formatPosition(row.position)}.`}
+          />
+        ))}
+        {(checks.cannibalizationGroups || []).slice(0, 3).map((group) => (
+          <KeywordRankRow
+            key={`cannibal-${group.normalizedKeyword || group.keyword}`}
+            label="Cannibalization"
+            title={group.keyword}
+            detail={`${group.pages.length} landing pages`}
+            proof={group.pages.map((page) => page.pageLabel || page.pageUrl).join(", ")}
+          />
+        ))}
+        {(checks.landingMismatchRows || []).slice(0, 3).map((row) => (
+          <KeywordRankRow
+            key={`mismatch-${row.id}`}
+            label="Intent mismatch"
+            title={row.query}
+            detail={row.pageLabel}
+            proof="Rendered title, H1, and description do not clearly cover the imported query."
+          />
+        ))}
+        {(checks.missingLandingPageRows || []).slice(0, 3).map((row) => (
+          <KeywordRankRow
+            key={`missing-${row.id}`}
+            label="Not crawled"
+            title={row.query}
+            detail={row.pageLabel}
+            proof="Imported landing page was not present in the rendered crawl proof."
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function KeywordRankRow({ label, title, detail, proof }) {
+  return (
+    <article className="keyword-rank-row is-lost">
+      <div>
+        <span>{label}</span>
+        <strong>{title}</strong>
+        <small>{detail}</small>
+      </div>
+      <p>{proof}</p>
+    </article>
+  );
+}
+
+function PlatformSeoAuditPanel({ audit }) {
+  const summary = audit.summary || {};
+  const repairs = audit.repairOpportunities || [];
+  const checks = audit.checks || {};
+  const highestPriority = repairs[0];
+  const platformNames = summary.detectedPlatformNames?.length
+    ? summary.detectedPlatformNames.join(", ")
+    : "Platform";
+
+  return (
+    <section className="platform-seo-panel">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Platform SEO audit</p>
+        <h2>{platformNames} proof with platform-specific repairs.</h2>
+        <p>Rendered WordPress and ecommerce checks for product schema, faceted links, archives, and plugin resource impact.</p>
+      </div>
+
+      <div className="platform-seo-metrics" aria-label="Platform SEO audit summary">
+        <Metric label="Platforms" value={summary.detectedPlatforms || 0} />
+        <Metric label="Products" value={summary.productLikePages || 0} />
+        <Metric label="Product schema" value={`${summary.productSchemaCoveragePercent || 0}%`} />
+        <Metric label="Faceted links" value={summary.facetedLinks || 0} />
+        <Metric label="WP plugins" value={summary.wordpressPlugins || 0} />
+        <Metric label="Repairs" value={summary.repairOpportunityCount || repairs.length} />
+      </div>
+
+      {highestPriority && (
+        <article className="platform-seo-priority">
+          <span>{highestPriority.severity}</span>
+          <strong>{highestPriority.title}</strong>
+          <p>{highestPriority.proof}</p>
+          <small>{highestPriority.estimatedEffort || "30-90 min"} - {highestPriority.workType || "technical"}</small>
+        </article>
+      )}
+
+      <div className="platform-seo-grid">
+        {(audit.detectedPlatforms || []).slice(0, 4).map((platform) => (
+          <article className="platform-seo-row is-live" key={platform.id}>
+            <div>
+              <span>{platform.category}</span>
+              <strong>{platform.name}</strong>
+              <small>{platform.confidence || "medium"} confidence</small>
+            </div>
+            <p>{platform.signals?.[0] || "Rendered platform signal detected."}</p>
+          </article>
+        ))}
+        {(checks.productSchema?.missingPages || []).slice(0, 3).map((page) => (
+          <article className="platform-seo-row is-lost" key={`product-${page.url}`}>
+            <div>
+              <span>Product schema</span>
+              <strong>{page.label || page.url}</strong>
+              <small>{page.wordCount || 0} rendered words</small>
+            </div>
+            <p>Product-like page lacks rendered Product schema.</p>
+          </article>
+        ))}
+        {(checks.facetedNavigation?.links || []).slice(0, 3).map((link) => (
+          <article className="platform-seo-row is-lost" key={`facet-${link.href}`}>
+            <div>
+              <span>Faceted URL</span>
+              <strong>{link.pageLabel || "page"}</strong>
+              <small>{link.text || "Rendered link"}</small>
+            </div>
+            <p>{link.href}</p>
+          </article>
+        ))}
+        {(checks.wordpressArchives?.links || []).slice(0, 3).map((link) => (
+          <article className="platform-seo-row is-lost" key={`archive-${link.href}`}>
+            <div>
+              <span>WP archive</span>
+              <strong>{link.pageLabel || "page"}</strong>
+              <small>{link.text || "Archive link"}</small>
+            </div>
+            <p>{link.href}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ClientReportPanel({ report }) {
+  const [branding, setBranding] = useState({
+    agencyName: "",
+    logoUrl: "",
+    brandColor: "#163f5f",
+    accentColor: "#0f9f6e",
+    customDomain: "",
+    footerText: ""
+  });
+  const [shares, setShares] = useState([]);
+  const [domains, setDomains] = useState([]);
+  const [domainName, setDomainName] = useState("");
+  const [clientName, setClientName] = useState(() => safeHostnameLabel(report.url));
+  const [password, setPassword] = useState("");
+  const [passwordHint, setPasswordHint] = useState("");
+  const [expiresDays, setExpiresDays] = useState("");
+  const [status, setStatus] = useState("idle");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    if (!report.id) return;
+    let cancelled = false;
+    setStatus("loading");
+    setMessage("Loading client report tools.");
+    Promise.all([loadReportBranding(), loadReportShares(report.id), loadReportDomains()])
+      .then(([brandingPayload, sharesPayload, domainsPayload]) => {
+        if (cancelled) return;
+        setBranding((current) => ({ ...current, ...(brandingPayload.branding || {}) }));
+        setShares(sharesPayload.shares || []);
+        setDomains(domainsPayload.domains || []);
+        setClientName((current) => current || safeHostnameLabel(report.url));
+        setStatus("success");
+        setMessage("Client reports ready.");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setStatus("error");
+        setMessage(error.message || "Could not load client report tools.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [report.id, report.url]);
+
+  function updateBranding(field, value) {
+    setBranding((current) => ({ ...current, [field]: value }));
+  }
+
+  async function onBrandingSave(event) {
+    event.preventDefault();
+    setStatus("loading");
+    setMessage("Saving branding.");
+    try {
+      const payload = await saveReportBranding(branding);
+      setBranding((current) => ({ ...current, ...(payload.branding || {}) }));
+      setStatus("success");
+      setMessage("Branding saved.");
+    } catch (error) {
+      setStatus("error");
+      setMessage(error.message || "Could not save branding.");
+    }
+  }
+
+  async function onShareCreate(event) {
+    event.preventDefault();
+    setStatus("loading");
+    setMessage("Creating client link.");
+    try {
+      const payload = await createReportShare(report.id, {
+        clientName,
+        password,
+        passwordHint,
+        expiresDays: expiresDays ? Number(expiresDays) : 0
+      });
+      setShares((current) => [payload.share, ...current.filter((share) => share.id !== payload.share.id)]);
+      setPassword("");
+      setStatus("success");
+      setMessage("Client link created.");
+    } catch (error) {
+      setStatus("error");
+      setMessage(error.message || "Could not create client link.");
+    }
+  }
+
+  async function onShareRevoke(id) {
+    setStatus("loading");
+    setMessage("Revoking client link.");
+    try {
+      await revokeReportShare(id);
+      setShares((current) => current.filter((share) => share.id !== id));
+      setStatus("success");
+      setMessage("Client link revoked.");
+    } catch (error) {
+      setStatus("error");
+      setMessage(error.message || "Could not revoke client link.");
+    }
+  }
+
+  async function onDomainCreate(event) {
+    event.preventDefault();
+    setStatus("loading");
+    setMessage("Creating report domain proof.");
+    try {
+      const payload = await createReportDomain(domainName);
+      setDomains((current) => [payload.domain, ...current.filter((domain) => domain.id !== payload.domain.id)]);
+      setDomainName("");
+      setStatus("success");
+      setMessage("Report domain proof is ready.");
+    } catch (error) {
+      setStatus("error");
+      setMessage(error.message || "Could not create report domain.");
+    }
+  }
+
+  async function onDomainVerify(id) {
+    setStatus("loading");
+    setMessage("Checking report domain proof.");
+    try {
+      const payload = await verifyReportDomain(id);
+      setDomains((current) => [payload.domain, ...current.filter((domain) => domain.id !== payload.domain.id)]);
+      setStatus("success");
+      setMessage("Report domain verified.");
+      const sharesPayload = await loadReportShares(report.id);
+      setShares(sharesPayload.shares || []);
+    } catch (error) {
+      setStatus("error");
+      setMessage(error.message || "Could not verify report domain.");
+    }
+  }
+
+  async function onDomainRevoke(id) {
+    setStatus("loading");
+    setMessage("Removing report domain.");
+    try {
+      await revokeReportDomain(id);
+      setDomains((current) => current.filter((domain) => domain.id !== id));
+      setStatus("success");
+      setMessage("Report domain removed.");
+      const sharesPayload = await loadReportShares(report.id);
+      setShares(sharesPayload.shares || []);
+    } catch (error) {
+      setStatus("error");
+      setMessage(error.message || "Could not remove report domain.");
+    }
+  }
+
+  return (
+    <section className="client-report-panel">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Client reports</p>
+        <h2>White-label report links</h2>
+        {message && <p className={`form-message ${status}`}>{message}</p>}
+      </div>
+
+      <div className="client-report-grid">
+        <form className="client-report-card" onSubmit={onBrandingSave}>
+          <div className="client-report-card-head">
+            <strong>Branding</strong>
+            <button disabled={status === "loading"} type="submit">Save</button>
+          </div>
+          <label htmlFor="agency-name">Agency name</label>
+          <input
+            id="agency-name"
+            onChange={(event) => updateBranding("agencyName", event.target.value)}
+            required
+            value={branding.agencyName || ""}
+          />
+          <label htmlFor="logo-url">Logo URL</label>
+          <input
+            id="logo-url"
+            inputMode="url"
+            onChange={(event) => updateBranding("logoUrl", event.target.value)}
+            placeholder="https://example.com/logo.png"
+            type="url"
+            value={branding.logoUrl || ""}
+          />
+          <div className="color-row">
+            <label htmlFor="brand-color">
+              Brand
+              <input
+                id="brand-color"
+                onChange={(event) => updateBranding("brandColor", event.target.value)}
+                type="color"
+                value={branding.brandColor || "#163f5f"}
+              />
+            </label>
+            <label htmlFor="accent-color">
+              Accent
+              <input
+                id="accent-color"
+                onChange={(event) => updateBranding("accentColor", event.target.value)}
+                type="color"
+                value={branding.accentColor || "#0f9f6e"}
+              />
+            </label>
+          </div>
+          <label htmlFor="custom-domain">Display domain</label>
+          <input
+            id="custom-domain"
+            onChange={(event) => updateBranding("customDomain", event.target.value)}
+            placeholder="reports.example.com"
+            value={branding.customDomain || ""}
+          />
+          <label htmlFor="footer-text">Footer</label>
+          <input
+            id="footer-text"
+            onChange={(event) => updateBranding("footerText", event.target.value)}
+            value={branding.footerText || ""}
+          />
+        </form>
+
+        <form className="client-report-card" onSubmit={onDomainCreate}>
+          <div className="client-report-card-head">
+            <strong>Custom domain</strong>
+            <button disabled={status === "loading"} type="submit">Add</button>
+          </div>
+          <label htmlFor="report-domain">Report subdomain</label>
+          <input
+            id="report-domain"
+            onChange={(event) => setDomainName(event.target.value)}
+            placeholder="reports.example.com"
+            required
+            value={domainName}
+          />
+          <div className="domain-list">
+            {domains.map((domain) => (
+              <article className={`domain-row ${domain.status}`} key={domain.id}>
+                <div>
+                  <strong>{domain.domain}</strong>
+                  <span>{domain.status === "verified" ? "Verified" : "Pending verification"}</span>
+                  {domain.cnameTarget && <code>CNAME {domain.cnameTarget}</code>}
+                  {domain.dnsName ? (
+                    <code>{domain.dnsType || "TXT"} {domain.dnsName}{" -> "}{domain.dnsValue || domain.verificationToken}</code>
+                  ) : (
+                    <code>{domain.verificationPath}{" -> "}{domain.verificationToken}</code>
+                  )}
+                  {domain.lastError && <small>{domain.lastError}</small>}
+                </div>
+                <div className="domain-actions">
+                  {domain.status !== "verified" && (
+                    <button className="text-button accent-text" disabled={status === "loading"} onClick={() => onDomainVerify(domain.id)} type="button">
+                      Verify
+                    </button>
+                  )}
+                  <button className="text-button" disabled={status === "loading"} onClick={() => onDomainRevoke(domain.id)} type="button">
+                    Remove
+                  </button>
+                </div>
+              </article>
+            ))}
+            {!domains.length && <p className="quiet-note">No report domain connected yet.</p>}
+          </div>
+        </form>
+
+        <form className="client-report-card" onSubmit={onShareCreate}>
+          <div className="client-report-card-head">
+            <strong>Create link</strong>
+            <button disabled={status === "loading"} type="submit">Create</button>
+          </div>
+          <label htmlFor="client-name">Client name</label>
+          <input
+            id="client-name"
+            onChange={(event) => setClientName(event.target.value)}
+            required
+            value={clientName}
+          />
+          <label htmlFor="client-password">Password</label>
+          <input
+            id="client-password"
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Optional"
+            type="password"
+            value={password}
+          />
+          <label htmlFor="client-password-hint">Password hint</label>
+          <input
+            id="client-password-hint"
+            onChange={(event) => setPasswordHint(event.target.value)}
+            placeholder="Optional"
+            value={passwordHint}
+          />
+          <label htmlFor="expires-days">Expires after days</label>
+          <input
+            id="expires-days"
+            inputMode="numeric"
+            min="1"
+            max="180"
+            onChange={(event) => setExpiresDays(event.target.value)}
+            placeholder="Never"
+            type="number"
+            value={expiresDays}
+          />
+        </form>
+      </div>
+
+      <div className="client-share-list">
+        {shares.map((share) => (
+          <article className="client-share-row" key={share.id}>
+            <div>
+              <strong>{share.clientName || safeHostnameLabel(report.url)}</strong>
+              <span>
+                {share.passwordProtected ? "Password protected" : "Open link"}
+                {share.expiresAt ? ` · Expires ${formatDate(share.expiresAt)}` : ""}
+                {share.lastViewedAt ? ` · Viewed ${formatDate(share.lastViewedAt)}` : ""}
+              </span>
+              <code>{share.shareUrl}</code>
+            </div>
+            <div className="client-share-actions">
+              <button className="text-button accent-text" onClick={() => copyText(share.shareUrl)} type="button">
+                Copy
+              </button>
+              <a className="text-button accent-text" href={share.sharePath} target="_blank" rel="noreferrer">
+                Open
+              </a>
+              <a className="text-button accent-text" href={share.pdfPath || `${share.sharePath}.pdf`}>
+                PDF
+              </a>
+              <button className="text-button" disabled={status === "loading"} onClick={() => onShareRevoke(share.id)} type="button">
+                Revoke
+              </button>
+            </div>
+          </article>
+        ))}
+        {!shares.length && <p className="quiet-note">No active client links for this report.</p>}
+      </div>
+    </section>
+  );
+}
+
+function TeamRepairBoard({ report }) {
+  const [members, setMembers] = useState([]);
+  const [issues, setIssues] = useState([]);
+  const [draftMember, setDraftMember] = useState({ email: "", name: "", role: "editor" });
+  const [savingIssueId, setSavingIssueId] = useState("");
+  const [status, setStatus] = useState("idle");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    if (!report.id) return;
+    let cancelled = false;
+    setStatus("loading");
+    setMessage("Loading repair board.");
+    loadReportCollaboration(report.id)
+      .then((payload) => {
+        if (cancelled) return;
+        setMembers(payload.members || []);
+        setIssues(payload.issues || []);
+        setStatus("success");
+        setMessage("Repair board ready.");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setStatus("error");
+        setMessage(error.message || "Could not load repair board.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [report.id]);
+
+  const boardCounts = useMemo(() => ({
+    total: issues.length,
+    assigned: issues.filter((issue) => issue.assigneeEmail).length,
+    inProgress: issues.filter((issue) => issue.status === "in_progress").length,
+    fixed: issues.filter((issue) => issue.status === "fixed").length
+  }), [issues]);
+
+  function updateIssue(issueId, patch) {
+    setIssues((current) =>
+      current.map((issue) => (issue.issueId === issueId ? { ...issue, ...patch } : issue))
+    );
+  }
+
+  async function reloadBoard(nextMessage = "Repair board updated.") {
+    const payload = await loadReportCollaboration(report.id);
+    setMembers(payload.members || []);
+    setIssues(payload.issues || []);
+    setStatus("success");
+    setMessage(nextMessage);
+  }
+
+  async function onMemberCreate(event) {
+    event.preventDefault();
+    setStatus("loading");
+    setMessage("Adding teammate.");
+    try {
+      await createTeamMember(draftMember);
+      setDraftMember({ email: "", name: "", role: "editor" });
+      await reloadBoard("Teammate added.");
+    } catch (error) {
+      setStatus("error");
+      setMessage(error.message || "Could not add teammate.");
+    }
+  }
+
+  async function onMemberRevoke(id) {
+    setStatus("loading");
+    setMessage("Removing teammate.");
+    try {
+      await revokeTeamMember(id);
+      await reloadBoard("Teammate removed.");
+    } catch (error) {
+      setStatus("error");
+      setMessage(error.message || "Could not remove teammate.");
+    }
+  }
+
+  async function onIssueSave(issue) {
+    setSavingIssueId(issue.issueId);
+    setStatus("loading");
+    setMessage("Saving issue update.");
+    try {
+      const payload = await saveReportCollaboration(report.id, {
+        items: [{
+          issueId: issue.issueId,
+          status: issue.status,
+          assigneeEmail: issue.assigneeEmail,
+          note: issue.note
+        }]
+      });
+      setMembers(payload.members || []);
+      setIssues(payload.issues || []);
+      setStatus("success");
+      setMessage("Issue update saved.");
+    } catch (error) {
+      setStatus("error");
+      setMessage(error.message || "Could not save issue update.");
+    } finally {
+      setSavingIssueId("");
+    }
+  }
+
+  return (
+    <section className="team-repair-panel">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Team collaboration</p>
+        <h2>Assign issues and track fixes</h2>
+        {message && <p className={`form-message ${status}`}>{message}</p>}
+      </div>
+
+      <div className="team-board-summary">
+        <Metric label="Issues" value={boardCounts.total} />
+        <Metric label="Assigned" value={boardCounts.assigned} />
+        <Metric label="In progress" value={boardCounts.inProgress} />
+        <Metric label="Fixed" value={boardCounts.fixed} />
+      </div>
+
+      <div className="team-collab-grid">
+        <form className="team-member-card" onSubmit={onMemberCreate}>
+          <div className="client-report-card-head">
+            <strong>Teammates</strong>
+            <button disabled={status === "loading"} type="submit">Add</button>
+          </div>
+          <label htmlFor="team-email">Email</label>
+          <input
+            id="team-email"
+            inputMode="email"
+            onChange={(event) => setDraftMember((current) => ({ ...current, email: event.target.value }))}
+            placeholder="teammate@example.com"
+            required
+            type="email"
+            value={draftMember.email}
+          />
+          <label htmlFor="team-name">Name</label>
+          <input
+            id="team-name"
+            onChange={(event) => setDraftMember((current) => ({ ...current, name: event.target.value }))}
+            placeholder="Optional"
+            value={draftMember.name}
+          />
+          <label htmlFor="team-role">Role</label>
+          <select
+            id="team-role"
+            onChange={(event) => setDraftMember((current) => ({ ...current, role: event.target.value }))}
+            value={draftMember.role}
+          >
+            <option value="editor">Editor</option>
+            <option value="viewer">Viewer</option>
+            <option value="admin">Admin</option>
+          </select>
+
+          <div className="team-member-list">
+            {members.map((member) => (
+              <div className="team-member-row" key={member.id}>
+                <div>
+                  <strong>{member.name || member.email}</strong>
+                  <span>{member.email} · {teamRoleLabel(member.role)}</span>
+                </div>
+                <button className="text-button" disabled={status === "loading"} onClick={() => onMemberRevoke(member.id)} type="button">
+                  Remove
+                </button>
+              </div>
+            ))}
+            {!members.length && <p className="quiet-note">Add teammates to assign proven issues.</p>}
+          </div>
+        </form>
+
+        <div className="issue-board-list">
+          {issues.slice(0, 12).map((issue) => (
+            <article className={`issue-board-card ${issue.status}`} key={issue.issueId}>
+              <div className="issue-board-head">
+                <div>
+                  <span className={`status-pill ${issue.severity}`}>{issue.severity}</span>
+                  <h3>{issue.title}</h3>
+                  <p>{issue.pageLabel || safeUrlLabel(issue.pageUrl)} · {issue.fix}</p>
+                </div>
+                <button
+                  className="action-link"
+                  disabled={savingIssueId === issue.issueId || status === "loading"}
+                  onClick={() => onIssueSave(issue)}
+                  type="button"
+                >
+                  Save
+                </button>
+              </div>
+              <div className="issue-board-controls">
+                <label>
+                  Status
+                  <select
+                    onChange={(event) => updateIssue(issue.issueId, { status: event.target.value })}
+                    value={issue.status || "open"}
+                  >
+                    <option value="open">Open</option>
+                    <option value="in_progress">In progress</option>
+                    <option value="fixed">Fixed</option>
+                    <option value="ignored">Ignored</option>
+                  </select>
+                </label>
+                <label>
+                  Assignee
+                  <select
+                    onChange={(event) => updateIssue(issue.issueId, { assigneeEmail: event.target.value })}
+                    value={issue.assigneeEmail || ""}
+                  >
+                    <option value="">Unassigned</option>
+                    {members.map((member) => (
+                      <option key={member.id} value={member.email}>
+                        {member.name || member.email}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Note
+                  <textarea
+                    onChange={(event) => updateIssue(issue.issueId, { note: event.target.value })}
+                    placeholder="Internal note or next repair step"
+                    value={issue.note || ""}
+                  />
+                </label>
+              </div>
+              {issue.updatedAt && (
+                <p className="quiet-note">Updated {formatDate(issue.updatedAt)}{issue.updatedByEmail ? ` by ${issue.updatedByEmail}` : ""}</p>
+              )}
+            </article>
+          ))}
+          {!issues.length && <p className="quiet-note">No repair issues to assign from this report.</p>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Metric({ label, value }) {
   return (
     <div>
@@ -951,6 +2619,178 @@ function Metric({ label, value }) {
       <span>{label}</span>
     </div>
   );
+}
+
+function PerformancePanel({ performance }) {
+  const metrics = performance.labMetrics || {};
+  const opportunities = performance.opportunities || [];
+  const score =
+    Number.isFinite(Number(performance.performanceScore)) ? `${performance.performanceScore}/100` : "local proof";
+  return (
+    <section className="performance-panel">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Performance proof</p>
+        <h2>{performance.status === "success" ? "PageSpeed lab data" : "Rendered load snapshot"}</h2>
+        <p>
+          {performance.status === "success"
+            ? "Mobile Lighthouse metrics from PageSpeed Insights are converted into repair-ready findings."
+            : performance.reason || "The rendered browser audit still captured local load proof."}
+        </p>
+      </div>
+      <div className="performance-grid">
+        <Metric label="Mobile score" value={score} />
+        <Metric label="LCP" value={metricDisplay(metrics.largestContentfulPaint)} />
+        <Metric label="TBT" value={metricDisplay(metrics.totalBlockingTime)} />
+        <Metric label="CLS" value={metricDisplay(metrics.cumulativeLayoutShift)} />
+        <Metric label="Speed Index" value={metricDisplay(metrics.speedIndex)} />
+      </div>
+      {(performance.fieldData?.overallCategory || opportunities.length > 0) && (
+        <div className="performance-details">
+          {performance.fieldData?.overallCategory && (
+            <p>
+              Field data: <strong>{performance.fieldData.overallCategory}</strong>
+              {performance.fieldData.originFallback ? " via origin fallback" : ""}
+            </p>
+          )}
+          {opportunities.length > 0 && (
+            <ul>
+              {opportunities.slice(0, 3).map((item) => (
+                <li key={item.id || item.title}>
+                  <strong>{item.title}</strong>
+                  <span>{performanceOpportunityLabel(item)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ResourceWaterfallPanel({ waterfall }) {
+  const summary = waterfall.summary || {};
+  const slowResources = waterfall.slowResources || [];
+  const heavyResources = waterfall.heavyResources || [];
+  const blockers = waterfall.renderBlockingCandidates || [];
+  const thirdPartyHosts = waterfall.thirdPartyHosts || [];
+  const rows = [
+    { label: "Requests", value: summary.totalRequests || 0 },
+    { label: "Transfer", value: formatBytes(summary.totalTransferBytes || 0) },
+    { label: "JavaScript", value: formatBytes(summary.scriptBytes || 0) },
+    { label: "CSS", value: formatBytes(summary.stylesheetBytes || 0) },
+    { label: "Images", value: formatBytes(summary.imageBytes || 0) },
+    { label: "Slow", value: summary.slowRequests || 0 },
+    { label: "Blocking", value: summary.renderBlockingCandidates || 0 }
+  ];
+
+  if (waterfall.status === "empty") {
+    return (
+      <section className="resource-waterfall-panel">
+        <div className="section-heading">
+          <p className="beta-eyebrow">Resource waterfall</p>
+          <h2>Browser resource timing was unavailable.</h2>
+          <p>{waterfall.reason || "The rendered scan did not expose request-level timing rows."}</p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="resource-waterfall-panel">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Resource waterfall</p>
+        <h2>Browser-loaded resources with repair proof.</h2>
+        <p>
+          Request timing, transfer size, and early render-blocking candidates from the rendered browser pass.
+        </p>
+      </div>
+      <div className="resource-waterfall-metrics">
+        {rows.map((row) => (
+          <Metric key={row.label} label={row.label} value={row.value} />
+        ))}
+      </div>
+      <div className="resource-waterfall-grid">
+        <ResourceTimingList
+          title="Slow requests"
+          empty="No slow resource requests captured."
+          resources={slowResources}
+          value={(resource) => formatMs(resource.durationMs)}
+        />
+        <ResourceTimingList
+          title="Heavy resources"
+          empty="No heavy resources crossed the review threshold."
+          resources={heavyResources}
+          value={(resource) => formatBytes(resource.sizeBytes || 0)}
+        />
+        <ResourceTimingList
+          title="Render blockers"
+          empty="No early script or stylesheet blockers captured."
+          resources={blockers}
+          value={(resource) => formatMs(resource.durationMs)}
+        />
+        <div className="resource-waterfall-list">
+          <strong>Third-party hosts</strong>
+          {thirdPartyHosts.length ? (
+            thirdPartyHosts.slice(0, 5).map((host) => (
+              <div className="resource-row" key={host.host}>
+                <span>{host.host}</span>
+                <small>{host.requests} requests · {formatBytes(host.transferBytes || 0)}</small>
+              </div>
+            ))
+          ) : (
+            <p>No third-party resource hosts captured.</p>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ResourceTimingList({ title, empty, resources, value }) {
+  return (
+    <div className="resource-waterfall-list">
+      <strong>{title}</strong>
+      {resources.length ? (
+        resources.slice(0, 5).map((resource) => (
+          <div className="resource-row" key={`${title}-${resource.url}`}>
+            <span>{resource.label || resource.host || resource.url}</span>
+            <small>{resource.type || "resource"} · {value(resource)}</small>
+          </div>
+        ))
+      ) : (
+        <p>{empty}</p>
+      )}
+    </div>
+  );
+}
+
+function metricDisplay(metric) {
+  return metric?.display || "unknown";
+}
+
+function performanceOpportunityLabel(item) {
+  const parts = [];
+  if (item.savingsMs) parts.push(`${Math.round(item.savingsMs)}ms`);
+  if (item.savingsBytes) parts.push(formatBytes(item.savingsBytes));
+  if (item.displayValue) parts.push(item.displayValue);
+  if (item.score !== null && item.score !== undefined) parts.push(`${item.score}/100`);
+  return parts.join(" · ") || "needs review";
+}
+
+function formatBytes(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return "0 B";
+  if (number < 1024) return `${Math.round(number)} B`;
+  if (number < 1024 * 1024) return `${Math.round(number / 1024)} KB`;
+  return `${(number / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatMs(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return "0ms";
+  if (number < 1000) return `${Math.round(number)}ms`;
+  return `${(number / 1000).toFixed(1)}s`;
 }
 
 function FixRequestStatusPanel({ fixRequest, checkoutReturned }) {
@@ -1070,6 +2910,23 @@ function auditJobDetail(job = {}) {
   return "Waiting for proof collection to start.";
 }
 
+function auditScheduleDetail(schedule = {}) {
+  const next = schedule.nextRunAt ? formatDate(schedule.nextRunAt) : "";
+  const last = schedule.lastRunAt ? formatDate(schedule.lastRunAt) : "";
+  if (schedule.lastReportPath && last) return `Last checked ${last}. Next check ${next || "soon"}.`;
+  if (last) return `Last checked ${last}. Next check ${next || "soon"}.`;
+  return `First check ${next || "queued"}.`;
+}
+
+function hostKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/.*$/, "");
+}
+
 function beforeAfterText(summary) {
   if (!summary) return "";
   const beforeScore = Number(summary.beforeScore || 0);
@@ -1087,6 +2944,38 @@ function formatDate(value) {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(new Date(value));
+}
+
+function formatCount(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return "0";
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(number);
+}
+
+function formatPercent(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return "0%";
+  return `${Math.round(number * 1000) / 10}%`;
+}
+
+function formatPosition(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number) || number <= 0) return "n/a";
+  return String(Math.round(number * 10) / 10);
+}
+
+function signedNumber(value) {
+  const number = Number(value || 0);
+  return number > 0 ? `+${formatCount(number)}` : formatCount(number);
+}
+
+function teamRoleLabel(role) {
+  const labels = {
+    admin: "Admin",
+    editor: "Editor",
+    viewer: "Viewer"
+  };
+  return labels[role] || "Editor";
 }
 
 function datetimeLocalValue(value) {
@@ -1191,6 +3080,18 @@ function PageProof({ page }) {
           <dd>{staticFacts.internalLinks?.length ?? 0} static → {facts.internalLinks?.length ?? 0} rendered</dd>
         </div>
         <div>
+          <dt>Broken links</dt>
+          <dd>{page.linkChecks?.filter((check) => !check.ok || !check.status || check.status >= 400).length ?? 0}</dd>
+        </div>
+        <div>
+          <dt>Broken images</dt>
+          <dd>{page.imageChecks?.filter((check) => !check.ok || !check.status || check.status >= 400).length ?? 0}</dd>
+        </div>
+        <div>
+          <dt>Rendered load</dt>
+          <dd>{formatLoadMs(facts.loadDurationMs)}</dd>
+        </div>
+        <div>
           <dt>Schema</dt>
           <dd>{facts.schemaTypes?.join(", ") || "none"}</dd>
         </div>
@@ -1210,6 +3111,8 @@ function PageSummaryTable({ pages }) {
           <span>H1</span>
           <span>Words</span>
           <span>Links</span>
+          <span>Broken</span>
+          <span>Load</span>
           <span>Schema</span>
         </div>
         {pages.map((page) => (
@@ -1220,6 +3123,8 @@ function PageSummaryTable({ pages }) {
             <span>{page.h1 || "missing"}</span>
             <span>{page.wordCount}</span>
             <span>{page.internalLinks}</span>
+            <span>{(page.brokenLinks || 0) + (page.brokenImages || 0)}</span>
+            <span>{formatLoadMs(page.loadDurationMs)}</span>
             <span>{page.schemaTypes?.join(", ") || "none"}</span>
           </div>
         ))}
@@ -1249,6 +3154,14 @@ function PageSummaryTable({ pages }) {
                 <dd>{page.internalLinks}</dd>
               </div>
               <div>
+                <dt>Broken</dt>
+                <dd>{(page.brokenLinks || 0) + (page.brokenImages || 0)}</dd>
+              </div>
+              <div>
+                <dt>Load</dt>
+                <dd>{formatLoadMs(page.loadDurationMs)}</dd>
+              </div>
+              <div>
                 <dt>Schema</dt>
                 <dd>{page.schemaTypes?.join(", ") || "none"}</dd>
               </div>
@@ -1260,11 +3173,27 @@ function PageSummaryTable({ pages }) {
   );
 }
 
+function formatLoadMs(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return "unknown";
+  if (number < 1000) return `${Math.round(number)}ms`;
+  return `${(number / 1000).toFixed(1)}s`;
+}
+
 function safeHostnameLabel(value) {
   try {
     return new URL(value).hostname.replace(/^www\./, "");
   } catch {
     return "saved audit";
+  }
+}
+
+function safeUrlLabel(value) {
+  try {
+    const url = new URL(value);
+    return `${url.hostname}${url.pathname === "/" ? "" : url.pathname}`;
+  } catch {
+    return "webhook";
   }
 }
 
@@ -2045,6 +3974,27 @@ async function loadAccountSummary(setAccountData, setStatus, setMessage) {
   }
 }
 
+async function loadDeveloperSummary(setDeveloperData, setStatus, setMessage) {
+  setStatus("loading");
+  setMessage("Loading developer API.");
+  try {
+    const response = await fetch("/api/developer", {
+      credentials: "same-origin",
+      headers: { accept: "application/json" }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok !== true) {
+      throw new Error(payload.error || "Could not load developer API.");
+    }
+    setDeveloperData(payload);
+    setStatus("success");
+    setMessage("");
+  } catch (error) {
+    setStatus("error");
+    setMessage(error.message || "Could not load developer API.");
+  }
+}
+
 async function postSiteClaim(host) {
   const response = await fetch("/api/sites/claim", {
     method: "POST",
@@ -2069,6 +4019,262 @@ async function postSiteVerify(claimId) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok !== true) {
     throw new Error(payload.error || "Could not verify site.");
+  }
+  return payload;
+}
+
+async function postAuditSchedule(url, options = {}) {
+  const response = await fetch("/api/audit/schedules", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      url,
+      intervalDays: options.intervalDays || 7,
+      maxPages: options.maxPages || DEFAULT_CRAWL_PAGES
+    })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not add monitor.");
+  }
+  return payload;
+}
+
+async function pauseAuditSchedule(scheduleId) {
+  const response = await fetch(`/api/audit/schedules/${encodeURIComponent(scheduleId)}`, {
+    method: "DELETE",
+    credentials: "same-origin",
+    headers: { accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not pause monitor.");
+  }
+  return payload;
+}
+
+async function postDeveloperToken() {
+  const response = await fetch("/api/developer/tokens", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ label: "Default API key" })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not create API key.");
+  }
+  return payload;
+}
+
+async function deleteDeveloperToken(tokenId) {
+  const response = await fetch(`/api/developer/tokens/${encodeURIComponent(tokenId)}`, {
+    method: "DELETE",
+    credentials: "same-origin",
+    headers: { accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not revoke API key.");
+  }
+  return payload;
+}
+
+async function postDeveloperWebhook(url) {
+  const response = await fetch("/api/developer/webhooks", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ url, events: ["audit.completed", "audit.failed"] })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not add webhook.");
+  }
+  return payload;
+}
+
+async function deleteDeveloperWebhook(webhookId) {
+  const response = await fetch(`/api/developer/webhooks/${encodeURIComponent(webhookId)}`, {
+    method: "DELETE",
+    credentials: "same-origin",
+    headers: { accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not revoke webhook.");
+  }
+  return payload;
+}
+
+async function loadReportBranding() {
+  const response = await fetch("/api/branding", {
+    credentials: "same-origin",
+    headers: { accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not load report branding.");
+  }
+  return payload;
+}
+
+async function saveReportBranding(branding) {
+  const response = await fetch("/api/branding", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(branding)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not save report branding.");
+  }
+  return payload;
+}
+
+async function loadReportDomains() {
+  const response = await fetch("/api/report-domains", {
+    credentials: "same-origin",
+    headers: { accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not load report domains.");
+  }
+  return payload;
+}
+
+async function createReportDomain(domain) {
+  const response = await fetch("/api/report-domains", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ domain })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not create report domain.");
+  }
+  return payload;
+}
+
+async function verifyReportDomain(domainId) {
+  const response = await fetch(`/api/report-domains/${encodeURIComponent(domainId)}/verify`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({})
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not verify report domain.");
+  }
+  return payload;
+}
+
+async function revokeReportDomain(domainId) {
+  const response = await fetch(`/api/report-domains/${encodeURIComponent(domainId)}`, {
+    method: "DELETE",
+    credentials: "same-origin",
+    headers: { accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not remove report domain.");
+  }
+  return payload;
+}
+
+async function loadReportShares(reportId) {
+  const response = await fetch(`/api/reports/${encodeURIComponent(reportId)}/shares`, {
+    credentials: "same-origin",
+    headers: { accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not load client links.");
+  }
+  return payload;
+}
+
+async function createReportShare(reportId, body) {
+  const response = await fetch(`/api/reports/${encodeURIComponent(reportId)}/share`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not create client link.");
+  }
+  return payload;
+}
+
+async function revokeReportShare(shareId) {
+  const response = await fetch(`/api/report-shares/${encodeURIComponent(shareId)}`, {
+    method: "DELETE",
+    credentials: "same-origin",
+    headers: { accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not revoke client link.");
+  }
+  return payload;
+}
+
+async function loadReportCollaboration(reportId) {
+  const response = await fetch(`/api/reports/${encodeURIComponent(reportId)}/collaboration`, {
+    credentials: "same-origin",
+    headers: { accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not load repair board.");
+  }
+  return payload;
+}
+
+async function saveReportCollaboration(reportId, body) {
+  const response = await fetch(`/api/reports/${encodeURIComponent(reportId)}/collaboration`, {
+    method: "PATCH",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not save repair board.");
+  }
+  return payload;
+}
+
+async function createTeamMember(member) {
+  const response = await fetch("/api/team/members", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(member)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not add teammate.");
+  }
+  return payload;
+}
+
+async function revokeTeamMember(memberId) {
+  const response = await fetch(`/api/team/members/${encodeURIComponent(memberId)}`, {
+    method: "DELETE",
+    credentials: "same-origin",
+    headers: { accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not remove teammate.");
   }
   return payload;
 }

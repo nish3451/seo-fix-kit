@@ -6,7 +6,8 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": "http://127.0.0.1:8787",
-      "/admin": "http://127.0.0.1:8787"
+      "/admin": "http://127.0.0.1:8787",
+      "/r": "http://127.0.0.1:8787"
     }
   }
 });

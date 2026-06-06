@@ -30,6 +30,78 @@ import {
   isPlunkEmailConfigured,
   normalizeFixRequestStatus
 } from "../shared/fulfillment.js";
+import {
+  buildWhiteLabelReportHtml,
+  defaultBranding,
+  normalizeBrandingInput,
+  whiteLabelReportFilename
+} from "../shared/white-label-report.js";
+import {
+  buildCompetitorBenchmark,
+  competitorBenchmarkBriefLines
+} from "../shared/competitor-benchmark.js";
+import {
+  backlinkAuditBriefLines,
+  buildBacklinkAudit,
+  backlinkRowsKey,
+  parseBacklinkRows
+} from "../shared/backlink-audit.js";
+import {
+  buildLocalSeoAudit,
+  localSeoAuditBriefLines,
+  localSeoInputKey,
+  localSeoInputSummary,
+  parseLocalSeoInput
+} from "../shared/local-seo-audit.js";
+import {
+  buildKeywordRankAudit,
+  keywordRankAuditBriefLines,
+  keywordRowsKey,
+  keywordRowsSummary,
+  parseKeywordRows
+} from "../shared/keyword-rank-audit.js";
+import {
+  crawlDepthSummary,
+  normalizeCrawlLimit
+} from "../shared/crawl-depth.js";
+import {
+  buildCrawlInventory,
+  crawlInventoryBriefLines
+} from "../shared/crawl-inventory.js";
+import {
+  buildRenderedCrawlScalePlan,
+  normalizeRenderedCrawlTarget,
+  renderedCrawlTargetSummary,
+  renderedCrawlScaleBriefLines
+} from "../shared/rendered-crawl-scale.js";
+import {
+  LARGE_RENDERED_CRAWL_MAX_RETRIES,
+  claimNextLargeRenderedCrawlBatch,
+  completeLargeRenderedCrawlBatch,
+  createLargeRenderedCrawlJob,
+  largeRenderedCrawlMergeReadiness,
+  largeRenderedCrawlProofFromPage,
+  largeRenderedCrawlResponse,
+  normalizeLargeRenderedCrawlRequest,
+  retryLargeRenderedCrawlFailures
+} from "../shared/large-rendered-crawl.js";
+import {
+  buildCrawlIntelligence,
+  crawlIntelligenceBriefLines
+} from "../shared/crawl-intelligence.js";
+import {
+  appendReportDeltaBrief,
+  buildReportDelta
+} from "../shared/report-delta.js";
+import {
+  buildResourceWaterfall,
+  resourceWaterfallBriefLines,
+  resourceWaterfallFindings
+} from "../shared/resource-waterfall.js";
+import {
+  buildPlatformSeoAudit,
+  platformSeoAuditBriefLines
+} from "../shared/platform-seo-audit.js";
 
 const DOCS = {
   javascript:
@@ -37,10 +109,34 @@ const DOCS = {
   title: "https://developers.google.com/search/docs/appearance/title-link",
   snippets: "https://developers.google.com/search/docs/appearance/snippet",
   structuredData:
-    "https://developers.google.com/search/docs/appearance/structured-data/intro-structured-data"
+    "https://developers.google.com/search/docs/appearance/structured-data/intro-structured-data",
+  hreflang: "https://developers.google.com/search/docs/specialty/international/localized-versions",
+  coreWebVitals: "https://developers.google.com/search/docs/appearance/core-web-vitals",
+  linkBestPractices: "https://developers.google.com/search/docs/crawling-indexing/links-crawlable"
 };
 
 const MAX_HTML_BYTES = 1_000_000;
+const RESOURCE_LIMITS = {
+  linksPerPage: 50,
+  imagesPerPage: 25,
+  maxRedirects: 5,
+  timeoutMs: 7000,
+  largeHtmlBytes: 500_000,
+  largeImageBytes: 500_000,
+  slowRenderMs: 4000
+};
+const PERFORMANCE_LIMITS = {
+  poorScore: 50,
+  needsImprovementScore: 75,
+  lcpPoorMs: 4000,
+  lcpNeedsImprovementMs: 2500,
+  clsPoor: 0.25,
+  clsNeedsImprovement: 0.1,
+  tbtPoorMs: 600,
+  tbtNeedsImprovementMs: 300,
+  fcpNeedsImprovementMs: 1800,
+  speedIndexNeedsImprovementMs: 3400
+};
 const VERSION = "0.9.0";
 const SESSION_COOKIE = "sfk_beta_session";
 const ADMIN_SESSION_COOKIE = "sfk_admin_session";
@@ -48,6 +144,10 @@ const BETA_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const ADMIN_SESSION_TTL_SECONDS = 60 * 60 * 2;
 const ACCESS_LINK_TTL_SECONDS = 60 * 15;
 const REPORT_RETENTION_DAYS = 30;
+const REPORT_SHARE_PASSWORD_MIN_LENGTH = 10;
+const REPORT_SHARE_PASSWORD_PBKDF2_ITERATIONS = 120_000;
+const LARGE_RENDERED_CRAWL_LEASE_MS = 15 * 60 * 1000;
+const LARGE_RENDERED_CRAWL_SYNC_FRONTIER_LIMIT = 1000;
 const DEFAULT_INVITE_TTL_DAYS = 14;
 const FIX_PACK_OFFER = {
   name: "SEO Fix Pack",
@@ -63,6 +163,10 @@ export default {
   async scheduled(_event, env, ctx) {
     if (env.WAITLIST_DB) {
       ctx.waitUntil(cleanupExpiredRows(env));
+      ctx.waitUntil(runDueAuditSchedules(env));
+      if (String(env.SEOFIXKIT_LARGE_CRAWL_WORKERS_ENABLED || "").toLowerCase() === "true") {
+        ctx.waitUntil(runDueLargeRenderedCrawlWorkers(env));
+      }
       ctx.waitUntil(sendDailyOpsDigest(env));
     }
   },
@@ -127,6 +231,178 @@ export default {
         return getAccountSummary(request, env);
       }
 
+      if (url.pathname === "/api/audit/schedules" && request.method === "GET") {
+        return listAuditSchedules(request, env);
+      }
+
+      if (url.pathname === "/api/audit/schedules" && request.method === "POST") {
+        return createAuditSchedule(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/audit/schedules/") && request.method === "DELETE") {
+        return deleteAuditSchedule(request, env);
+      }
+
+      if (url.pathname === "/api/developer" && request.method === "GET") {
+        return getDeveloperApiSummary(request, env);
+      }
+
+      if (url.pathname === "/api/developer/tokens" && request.method === "POST") {
+        return createDeveloperApiToken(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/developer/tokens/") && request.method === "DELETE") {
+        return revokeDeveloperApiToken(request, env);
+      }
+
+      if (url.pathname === "/api/developer/webhooks" && request.method === "POST") {
+        return createDeveloperWebhook(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/developer/webhooks/") && request.method === "DELETE") {
+        return revokeDeveloperWebhook(request, env);
+      }
+
+      if (url.pathname === "/api/team" && request.method === "GET") {
+        return getTeamMembers(request, env);
+      }
+
+      if (url.pathname === "/api/team/members" && request.method === "POST") {
+        return createTeamMember(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/team/members/") && request.method === "DELETE") {
+        return revokeTeamMember(request, env);
+      }
+
+      if (url.pathname === "/api/branding" && request.method === "GET") {
+        return getReportBranding(request, env);
+      }
+
+      if (url.pathname === "/api/branding" && request.method === "POST") {
+        return saveReportBranding(request, env);
+      }
+
+      if (url.pathname === "/api/report-domains" && request.method === "GET") {
+        return listReportDomains(request, env);
+      }
+
+      if (url.pathname === "/api/report-domains" && request.method === "POST") {
+        return createReportDomain(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/report-domains/") && url.pathname.endsWith("/verify") && request.method === "POST") {
+        return verifyReportDomain(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/report-domains/") && request.method === "DELETE") {
+        return revokeReportDomain(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/report-shares/") && request.method === "DELETE") {
+        return revokeReportShare(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/reports/") && url.pathname.endsWith("/shares") && request.method === "GET") {
+        return listReportShares(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/reports/") && url.pathname.endsWith("/share") && request.method === "POST") {
+        return createReportShare(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/reports/") && url.pathname.endsWith("/client.pdf") && request.method === "GET") {
+        return getPrivateReportPdf(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/reports/") && url.pathname.endsWith("/collaboration") && request.method === "GET") {
+        return getReportCollaboration(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/reports/") && url.pathname.endsWith("/collaboration") && request.method === "PATCH") {
+        return saveReportCollaboration(request, env);
+      }
+
+      if (url.pathname.startsWith("/r/") && url.pathname.endsWith("/unlock") && request.method === "POST") {
+        return unlockClientReport(request, env);
+      }
+
+      if (url.pathname === "/.well-known/seofixkit-report-domain.txt" && request.method === "GET") {
+        return getReportDomainChallenge(request, env);
+      }
+
+      if (url.pathname.startsWith("/r/") && url.pathname.endsWith(".pdf") && request.method === "GET") {
+        return getClientReportPdf(request, env);
+      }
+
+      if (url.pathname.startsWith("/r/") && request.method === "GET") {
+        return getClientReport(request, env);
+      }
+
+      if (url.pathname === "/v1/projects" && request.method === "GET") {
+        return apiListProjects(request, env);
+      }
+
+      if (url.pathname === "/v1/projects" && request.method === "POST") {
+        return apiCreateProject(request, env);
+      }
+
+      if (url.pathname === "/v1/audits" && request.method === "POST") {
+        return apiCreateAudit(request, env, ctx);
+      }
+
+      if (url.pathname === "/v1/audits" && request.method === "GET") {
+        return apiListAudits(request, env);
+      }
+
+      if (url.pathname.startsWith("/v1/audits/") && url.pathname.endsWith("/issues") && request.method === "GET") {
+        return apiGetAuditIssues(request, env);
+      }
+
+      if (url.pathname.startsWith("/v1/audits/") && url.pathname.endsWith("/report") && request.method === "GET") {
+        return apiGetAuditReport(request, env);
+      }
+
+      if (url.pathname.startsWith("/v1/audits/") && request.method === "GET") {
+        return apiGetAudit(request, env);
+      }
+
+      if (url.pathname.startsWith("/v1/audits/") && request.method === "DELETE") {
+        return apiDeleteAudit(request, env);
+      }
+
+      if (url.pathname === "/v1/large-crawls" && request.method === "POST") {
+        return apiCreateLargeRenderedCrawl(request, env, ctx);
+      }
+
+      if (url.pathname === "/v1/large-crawls" && request.method === "GET") {
+        return apiListLargeRenderedCrawls(request, env);
+      }
+
+      if (url.pathname.startsWith("/v1/large-crawls/") && url.pathname.endsWith("/retry") && request.method === "POST") {
+        return apiRetryLargeRenderedCrawl(request, env);
+      }
+
+      if (url.pathname.startsWith("/v1/large-crawls/") && url.pathname.endsWith("/batches/claim") && request.method === "POST") {
+        return apiClaimLargeRenderedCrawlBatch(request, env);
+      }
+
+      if (url.pathname.startsWith("/v1/large-crawls/") && url.pathname.endsWith("/batches/process") && request.method === "POST") {
+        return apiProcessLargeRenderedCrawlBatch(request, env);
+      }
+
+      if (url.pathname.startsWith("/v1/large-crawls/") && url.pathname.includes("/batches/") && url.pathname.endsWith("/proof") && request.method === "POST") {
+        return apiSaveLargeRenderedCrawlBatchProof(request, env);
+      }
+
+      if (url.pathname.startsWith("/v1/large-crawls/") && url.pathname.endsWith("/merge") && request.method === "POST") {
+        return apiMarkLargeRenderedCrawlReadyToMerge(request, env);
+      }
+
+      if (url.pathname.startsWith("/v1/large-crawls/") && request.method === "GET") {
+        return apiGetLargeRenderedCrawl(request, env);
+      }
+
       if (url.pathname === "/api/sites" && request.method === "GET") {
         return listSiteClaims(request, env);
       }
@@ -157,6 +433,38 @@ export default {
 
       if (url.pathname.startsWith("/api/audit/jobs/") && request.method === "GET") {
         return getAuditJob(request, env);
+      }
+
+      if (url.pathname === "/api/large-crawls" && request.method === "POST") {
+        return createLargeRenderedCrawl(request, env, ctx);
+      }
+
+      if (url.pathname === "/api/large-crawls" && request.method === "GET") {
+        return listLargeRenderedCrawls(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/large-crawls/") && url.pathname.endsWith("/retry") && request.method === "POST") {
+        return retryLargeRenderedCrawl(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/large-crawls/") && url.pathname.endsWith("/batches/claim") && request.method === "POST") {
+        return claimLargeRenderedCrawlBatch(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/large-crawls/") && url.pathname.endsWith("/batches/process") && request.method === "POST") {
+        return processLargeRenderedCrawlBatch(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/large-crawls/") && url.pathname.includes("/batches/") && url.pathname.endsWith("/proof") && request.method === "POST") {
+        return saveLargeRenderedCrawlBatchProof(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/large-crawls/") && url.pathname.endsWith("/merge") && request.method === "POST") {
+        return markLargeRenderedCrawlReadyToMerge(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/large-crawls/") && request.method === "GET") {
+        return getLargeRenderedCrawl(request, env);
       }
 
       if (url.pathname.startsWith("/api/reports/")) {
@@ -1159,7 +1467,32 @@ async function runPrivateAudit(request, env, ctx) {
     );
   }
 
-  const existingJob = await activeAuditJobForTarget(env, access, targetUrl);
+  const competitorInput = parseAuditCompetitorUrls(body, targetUrl);
+  if (!competitorInput.ok) {
+    return jsonNoStore({ error: competitorInput.error }, 400);
+  }
+  const competitorUrls = competitorInput.urls;
+  const backlinkInput = parseBacklinkRows(body, targetUrl, { allowPrivate: false });
+  if (!backlinkInput.ok) {
+    return jsonNoStore({ error: backlinkInput.error }, 400);
+  }
+  const backlinkRows = backlinkInput.rows;
+  const localSeoInput = parseLocalSeoInput(body, targetUrl, { allowPrivate: false });
+  if (!localSeoInput.ok) {
+    return jsonNoStore({ error: localSeoInput.error }, 400);
+  }
+  const localSeo = localSeoInput.input;
+  const keywordInput = parseKeywordRows(body, targetUrl, { allowPrivate: false });
+  if (!keywordInput.ok) {
+    return jsonNoStore({ error: keywordInput.error }, 400);
+  }
+  const keywordRows = keywordInput.rows;
+  const renderedCrawlTarget = normalizeRenderedCrawlTarget(
+    body.renderedCrawlTarget || body.rendered_crawl_target || body.crawlScaleTarget || 0
+  );
+  const maxPages = clampPageLimit(body.maxPages || 10);
+
+  const existingJob = await activeAuditJobForTarget(env, access, targetUrl, competitorUrls, backlinkRows, localSeo, keywordRows, renderedCrawlTarget, maxPages);
   if (existingJob) {
     return jsonNoStore(
       {
@@ -1190,7 +1523,13 @@ async function runPrivateAudit(request, env, ctx) {
     return jsonNoStore({ error: quota.error, resetAt: quota.resetAt }, 429);
   }
 
-  const job = await createAuditJob(env, access, targetUrl, clampPageLimit(body.maxPages || 10));
+  const job = await createAuditJob(env, access, targetUrl, maxPages, {
+    competitorUrls,
+    backlinkRows,
+    localSeo,
+    keywordRows,
+    renderedCrawlTarget
+  });
   const appOrigin = new URL(request.url).origin;
   const processing = processAuditJob(env, job.id, { appOrigin });
   if (ctx?.waitUntil) {
@@ -1211,8 +1550,2209 @@ async function runPrivateAudit(request, env, ctx) {
   );
 }
 
-async function activeAuditJobForTarget(env, access, targetUrl) {
+async function listAuditSchedules(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Schedule storage is not configured." }, 503);
+
+  const rows = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM audit_schedules
+     WHERE owner_email = ?
+       AND status = 'active'
+     ORDER BY updated_at DESC
+     LIMIT 20`
+  )
+    .bind(access.ownerEmail)
+    .all();
+
+  return jsonNoStore({
+    ok: true,
+    schedules: (rows.results || []).map(auditScheduleResponse)
+  });
+}
+
+async function createAuditSchedule(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Schedule storage is not configured." }, 503);
+
+  let targetUrl = "";
+  try {
+    targetUrl = normalizeUrl(body.url || body.targetUrl || "");
+  } catch {
+    return json({ error: "Enter a valid public website URL." }, 400);
+  }
+  const publicUrlCheck = publicAuditUrlStatus(targetUrl);
+  if (!publicUrlCheck.ok) {
+    return json({ error: publicUrlCheck.error }, 400);
+  }
+
+  const authorization = await auditAuthorizationStatus(env, access, targetUrl);
+  if (!authorization.ok) {
+    return jsonNoStore(
+      {
+        error: authorization.error,
+        code: authorization.code,
+        site: authorization.site
+      },
+      authorization.status || 403
+    );
+  }
+
+  const existing = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM audit_schedules
+     WHERE owner_email = ?
+       AND target_url = ?
+       AND status = 'active'
+     LIMIT 1`
+  )
+    .bind(access.ownerEmail, targetUrl)
+    .first();
+  if (existing?.id) {
+    return jsonNoStore({ ok: true, schedule: auditScheduleResponse(existing), deduped: true });
+  }
+
+  const count = await env.WAITLIST_DB.prepare(
+    `SELECT COUNT(*) AS count
+     FROM audit_schedules
+     WHERE owner_email = ?
+       AND status = 'active'`
+  )
+    .bind(access.ownerEmail)
+    .first();
+  if (Number(count?.count || 0) >= 5) {
+    return jsonNoStore(
+      {
+        error: "You already have 5 active monitors. Pause one before adding another.",
+        code: "AUDIT_SCHEDULE_LIMIT"
+      },
+      429
+    );
+  }
+
+  const now = new Date().toISOString();
+  const intervalDays = clampScheduleInterval(body.intervalDays || 7);
+  const schedule = {
+    id: crypto.randomUUID(),
+    owner_email: access.ownerEmail,
+    owner_session_hash: access.sessionHash || "",
+    owner_invite_id: access.inviteId || "",
+    access_mode: access.accessMode || "invite",
+    target_url: targetUrl,
+    target_host: safeHostname(targetUrl),
+    max_pages: clampPageLimit(body.maxPages || 10),
+    interval_days: intervalDays,
+    status: "active",
+    next_run_at: now,
+    last_run_at: "",
+    last_job_id: "",
+    last_report_id: "",
+    last_error: "",
+    created_at: now,
+    updated_at: now,
+    paused_at: ""
+  };
+
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO audit_schedules
+      (id, owner_email, owner_session_hash, owner_invite_id, access_mode, target_url, target_host, max_pages, interval_days, status, next_run_at, last_run_at, last_job_id, last_report_id, last_error, created_at, updated_at, paused_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      schedule.id,
+      schedule.owner_email,
+      schedule.owner_session_hash,
+      schedule.owner_invite_id || null,
+      schedule.access_mode,
+      schedule.target_url,
+      schedule.target_host,
+      schedule.max_pages,
+      schedule.interval_days,
+      schedule.status,
+      schedule.next_run_at,
+      null,
+      null,
+      null,
+      null,
+      schedule.created_at,
+      schedule.updated_at,
+      null
+    )
+    .run();
+
+  return jsonNoStore({ ok: true, schedule: auditScheduleResponse(schedule) });
+}
+
+async function deleteAuditSchedule(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Schedule storage is not configured." }, 503);
+
+  const url = new URL(request.url);
+  const id = decodeURIComponent(url.pathname.slice("/api/audit/schedules/".length));
+  if (!isSafeUuid(id)) return json({ error: "Monitor not found." }, 404);
+  const now = new Date().toISOString();
+  const updated = await env.WAITLIST_DB.prepare(
+    `UPDATE audit_schedules
+     SET status = 'paused', paused_at = ?, updated_at = ?
+     WHERE id = ?
+       AND owner_email = ?
+       AND status = 'active'`
+  )
+    .bind(now, now, id, access.ownerEmail)
+    .run();
+  if (Number(updated?.meta?.changes || 0) !== 1) {
+    return json({ error: "Monitor not found." }, 404);
+  }
+  return jsonNoStore({ ok: true, status: "paused", id });
+}
+
+async function getDeveloperApiSummary(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Developer API storage is not configured." }, 503);
+
+  const [tokens, webhooks] = await Promise.all([
+    env.WAITLIST_DB.prepare(
+      `SELECT *
+       FROM api_tokens
+       WHERE owner_email = ?
+         AND status = 'active'
+       ORDER BY updated_at DESC
+       LIMIT 20`
+    )
+      .bind(access.ownerEmail)
+      .all(),
+    env.WAITLIST_DB.prepare(
+      `SELECT *
+       FROM api_webhooks
+       WHERE owner_email = ?
+         AND status = 'active'
+       ORDER BY updated_at DESC
+       LIMIT 20`
+    )
+      .bind(access.ownerEmail)
+      .all()
+  ]);
+
+  return jsonNoStore({
+    ok: true,
+    apiBaseUrl: "/v1",
+    authHeader: "Authorization: Bearer YOUR_API_KEY",
+    tokens: (tokens.results || []).map(apiTokenResponse),
+    webhooks: (webhooks.results || []).map(apiWebhookResponse),
+    docs: {
+      startAudit: "POST /v1/audits",
+      getAudit: "GET /v1/audits/{audit_id}",
+      getIssues: "GET /v1/audits/{audit_id}/issues",
+      getReport: "GET /v1/audits/{audit_id}/report",
+      startLargeCrawl: "POST /v1/large-crawls",
+      getLargeCrawl: "GET /v1/large-crawls/{large_crawl_id}",
+      claimLargeCrawlBatch: "POST /v1/large-crawls/{large_crawl_id}/batches/claim",
+      processLargeCrawlBatch: "POST /v1/large-crawls/{large_crawl_id}/batches/process",
+      projects: "GET /v1/projects"
+    }
+  });
+}
+
+async function createDeveloperApiToken(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Developer API storage is not configured." }, 503);
+
+  const count = await env.WAITLIST_DB.prepare(
+    `SELECT COUNT(*) AS count
+     FROM api_tokens
+     WHERE owner_email = ?
+       AND status = 'active'`
+  )
+    .bind(access.ownerEmail)
+    .first();
+  if (Number(count?.count || 0) >= 5) {
+    return jsonNoStore({ error: "You already have 5 active API keys. Revoke one before creating another." }, 429);
+  }
+
+  const now = new Date().toISOString();
+  const tokenSecret = randomApiTokenSecret();
+  const row = {
+    id: crypto.randomUUID(),
+    owner_email: access.ownerEmail,
+    token_hash: await sha256Hex(tokenSecret),
+    token_prefix: `${tokenSecret.slice(0, 12)}...${tokenSecret.slice(-4)}`,
+    label: cleanText(body.label || "API key", 80),
+    scopes_json: JSON.stringify(["audits:read", "audits:write", "large_crawls:read", "large_crawls:write", "projects:read", "projects:write"]),
+    status: "active",
+    created_at: now,
+    updated_at: now,
+    last_used_at: "",
+    revoked_at: ""
+  };
+
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO api_tokens
+      (id, owner_email, token_hash, token_prefix, label, scopes_json, status, created_at, updated_at, last_used_at, revoked_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      row.id,
+      row.owner_email,
+      row.token_hash,
+      row.token_prefix,
+      row.label,
+      row.scopes_json,
+      row.status,
+      row.created_at,
+      row.updated_at,
+      null,
+      null
+    )
+    .run();
+
+  return jsonNoStore({
+    ok: true,
+    token: apiTokenResponse(row),
+    tokenSecret,
+    message: "Copy this API key now. It will not be shown again."
+  });
+}
+
+async function revokeDeveloperApiToken(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Developer API storage is not configured." }, 503);
+  const url = new URL(request.url);
+  const id = decodeURIComponent(url.pathname.slice("/api/developer/tokens/".length));
+  if (!isSafeUuid(id)) return json({ error: "API key not found." }, 404);
+  const now = new Date().toISOString();
+  const updated = await env.WAITLIST_DB.prepare(
+    `UPDATE api_tokens
+     SET status = 'revoked', revoked_at = ?, updated_at = ?
+     WHERE id = ?
+       AND owner_email = ?
+       AND status = 'active'`
+  )
+    .bind(now, now, id, access.ownerEmail)
+    .run();
+  if (Number(updated?.meta?.changes || 0) !== 1) return json({ error: "API key not found." }, 404);
+  return jsonNoStore({ ok: true, id, status: "revoked" });
+}
+
+async function createDeveloperWebhook(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Developer API storage is not configured." }, 503);
+  const urlCheck = publicWebhookUrlStatus(body.url || "");
+  if (!urlCheck.ok) return jsonNoStore({ error: urlCheck.error }, 400);
+  const count = await env.WAITLIST_DB.prepare(
+    `SELECT COUNT(*) AS count
+     FROM api_webhooks
+     WHERE owner_email = ?
+       AND status = 'active'`
+  )
+    .bind(access.ownerEmail)
+    .first();
+  if (Number(count?.count || 0) >= 5) {
+    return jsonNoStore({ error: "You already have 5 active webhooks. Revoke one before adding another." }, 429);
+  }
+
+  const now = new Date().toISOString();
+  const row = {
+    id: crypto.randomUUID(),
+    owner_email: access.ownerEmail,
+    url: urlCheck.url,
+    events_json: JSON.stringify(cleanWebhookEvents(body.events)),
+    status: "active",
+    created_at: now,
+    updated_at: now,
+    last_delivery_at: "",
+    last_delivery_status: "",
+    last_error: "",
+    revoked_at: ""
+  };
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO api_webhooks
+      (id, owner_email, url, events_json, status, created_at, updated_at, last_delivery_at, last_delivery_status, last_error, revoked_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      row.id,
+      row.owner_email,
+      row.url,
+      row.events_json,
+      row.status,
+      row.created_at,
+      row.updated_at,
+      null,
+      null,
+      null,
+      null
+    )
+    .run();
+
+  return jsonNoStore({
+    ok: true,
+    webhook: apiWebhookResponse(row),
+    signingSecret: await apiWebhookSigningSecret(env, row.id),
+    message: "Copy this signing secret now. It will not be shown again."
+  });
+}
+
+async function revokeDeveloperWebhook(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Developer API storage is not configured." }, 503);
+  const url = new URL(request.url);
+  const id = decodeURIComponent(url.pathname.slice("/api/developer/webhooks/".length));
+  if (!isSafeUuid(id)) return json({ error: "Webhook not found." }, 404);
+  const now = new Date().toISOString();
+  const updated = await env.WAITLIST_DB.prepare(
+    `UPDATE api_webhooks
+     SET status = 'revoked', revoked_at = ?, updated_at = ?
+     WHERE id = ?
+       AND owner_email = ?
+       AND status = 'active'`
+  )
+    .bind(now, now, id, access.ownerEmail)
+    .run();
+  if (Number(updated?.meta?.changes || 0) !== 1) return json({ error: "Webhook not found." }, 404);
+  return jsonNoStore({ ok: true, id, status: "revoked" });
+}
+
+async function getTeamMembers(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Team collaboration storage is not configured." }, 503);
+  return jsonNoStore({
+    ok: true,
+    members: await teamMembersForOwner(env, access.ownerEmail)
+  });
+}
+
+async function createTeamMember(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Team collaboration storage is not configured." }, 503);
+  const memberEmail = normalizeEmail(body.email || body.memberEmail);
+  if (!memberEmail) return jsonNoStore({ error: "Enter a valid teammate email." }, 400);
+  if (memberEmail === access.ownerEmail) return jsonNoStore({ error: "You are already the workspace owner." }, 400);
+
+  const existing = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM team_members
+     WHERE owner_email = ?
+       AND member_email = ?
+       AND status = 'active'
+     LIMIT 1`
+  )
+    .bind(access.ownerEmail, memberEmail)
+    .first();
+  if (existing?.id) return jsonNoStore({ ok: true, member: teamMemberResponse(existing), deduped: true });
+
+  const count = await env.WAITLIST_DB.prepare(
+    `SELECT COUNT(*) AS count
+     FROM team_members
+     WHERE owner_email = ?
+       AND status = 'active'`
+  )
+    .bind(access.ownerEmail)
+    .first();
+  if (Number(count?.count || 0) >= 10) {
+    return jsonNoStore({ error: "This workspace already has 10 active teammates." }, 429);
+  }
+
+  const now = new Date().toISOString();
+  const row = {
+    id: crypto.randomUUID(),
+    owner_email: access.ownerEmail,
+    member_email: memberEmail,
+    member_name: cleanText(body.name || body.memberName || "", 120),
+    role: cleanTeamRole(body.role),
+    status: "active",
+    created_at: now,
+    updated_at: now,
+    revoked_at: ""
+  };
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO team_members
+      (id, owner_email, member_email, member_name, role, status, created_at, updated_at, revoked_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      row.id,
+      row.owner_email,
+      row.member_email,
+      row.member_name || null,
+      row.role,
+      row.status,
+      row.created_at,
+      row.updated_at,
+      null
+    )
+    .run();
+  return jsonNoStore({ ok: true, member: teamMemberResponse(row) });
+}
+
+async function revokeTeamMember(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Team collaboration storage is not configured." }, 503);
+  const url = new URL(request.url);
+  const id = decodeURIComponent(url.pathname.slice("/api/team/members/".length));
+  if (!isSafeUuid(id)) return json({ error: "Teammate not found." }, 404);
+  const now = new Date().toISOString();
+  const updated = await env.WAITLIST_DB.prepare(
+    `UPDATE team_members
+     SET status = 'revoked', revoked_at = ?, updated_at = ?
+     WHERE id = ?
+       AND owner_email = ?
+       AND status = 'active'`
+  )
+    .bind(now, now, id, access.ownerEmail)
+    .run();
+  if (Number(updated?.meta?.changes || 0) !== 1) return json({ error: "Teammate not found." }, 404);
+  return jsonNoStore({ ok: true, id, status: "revoked" });
+}
+
+async function getReportCollaboration(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Team collaboration storage is not configured." }, 503);
+  const url = new URL(request.url);
+  const reportId = reportIdFromSuffixPath(url.pathname, "/collaboration");
+  const row = await ownerReportRow(env, reportId, access);
+  if (!row) return json({ error: "Report not found." }, 404);
+  const report = parseJson(row.report_json, {});
+  return jsonNoStore(await reportCollaborationResponse(env, access, reportId, report));
+}
+
+async function saveReportCollaboration(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Team collaboration storage is not configured." }, 503);
+  const url = new URL(request.url);
+  const reportId = reportIdFromSuffixPath(url.pathname, "/collaboration");
+  const row = await ownerReportRow(env, reportId, access);
+  if (!row) return json({ error: "Report not found." }, 404);
+  const report = parseJson(row.report_json, {});
+  const result = await saveIssueCollaborations(env, access, reportId, report, body.items || []);
+  if (!result.ok) return jsonNoStore({ error: result.error }, 400);
+  return jsonNoStore(await reportCollaborationResponse(env, access, reportId, report));
+}
+
+async function getReportBranding(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Client report storage is not configured." }, 503);
+  return jsonNoStore({
+    ok: true,
+    branding: await reportBrandingForOwner(env, access.ownerEmail)
+  });
+}
+
+async function saveReportBranding(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Client report storage is not configured." }, 503);
+
+  const current = await reportBrandingForOwner(env, access.ownerEmail);
+  const branding = normalizeBrandingInput(body, current);
+  const now = new Date().toISOString();
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO report_branding
+      (owner_email, agency_name, logo_url, brand_color, accent_color, custom_domain, footer_text, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(owner_email) DO UPDATE SET
+       agency_name = excluded.agency_name,
+       logo_url = excluded.logo_url,
+       brand_color = excluded.brand_color,
+       accent_color = excluded.accent_color,
+       custom_domain = excluded.custom_domain,
+       footer_text = excluded.footer_text,
+       updated_at = excluded.updated_at`
+  )
+    .bind(
+      access.ownerEmail,
+      branding.agencyName,
+      branding.logoUrl || null,
+      branding.brandColor,
+      branding.accentColor,
+      branding.customDomain || null,
+      branding.footerText || null,
+      now,
+      now
+    )
+    .run();
+
+  return jsonNoStore({ ok: true, branding });
+}
+
+async function listReportShares(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Client report storage is not configured." }, 503);
+  const url = new URL(request.url);
+  const reportId = decodeURIComponent(url.pathname.slice("/api/reports/".length, -"/shares".length));
+  const row = await ownerReportRow(env, reportId, access);
+  if (!row) return json({ error: "Report not found." }, 404);
+  const shares = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM report_share_links
+     WHERE report_id = ?
+       AND owner_email = ?
+       AND status = 'active'
+     ORDER BY updated_at DESC
+     LIMIT 50`
+  )
+    .bind(reportId, access.ownerEmail)
+    .all();
+  const customDomain = await primaryVerifiedReportDomain(env, access.ownerEmail);
+  return jsonNoStore({
+    ok: true,
+    shares: (shares.results || []).map((share) => reportShareResponse(share, url.origin, customDomain, env))
+  });
+}
+
+async function createReportShare(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Client report storage is not configured." }, 503);
+  const url = new URL(request.url);
+  const reportId = decodeURIComponent(url.pathname.slice("/api/reports/".length, -"/share".length));
+  const row = await ownerReportRow(env, reportId, access);
+  if (!row) return json({ error: "Report not found." }, 404);
+  const count = await env.WAITLIST_DB.prepare(
+    `SELECT COUNT(*) AS count
+     FROM report_share_links
+     WHERE report_id = ?
+       AND owner_email = ?
+       AND status = 'active'`
+  )
+    .bind(reportId, access.ownerEmail)
+    .first();
+  if (Number(count?.count || 0) >= 10) {
+    return jsonNoStore({ error: "This report already has 10 active client links." }, 429);
+  }
+
+  const report = parseJson(row.report_json, {});
+  const now = new Date().toISOString();
+  const password = String(body.password || "").trim();
+  if (password && password.length < REPORT_SHARE_PASSWORD_MIN_LENGTH) {
+    return jsonNoStore({ error: `Client report passwords must be at least ${REPORT_SHARE_PASSWORD_MIN_LENGTH} characters.` }, 400);
+  }
+  const expiresDays = Number(body.expiresDays || body.expires_days || 0);
+  const share = {
+    id: crypto.randomUUID(),
+    report_id: reportId,
+    owner_email: access.ownerEmail,
+    client_name: cleanText(body.clientName || body.client_name || safeHostname(report.url || row.url || ""), 120),
+    status: "active",
+    password_hash: password ? await hashReportSharePassword(password) : "",
+    password_hint: cleanText(body.passwordHint || body.password_hint || "", 120),
+    expires_at: expiresDays > 0 ? isoDaysFromNow(Math.min(Math.max(expiresDays, 1), 180)) : "",
+    created_at: now,
+    updated_at: now,
+    last_viewed_at: ""
+  };
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO report_share_links
+      (id, report_id, owner_email, client_name, status, password_hash, password_hint, expires_at, created_at, updated_at, last_viewed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      share.id,
+      share.report_id,
+      share.owner_email,
+      share.client_name || null,
+      share.status,
+      share.password_hash || null,
+      share.password_hint || null,
+      share.expires_at || null,
+      share.created_at,
+      share.updated_at,
+      null
+    )
+    .run();
+
+  const customDomain = await primaryVerifiedReportDomain(env, access.ownerEmail);
+  return jsonNoStore({
+    ok: true,
+    share: reportShareResponse(share, url.origin, customDomain, env)
+  });
+}
+
+async function getPrivateReportPdf(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Client report storage is not configured." }, 503);
+  const url = new URL(request.url);
+  const reportId = reportIdFromSuffixPath(url.pathname, "/client.pdf");
+  const row = await ownerReportRow(env, reportId, access);
+  if (!row) return json({ error: "Report not found." }, 404);
+  const report = parseJson(row.report_json, {});
+  const branding = await reportBrandingForOwner(env, access.ownerEmail);
+  const share = {
+    id: "",
+    clientName: cleanText(url.searchParams.get("clientName") || safeHostname(report.url || row.url || ""), 120)
+  };
+  return renderWorkerWhiteLabelPdf(env, {
+    report,
+    branding,
+    share,
+    origin: url.origin
+  });
+}
+
+async function revokeReportShare(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Client report storage is not configured." }, 503);
+  const url = new URL(request.url);
+  const id = decodeURIComponent(url.pathname.slice("/api/report-shares/".length));
+  if (!isSafeUuid(id)) return json({ error: "Client link not found." }, 404);
+  const now = new Date().toISOString();
+  const updated = await env.WAITLIST_DB.prepare(
+    `UPDATE report_share_links
+     SET status = 'revoked', updated_at = ?
+     WHERE id = ?
+       AND owner_email = ?
+       AND status = 'active'`
+  )
+    .bind(now, id, access.ownerEmail)
+    .run();
+  if (Number(updated?.meta?.changes || 0) !== 1) return json({ error: "Client link not found." }, 404);
+  return jsonNoStore({ ok: true, id, status: "revoked" });
+}
+
+async function getClientReportPdf(request, env) {
+  if (!env.WAITLIST_DB) return json({ error: "Client reports are not configured." }, 503);
+  const url = new URL(request.url);
+  const id = clientReportShareId(url.pathname, ".pdf");
+  if (!isSafeUuid(id)) return json({ error: "Report link not found or expired." }, 404);
+  const share = await activeReportShare(env, id);
+  const domainCheck = await clientReportHostAccess(env, request, share);
+  if (!domainCheck.ok) return json({ error: domainCheck.error }, 404);
+  if (!share) return json({ error: "Report link not found or expired." }, 404);
+  const branding = await reportBrandingForOwner(env, share.owner_email);
+  const reportRow = await env.WAITLIST_DB.prepare(
+    `SELECT report_json, expires_at
+     FROM audit_reports
+     WHERE id = ?
+       AND owner_email = ?
+     LIMIT 1`
+  )
+    .bind(share.report_id, share.owner_email)
+    .first();
+  if (!reportRow?.report_json || (reportRow.expires_at && reportRow.expires_at <= new Date().toISOString())) {
+    return json({ error: "Report no longer exists." }, 404);
+  }
+  if (share.password_hash && !(await clientReportUnlocked(request, share))) {
+    return clientReportLockedResponse(request, branding, shareToCamel(share), 401);
+  }
+  const report = parseJson(reportRow.report_json, {});
+  return renderWorkerWhiteLabelPdf(env, {
+    report,
+    branding,
+    share: shareToCamel(share),
+    origin: url.origin
+  });
+}
+
+async function getClientReport(request, env) {
+  if (!env.WAITLIST_DB) return clientReportLockedResponse(request, defaultBranding(), { id: "" }, 503, "Client reports are not configured.");
+  const url = new URL(request.url);
+  const id = clientReportShareId(url.pathname);
+  if (!isSafeUuid(id)) return clientReportLockedResponse(request, defaultBranding(), { id }, 404, "Report link not found or expired.");
+
+  const share = await activeReportShare(env, id);
+  const domainCheck = await clientReportHostAccess(env, request, share);
+  if (!domainCheck.ok) return clientReportLockedResponse(request, defaultBranding(), { id }, 404, domainCheck.error);
+  if (!share) return clientReportLockedResponse(request, defaultBranding(), { id }, 404, "Report link not found or expired.");
+  const branding = await reportBrandingForOwner(env, share.owner_email);
+  const reportRow = await env.WAITLIST_DB.prepare(
+    `SELECT report_json, expires_at
+     FROM audit_reports
+     WHERE id = ?
+       AND owner_email = ?
+     LIMIT 1`
+  )
+    .bind(share.report_id, share.owner_email)
+    .first();
+  if (!reportRow?.report_json || (reportRow.expires_at && reportRow.expires_at <= new Date().toISOString())) {
+    return clientReportLockedResponse(request, branding, shareToCamel(share), 404, "Report no longer exists.");
+  }
+  const report = parseJson(reportRow.report_json, {});
+
+  if (share.password_hash && !(await clientReportUnlocked(request, share))) {
+    return clientReportLockedResponse(request, branding, shareToCamel(share), 401);
+  }
+
+  await env.WAITLIST_DB.prepare(
+    `UPDATE report_share_links
+     SET last_viewed_at = ?, updated_at = updated_at
+     WHERE id = ?`
+  )
+    .bind(new Date().toISOString(), share.id)
+    .run();
+
+  return new Response(
+    buildWhiteLabelReportHtml({
+      report,
+      branding,
+      share: shareToCamel(share),
+      origin: url.origin
+    }),
+    {
+      headers: secureHeaders({
+        "cache-control": "no-store",
+        "content-type": "text/html; charset=utf-8",
+        "x-robots-tag": "noindex, nofollow"
+      })
+    }
+  );
+}
+
+async function unlockClientReport(request, env) {
+  if (!env.WAITLIST_DB) return clientReportLockedResponse(request, defaultBranding(), { id: "" }, 503, "Client reports are not configured.");
+  const url = new URL(request.url);
+  const id = clientReportShareId(url.pathname, "/unlock");
+  if (!isSafeUuid(id)) return clientReportLockedResponse(request, defaultBranding(), { id }, 404, "Report link not found or expired.");
+  const share = await activeReportShare(env, id);
+  const domainCheck = await clientReportHostAccess(env, request, share);
+  if (!domainCheck.ok) return clientReportLockedResponse(request, defaultBranding(), { id }, 404, domainCheck.error);
+  if (!share) return clientReportLockedResponse(request, defaultBranding(), { id }, 404, "Report link not found or expired.");
+  const branding = await reportBrandingForOwner(env, share.owner_email);
+  const password = await passwordFromRequest(request);
+  const quota = await clientReportUnlockQuotaStatus(request, env, share);
+  if (!quota.ok) return clientReportLockedResponse(request, branding, shareToCamel(share), 429, quota.error);
+  if (!share.password_hash || await verifyReportSharePassword(password, share.password_hash)) {
+    return new Response("", {
+      status: 303,
+      headers: secureHeaders({
+        "cache-control": "no-store",
+        "location": `/r/${encodeURIComponent(share.id)}`,
+        "set-cookie": await clientReportCookie(request, share)
+      })
+    });
+  }
+  const reportRow = await env.WAITLIST_DB.prepare(
+    `SELECT report_json
+     FROM audit_reports
+     WHERE id = ?
+       AND owner_email = ?
+     LIMIT 1`
+  )
+    .bind(share.report_id, share.owner_email)
+    .first();
+  const report = parseJson(reportRow?.report_json, {});
+  return clientReportLockedResponse(request, branding, shareToCamel(share), 401, "Password did not match.", report);
+}
+
+async function apiListProjects(request, env) {
+  const access = await apiAccessStatus(request, env);
+  if (!access.ok) return apiAccessResponse(access);
+  const rows = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM site_claims
+     WHERE owner_email = ?
+       AND revoked_at IS NULL
+     ORDER BY updated_at DESC
+     LIMIT 100`
+  )
+    .bind(access.ownerEmail)
+    .all();
+  return jsonNoStore({ ok: true, projects: (rows.results || []).map(apiProjectResponse) });
+}
+
+async function apiCreateProject(request, env) {
+  const access = await apiAccessStatus(request, env);
+  if (!access.ok) return apiAccessResponse(access);
+  const body = await request.json().catch(() => ({}));
+  const host = claimHostFromInput(body.host || body.url || "");
+  if (!host) return jsonNoStore({ error: "Enter a public website host to verify." }, 400);
+
+  const existing = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM site_claims
+     WHERE owner_email = ?
+       AND host = ?
+       AND revoked_at IS NULL
+     LIMIT 1`
+  )
+    .bind(access.ownerEmail, host)
+    .first();
+  if (existing?.id) return jsonNoStore({ ok: true, project: apiProjectResponse(existing) });
+
+  const now = new Date().toISOString();
+  const row = {
+    id: crypto.randomUUID(),
+    owner_email: access.ownerEmail,
+    host,
+    verification_token: `sfk-${randomHex(32)}`,
+    status: "pending",
+    verification_method: "",
+    created_at: now,
+    updated_at: now,
+    verified_at: "",
+    last_checked_at: "",
+    revoked_at: ""
+  };
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO site_claims
+      (id, owner_email, host, verification_token, status, verification_method, created_at, updated_at, verified_at, last_checked_at, revoked_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(row.id, row.owner_email, row.host, row.verification_token, row.status, null, row.created_at, row.updated_at, null, null, null)
+    .run();
+  return jsonNoStore({ ok: true, project: apiProjectResponse(row) }, 201);
+}
+
+async function apiCreateAudit(request, env, ctx) {
+  const access = await apiAccessStatus(request, env);
+  if (!access.ok) return apiAccessResponse(access);
+  const body = await request.json().catch(() => ({}));
+  let targetUrl = "";
+  try {
+    targetUrl = normalizeUrl(body.url || body.targetUrl || "");
+  } catch {
+    return jsonNoStore({ error: "Enter a valid public website URL." }, 400);
+  }
+  const publicUrlCheck = publicAuditUrlStatus(targetUrl);
+  if (!publicUrlCheck.ok) return jsonNoStore({ error: publicUrlCheck.error }, 400);
+  const authorization = await auditAuthorizationStatus(env, access, targetUrl);
+  if (!authorization.ok) {
+    return jsonNoStore(
+      {
+        error: authorization.error,
+        code: authorization.code,
+        site: authorization.site
+      },
+      authorization.status || 403
+    );
+  }
+  const competitorInput = parseAuditCompetitorUrls(body, targetUrl);
+  if (!competitorInput.ok) {
+    return jsonNoStore({ error: competitorInput.error }, 400);
+  }
+  const competitorUrls = competitorInput.urls;
+  const backlinkInput = parseBacklinkRows(body, targetUrl, { allowPrivate: false });
+  if (!backlinkInput.ok) {
+    return jsonNoStore({ error: backlinkInput.error }, 400);
+  }
+  const backlinkRows = backlinkInput.rows;
+  const localSeoInput = parseLocalSeoInput(body, targetUrl, { allowPrivate: false });
+  if (!localSeoInput.ok) {
+    return jsonNoStore({ error: localSeoInput.error }, 400);
+  }
+  const localSeo = localSeoInput.input;
+  const keywordInput = parseKeywordRows(body, targetUrl, { allowPrivate: false });
+  if (!keywordInput.ok) {
+    return jsonNoStore({ error: keywordInput.error }, 400);
+  }
+  const keywordRows = keywordInput.rows;
+  const renderedCrawlTarget = normalizeRenderedCrawlTarget(
+    body.rendered_crawl_target || body.renderedCrawlTarget || body.crawlScaleTarget || 0
+  );
+  const maxPages = clampPageLimit(body.max_pages || body.maxPages || 10);
+  const existingJob = await activeAuditJobForTarget(env, access, targetUrl, competitorUrls, backlinkRows, localSeo, keywordRows, renderedCrawlTarget, maxPages);
+  if (existingJob) {
+    return jsonNoStore(
+      {
+        ok: true,
+        deduped: true,
+        audit: apiAuditResponse(existingJob),
+        audit_id: existingJob.id,
+        status_url: `/v1/audits/${existingJob.id}`
+      },
+      202
+    );
+  }
+  const activeCount = await activeAuditJobCount(env, access);
+  if (activeCount >= 3) {
+    return jsonNoStore(
+      {
+        error: "You already have 3 audits running. Wait for one to finish before starting another.",
+        code: "AUDIT_JOBS_ACTIVE_LIMIT"
+      },
+      429
+    );
+  }
+
+  const quota = await auditQuotaStatus(request, env, access, targetUrl);
+  if (!quota.ok) {
+    return jsonNoStore({ error: quota.error, resetAt: quota.resetAt }, 429);
+  }
+
+  const job = await createAuditJob(env, access, targetUrl, maxPages, {
+    competitorUrls,
+    backlinkRows,
+    localSeo,
+    keywordRows,
+    renderedCrawlTarget
+  });
+  const processing = processAuditJob(env, job.id, { appOrigin: new URL(request.url).origin });
+  if (ctx?.waitUntil) ctx.waitUntil(processing);
+  else await processing;
+  return jsonNoStore(
+    {
+      ok: true,
+      audit: apiAuditResponse(job),
+      audit_id: job.id,
+      status_url: `/v1/audits/${job.id}`,
+      estimated_completion: isoSecondsFromNow(5 * 60)
+    },
+    202
+  );
+}
+
+async function apiListAudits(request, env) {
+  const access = await apiAccessStatus(request, env);
+  if (!access.ok) return apiAccessResponse(access);
+  const rows = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM audit_jobs
+     WHERE owner_email = ?
+       AND (expires_at IS NULL OR expires_at > ?)
+     ORDER BY updated_at DESC
+     LIMIT 50`
+  )
+    .bind(access.ownerEmail, new Date().toISOString())
+    .all();
+  return jsonNoStore({ ok: true, audits: (rows.results || []).map(apiAuditResponse) });
+}
+
+async function apiGetAudit(request, env) {
+  const access = await apiAccessStatus(request, env);
+  if (!access.ok) return apiAccessResponse(access);
+  const id = apiAuditIdFromPath(request.url, "/v1/audits/");
+  if (!isSafeUuid(id)) return jsonNoStore({ error: "Audit not found." }, 404);
   const row = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM audit_jobs
+     WHERE id = ?
+       AND owner_email = ?
+     LIMIT 1`
+  )
+    .bind(id, access.ownerEmail)
+    .first();
+  if (!row?.id) return jsonNoStore({ error: "Audit not found." }, 404);
+  return jsonNoStore({ ok: true, audit: apiAuditResponse(row) });
+}
+
+async function apiGetAuditIssues(request, env) {
+  const access = await apiAccessStatus(request, env);
+  if (!access.ok) return apiAccessResponse(access);
+  const id = apiAuditIdFromPath(request.url, "/v1/audits/", "/issues");
+  const resolved = await resolveApiAuditReport(env, access, id);
+  if (!resolved.ok) return jsonNoStore({ error: resolved.error }, resolved.status || 404);
+  const findings = (resolved.report.findings || []).filter((finding) => finding.severity !== "good");
+  return jsonNoStore({
+    ok: true,
+    auditId: resolved.job?.id || "",
+    reportId: resolved.report.id,
+    issues: findings.map(apiIssueResponse),
+    total: findings.length
+  });
+}
+
+async function apiGetAuditReport(request, env) {
+  const access = await apiAccessStatus(request, env);
+  if (!access.ok) return apiAccessResponse(access);
+  const id = apiAuditIdFromPath(request.url, "/v1/audits/", "/report");
+  const resolved = await resolveApiAuditReport(env, access, id);
+  if (!resolved.ok) return jsonNoStore({ error: resolved.error }, resolved.status || 404);
+  return jsonNoStore({ ok: true, report: apiReportResponse(resolved.report) });
+}
+
+async function apiDeleteAudit(request, env) {
+  const access = await apiAccessStatus(request, env);
+  if (!access.ok) return apiAccessResponse(access);
+  const id = apiAuditIdFromPath(request.url, "/v1/audits/");
+  if (!isSafeUuid(id)) return jsonNoStore({ error: "Audit not found." }, 404);
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT id, report_id
+     FROM audit_jobs
+     WHERE id = ?
+       AND owner_email = ?
+     LIMIT 1`
+  )
+    .bind(id, access.ownerEmail)
+    .first();
+  if (!row?.id) return jsonNoStore({ error: "Audit not found." }, 404);
+  await env.WAITLIST_DB.prepare(`DELETE FROM audit_jobs WHERE id = ? AND owner_email = ?`).bind(id, access.ownerEmail).run();
+  if (row.report_id) {
+    await env.WAITLIST_DB.prepare(`DELETE FROM audit_reports WHERE id = ? AND owner_email = ?`).bind(row.report_id, access.ownerEmail).run();
+  }
+  return jsonNoStore({ ok: true, deleted: true, auditId: id });
+}
+
+async function createLargeRenderedCrawl(request, env, ctx) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  const body = await request.json().catch(() => ({}));
+  return createLargeRenderedCrawlForAccess(request, env, access, body, { api: false, ctx });
+}
+
+async function apiCreateLargeRenderedCrawl(request, env, ctx) {
+  const access = await apiAccessStatus(request, env);
+  if (!access.ok) return apiAccessResponse(access);
+  const body = await request.json().catch(() => ({}));
+  return createLargeRenderedCrawlForAccess(request, env, access, body, { api: true, ctx });
+}
+
+async function createLargeRenderedCrawlForAccess(request, env, access, body = {}, options = {}) {
+  if (!env.WAITLIST_DB) return jsonNoStore({ error: "Large crawl storage is not configured." }, 503);
+  const normalized = normalizeLargeRenderedCrawlRequest(body, body.url || body.targetUrl || body.target_url || "");
+  if (!normalized.ok) return jsonNoStore({ error: normalized.error || "Enter a valid public website URL." }, 400);
+  const publicUrlCheck = publicAuditUrlStatus(normalized.targetUrl);
+  if (!publicUrlCheck.ok) return jsonNoStore({ error: publicUrlCheck.error }, 400);
+  const authorization = await auditAuthorizationStatus(env, access, normalized.targetUrl);
+  if (!authorization.ok) {
+    return jsonNoStore(
+      {
+        error: authorization.error,
+        code: authorization.code,
+        site: authorization.site
+      },
+      authorization.status || 403
+    );
+  }
+  const existing = await activeLargeRenderedCrawlForTarget(env, access, normalized.targetUrl);
+  if (existing?.id) {
+    const response = await largeRenderedCrawlResponseForRow(env, existing);
+    return jsonNoStore(
+      options.api
+        ? {
+            ok: true,
+            deduped: true,
+            large_crawl: apiLargeRenderedCrawlResponse(response),
+            large_crawl_id: existing.id,
+            status_url: `/v1/large-crawls/${existing.id}`
+          }
+        : {
+            ok: true,
+            mode: "queued",
+            deduped: true,
+            largeCrawl: response,
+            largeCrawlId: existing.id,
+            statusUrl: `/api/large-crawls/${existing.id}`
+          },
+      202
+    );
+  }
+  const activeCount = await activeLargeRenderedCrawlCount(env, access);
+  if (activeCount >= 1) {
+    return jsonNoStore(
+      {
+        error: "You already have a large rendered crawl running. Wait for it to finish, retry, or cancel it before starting another.",
+        code: "LARGE_CRAWL_ACTIVE_LIMIT"
+      },
+      429
+    );
+  }
+  const quota = await largeCrawlQuotaStatus(request, env, access, normalized.targetUrl);
+  if (!quota.ok) return jsonNoStore({ error: quota.error, resetAt: quota.resetAt }, 429);
+  const billing = largeCrawlBillingStatus(env, access);
+  if (!billing.ok) return jsonNoStore({ error: billing.error, code: billing.code }, billing.status);
+
+  const inventory = await buildCrawlInventory(normalized.targetUrl, {
+    includeUrls: true,
+    maxUrls: Math.min(normalized.targetPages, LARGE_RENDERED_CRAWL_SYNC_FRONTIER_LIMIT),
+    maxSitemaps: 25,
+    fetcher: fetch
+  });
+  const created = createLargeRenderedCrawlJob({
+    ownerEmail: access.ownerEmail,
+    accessMode: access.accessMode || "self-serve",
+    targetUrl: normalized.targetUrl,
+    targetPages: normalized.targetPages,
+    batchSize: normalized.batchSize,
+    maxConcurrency: normalized.maxConcurrency,
+    crawlDelayMs: normalized.crawlDelayMs,
+    inventoryUrls: inventory.urls || [],
+    seedUrls: normalized.seedUrls,
+    idFactory: workerLargeCrawlId
+  });
+  created.job.ownerSessionHash = access.sessionHash || "";
+  created.job.ownerInviteId = access.inviteId || "";
+  created.job.inventoryStatus = inventory.status || "empty";
+  created.job.inventorySummary = inventory.summary || {};
+  created.job.frontierIngestionStatus = largeCrawlFrontierIngestionStatus(created.frontierRows.length, normalized.targetPages, inventory);
+  created.job.frontierStoredCount = created.frontierRows.length;
+  created.job.incrementalMode = Boolean(body.incrementalMode || body.incremental_mode);
+  created.job.previousCrawlJobId = created.job.incrementalMode
+    ? (await latestLargeRenderedCrawlForTarget(env, access, normalized.targetUrl))?.id || ""
+    : "";
+  created.job.crawlFingerprint = await largeCrawlFingerprint(normalized.targetUrl, created.frontierRows);
+  created.job.mergeStatus = "blocked";
+  await insertLargeRenderedCrawl(env, created);
+  if (created.job.frontierIngestionStatus === "partial") {
+    options.ctx?.waitUntil?.(ingestRemainingLargeRenderedCrawlFrontier(env, created.job.id, normalized, access));
+  }
+  const row = await env.WAITLIST_DB.prepare(`SELECT * FROM large_crawl_jobs WHERE id = ? LIMIT 1`).bind(created.job.id).first();
+  const response = await largeRenderedCrawlResponseForRow(env, row);
+  await deliverApiWebhooks(env, access.ownerEmail, "large_crawl.created", {
+    large_crawl: apiLargeRenderedCrawlResponse(response)
+  }).catch(() => {});
+  return jsonNoStore(
+    options.api
+      ? {
+          ok: true,
+          large_crawl: apiLargeRenderedCrawlResponse(response),
+          large_crawl_id: created.job.id,
+          status_url: `/v1/large-crawls/${created.job.id}`,
+          claim_url: `/v1/large-crawls/${created.job.id}/batches/claim`
+        }
+      : {
+          ok: true,
+          mode: "queued",
+          largeCrawl: response,
+          largeCrawlId: created.job.id,
+          statusUrl: `/api/large-crawls/${created.job.id}`,
+          claimUrl: `/api/large-crawls/${created.job.id}/batches/claim`
+        },
+    202
+  );
+}
+
+async function listLargeRenderedCrawls(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  const rows = await listLargeRenderedCrawlRows(env, access);
+  const crawls = [];
+  for (const row of rows) crawls.push(await largeRenderedCrawlResponseForRow(env, row));
+  return jsonNoStore({ ok: true, largeCrawls: crawls });
+}
+
+async function apiListLargeRenderedCrawls(request, env) {
+  const access = await apiAccessStatus(request, env);
+  if (!access.ok) return apiAccessResponse(access);
+  const rows = await listLargeRenderedCrawlRows(env, access);
+  const crawls = [];
+  for (const row of rows) crawls.push(apiLargeRenderedCrawlResponse(await largeRenderedCrawlResponseForRow(env, row)));
+  return jsonNoStore({ ok: true, large_crawls: crawls });
+}
+
+async function getLargeRenderedCrawl(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  const loaded = await loadLargeRenderedCrawlFromRequest(request, env, access, "/api/large-crawls/");
+  if (!loaded.ok) return jsonNoStore({ error: loaded.error }, loaded.status || 404);
+  return jsonNoStore({ ok: true, largeCrawl: await largeRenderedCrawlResponseForRow(env, loaded.row) });
+}
+
+async function apiGetLargeRenderedCrawl(request, env) {
+  const access = await apiAccessStatus(request, env);
+  if (!access.ok) return apiAccessResponse(access);
+  const loaded = await loadLargeRenderedCrawlFromRequest(request, env, access, "/v1/large-crawls/");
+  if (!loaded.ok) return jsonNoStore({ error: loaded.error }, loaded.status || 404);
+  return jsonNoStore({ ok: true, large_crawl: apiLargeRenderedCrawlResponse(await largeRenderedCrawlResponseForRow(env, loaded.row)) });
+}
+
+async function retryLargeRenderedCrawl(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  return retryLargeRenderedCrawlForAccess(request, env, access, "/api/large-crawls/", { api: false });
+}
+
+async function apiRetryLargeRenderedCrawl(request, env) {
+  const access = await apiAccessStatus(request, env);
+  if (!access.ok) return apiAccessResponse(access);
+  return retryLargeRenderedCrawlForAccess(request, env, access, "/v1/large-crawls/", { api: true });
+}
+
+async function retryLargeRenderedCrawlForAccess(request, env, access, prefix, options = {}) {
+  const id = pathId(request.url, prefix, "/retry");
+  const loaded = await loadLargeRenderedCrawl(env, access, id);
+  if (!loaded.ok) return jsonNoStore({ error: loaded.error }, loaded.status || 404);
+  const rows = await env.WAITLIST_DB.prepare(
+    `SELECT * FROM large_crawl_frontier WHERE crawl_job_id = ? AND status = 'failed'`
+  ).bind(id).all();
+  const retryResult = retryLargeRenderedCrawlFailures(
+    largeCrawlJobFromRow(loaded.row),
+    loaded.batches.map(largeCrawlBatchFromRow),
+    (rows.results || []).map(largeCrawlFrontierFromRow)
+  );
+  const now = new Date().toISOString();
+  const retryableBatchIds = retryResult.batches
+    .filter((batch) => batch.status === "queued")
+    .map((batch) => batch.id);
+  if (retryableBatchIds.length) {
+    await runD1BatchChunks(env, [
+      ...retryableBatchIds.map((batchId) =>
+        env.WAITLIST_DB.prepare(
+          `UPDATE large_crawl_batches SET status = 'queued', error = NULL, updated_at = ? WHERE id = ? AND crawl_job_id = ?`
+        ).bind(now, batchId, id)
+      ),
+      ...retryResult.frontierRows.map((row) =>
+        env.WAITLIST_DB.prepare(
+          `UPDATE large_crawl_frontier SET status = ?, last_error = ?, updated_at = ? WHERE id = ? AND crawl_job_id = ?`
+        ).bind(row.status, row.lastError || null, now, row.id, id)
+      ),
+      env.WAITLIST_DB.prepare(
+        `UPDATE large_crawl_jobs SET status = 'queued', error = NULL, updated_at = ? WHERE id = ?`
+      ).bind(now, id)
+    ]);
+  }
+  const row = await env.WAITLIST_DB.prepare(`SELECT * FROM large_crawl_jobs WHERE id = ? LIMIT 1`).bind(id).first();
+  const response = await largeRenderedCrawlResponseForRow(env, row);
+  return jsonNoStore(
+    options.api
+      ? { ok: true, retryable_batch_count: retryableBatchIds.length, large_crawl: apiLargeRenderedCrawlResponse(response) }
+      : { ok: true, retryableBatchCount: retryableBatchIds.length, largeCrawl: response }
+  );
+}
+
+async function claimLargeRenderedCrawlBatch(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  return claimLargeRenderedCrawlBatchForAccess(request, env, access, "/api/large-crawls/", { api: false });
+}
+
+async function apiClaimLargeRenderedCrawlBatch(request, env) {
+  const access = await apiAccessStatus(request, env);
+  if (!access.ok) return apiAccessResponse(access);
+  return claimLargeRenderedCrawlBatchForAccess(request, env, access, "/v1/large-crawls/", { api: true });
+}
+
+async function claimLargeRenderedCrawlBatchForAccess(request, env, access, prefix, options = {}) {
+  const id = pathId(request.url, prefix, "/batches/claim");
+  await expireStaleLargeCrawlLeases(env, id);
+  const loaded = await loadLargeRenderedCrawl(env, access, id);
+  if (!loaded.ok) return jsonNoStore({ error: loaded.error }, loaded.status || 404);
+  const claimed = claimNextLargeRenderedCrawlBatch(largeCrawlJobFromRow(loaded.row), loaded.batches.map(largeCrawlBatchFromRow));
+  if (!claimed.ok) return jsonNoStore({ error: claimed.error }, 409);
+  const now = new Date().toISOString();
+  await env.WAITLIST_DB.prepare(
+    `UPDATE large_crawl_jobs SET status = 'running', started_at = COALESCE(started_at, ?), updated_at = ? WHERE id = ?`
+  ).bind(now, now, id).run();
+  const batchClaim = await env.WAITLIST_DB.prepare(
+    `UPDATE large_crawl_batches
+     SET status = 'running', retry_count = ?, leased_at = ?, started_at = COALESCE(started_at, ?), error = NULL, updated_at = ?
+     WHERE id = ? AND crawl_job_id = ? AND status IN ('queued', 'failed')`
+  ).bind(claimed.batch.retryCount, now, now, now, claimed.batch.id, id).run();
+  if (Number(batchClaim?.meta?.changes || 0) !== 1) {
+    return jsonNoStore({ error: "Large crawl batch was claimed by another worker. Try again." }, 409);
+  }
+  await env.WAITLIST_DB.prepare(
+    `UPDATE large_crawl_frontier SET status = 'rendering', updated_at = ? WHERE batch_id = ? AND status IN ('queued', 'failed')`
+  ).bind(now, claimed.batch.id).run();
+  const urls = await env.WAITLIST_DB.prepare(
+    `SELECT * FROM large_crawl_frontier WHERE batch_id = ? AND status = 'rendering' ORDER BY priority ASC LIMIT 1000`
+  ).bind(claimed.batch.id).all();
+  const row = await env.WAITLIST_DB.prepare(`SELECT * FROM large_crawl_jobs WHERE id = ? LIMIT 1`).bind(id).first();
+  const response = await largeRenderedCrawlResponseForRow(env, row);
+  return jsonNoStore(
+    options.api
+      ? {
+          ok: true,
+          large_crawl: apiLargeRenderedCrawlResponse(response),
+          batch: apiLargeCrawlBatchResponse(claimed.batch),
+          urls: (urls.results || []).map((item) => apiLargeCrawlFrontierResponse(largeCrawlFrontierFromRow(item))),
+          proof_url: `/v1/large-crawls/${id}/batches/${claimed.batch.id}/proof`
+        }
+      : {
+          ok: true,
+          largeCrawl: response,
+          batch: largeCrawlBatchResponse(claimed.batch),
+          urls: (urls.results || []).map(largeCrawlFrontierFromRow),
+          proofUrl: `/api/large-crawls/${id}/batches/${claimed.batch.id}/proof`
+        }
+  );
+}
+
+async function expireStaleLargeCrawlLeases(env, jobId) {
+  if (!env.WAITLIST_DB || !jobId) return;
+  const now = new Date().toISOString();
+  const staleBefore = new Date(Date.now() - LARGE_RENDERED_CRAWL_LEASE_MS).toISOString();
+  const rows = await env.WAITLIST_DB.prepare(
+    `SELECT id FROM large_crawl_batches
+     WHERE crawl_job_id = ?
+       AND status = 'running'
+       AND leased_at IS NOT NULL
+       AND leased_at < ?`
+  ).bind(jobId, staleBefore).all();
+  const batchIds = (rows.results || []).map((row) => row.id).filter(Boolean);
+  if (!batchIds.length) return;
+  await runD1BatchChunks(env, batchIds.flatMap((batchId) => [
+    env.WAITLIST_DB.prepare(
+      `UPDATE large_crawl_frontier SET status = 'queued', updated_at = ? WHERE batch_id = ? AND status = 'rendering'`
+    ).bind(now, batchId),
+    env.WAITLIST_DB.prepare(
+      `UPDATE large_crawl_batches SET status = 'queued', leased_at = NULL, error = NULL, updated_at = ? WHERE id = ? AND crawl_job_id = ?`
+    ).bind(now, batchId, jobId)
+  ]));
+}
+
+async function processLargeRenderedCrawlBatch(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  return processLargeRenderedCrawlBatchForAccess(request, env, access, "/api/large-crawls/", { api: false });
+}
+
+async function apiProcessLargeRenderedCrawlBatch(request, env) {
+  const access = await apiAccessStatus(request, env);
+  if (!access.ok) return apiAccessResponse(access);
+  return processLargeRenderedCrawlBatchForAccess(request, env, access, "/v1/large-crawls/", { api: true });
+}
+
+async function processLargeRenderedCrawlBatchForAccess(request, env, access, prefix, options = {}) {
+  const body = await request.json().catch(() => ({}));
+  const claimRequest = new Request(request.url.replace("/batches/process", "/batches/claim"), {
+    method: "POST",
+    headers: request.headers
+  });
+  const claimedResponse = await claimLargeRenderedCrawlBatchForAccess(claimRequest, env, access, prefix, options);
+  const claimedBody = await claimedResponse.clone().json().catch(() => ({}));
+  if (!claimedResponse.ok) return claimedResponse;
+  const batchId = claimedBody.batch?.batch_id || claimedBody.batch?.id || "";
+  const claimedUrls = Array.isArray(claimedBody.urls) ? claimedBody.urls : [];
+  const urls = claimedUrls.slice(0, Math.min(Math.max(Number(body.limit || 10), 1), 50));
+  await deferUnprocessedLargeCrawlUrls(env, batchId, urls);
+  const pages = [];
+  const failures = [];
+  for (const row of urls) {
+    const url = row.url;
+    try {
+      const report = await auditUrl(url, env, {
+        maxPages: 1,
+        pageSpeed: false,
+        appOrigin: new URL(request.url).origin,
+        crawlInventoryMaxUrls: 1,
+        renderedCrawlTarget: 0
+      });
+      const page = report.pages?.[0];
+      if (!page) throw new Error("No rendered page proof was returned.");
+      pages.push({ ...page, frontierId: row.frontier_id || row.id });
+    } catch (error) {
+      failures.push({
+        frontierId: row.frontier_id || row.id,
+        url,
+        error: cleanText(error?.message || "Rendered proof failed.", 500)
+      });
+    }
+  }
+  const proofUrl = new URL(request.url);
+  proofUrl.pathname = `${prefix}${pathId(request.url, prefix, "/batches/process")}/batches/${batchId}/proof`;
+  const proofRequest = new Request(proofUrl.href, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pages, failures })
+  });
+  const savedResponse = await saveLargeRenderedCrawlBatchProofForAccess(proofRequest, env, access, prefix, options);
+  const savedBody = await savedResponse.clone().json().catch(() => ({}));
+  return jsonNoStore(
+    options.api
+      ? { ...savedBody, processed_url_count: pages.length + failures.length, rendered_count: pages.length, failed_count: failures.length }
+      : { ...savedBody, processedUrlCount: pages.length + failures.length, renderedCount: pages.length, failedCount: failures.length },
+    savedResponse.status
+  );
+}
+
+async function runDueLargeRenderedCrawlWorkers(env) {
+  if (!env.WAITLIST_DB || !env.BROWSER) return;
+  const batchLimit = Math.min(Math.max(Number(env.SEOFIXKIT_LARGE_CRAWL_WORKER_BATCHES || 1), 1), 5);
+  const urlLimit = Math.min(Math.max(Number(env.SEOFIXKIT_LARGE_CRAWL_WORKER_URLS || 10), 1), 50);
+  const rows = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM large_crawl_jobs
+     WHERE status IN ('queued', 'retrying', 'running')
+       AND (expires_at IS NULL OR expires_at > ?)
+     ORDER BY updated_at ASC
+     LIMIT ?`
+  ).bind(new Date().toISOString(), batchLimit).all();
+  for (const row of rows.results || []) {
+    const now = new Date().toISOString();
+    const heartbeatId = workerLargeCrawlId("lwh");
+    const workerId = `scheduled-${heartbeatId.slice(-8)}`;
+    await env.WAITLIST_DB.prepare(
+      `INSERT INTO large_crawl_worker_heartbeats
+        (id, worker_id, crawl_job_id, batch_id, status, browser_runtime, concurrency, last_error, last_seen_at, created_at)
+       VALUES (?, ?, ?, NULL, 'processing', 'cloudflare-browser-run', ?, NULL, ?, ?)`
+    ).bind(heartbeatId, workerId, row.id, urlLimit, now, now).run();
+    const request = new Request(`https://seofixkit.com/api/large-crawls/${encodeURIComponent(row.id)}/batches/process`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ limit: urlLimit })
+    });
+    try {
+      await processLargeRenderedCrawlBatchForAccess(
+        request,
+        env,
+        {
+          ok: true,
+          ownerEmail: row.owner_email,
+          accessMode: row.access_mode || "worker",
+          sessionHash: row.owner_session_hash || "scheduled-large-crawl-worker",
+          inviteId: row.owner_invite_id || ""
+        },
+        "/api/large-crawls/",
+        { api: false }
+      );
+      await env.WAITLIST_DB.prepare(
+        `UPDATE large_crawl_worker_heartbeats SET status = 'idle', last_seen_at = ? WHERE id = ?`
+      ).bind(new Date().toISOString(), heartbeatId).run();
+    } catch (error) {
+      await env.WAITLIST_DB.prepare(
+        `UPDATE large_crawl_worker_heartbeats SET status = 'failed', last_error = ?, last_seen_at = ? WHERE id = ?`
+      ).bind(cleanText(error?.message || "Large crawl worker failed.", 500), new Date().toISOString(), heartbeatId).run();
+    }
+  }
+}
+
+async function deferUnprocessedLargeCrawlUrls(env, batchId, processingRows = []) {
+  if (!env.WAITLIST_DB || !batchId) return;
+  const processingIds = processingRows
+    .map((row) => row.frontier_id || row.frontierId || row.id || "")
+    .filter(Boolean);
+  const now = new Date().toISOString();
+  if (!processingIds.length) {
+    await env.WAITLIST_DB.prepare(
+      `UPDATE large_crawl_frontier SET status = 'queued', updated_at = ? WHERE batch_id = ? AND status = 'rendering'`
+    ).bind(now, batchId).run();
+    return;
+  }
+  const placeholders = processingIds.map(() => "?").join(", ");
+  await env.WAITLIST_DB.prepare(
+    `UPDATE large_crawl_frontier
+     SET status = 'queued', updated_at = ?
+     WHERE batch_id = ? AND status = 'rendering' AND id NOT IN (${placeholders})`
+  ).bind(now, batchId, ...processingIds).run();
+}
+
+async function saveLargeRenderedCrawlBatchProof(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  return saveLargeRenderedCrawlBatchProofForAccess(request, env, access, "/api/large-crawls/", { api: false });
+}
+
+async function apiSaveLargeRenderedCrawlBatchProof(request, env) {
+  const access = await apiAccessStatus(request, env);
+  if (!access.ok) return apiAccessResponse(access);
+  return saveLargeRenderedCrawlBatchProofForAccess(request, env, access, "/v1/large-crawls/", { api: true });
+}
+
+async function saveLargeRenderedCrawlBatchProofForAccess(request, env, access, prefix, options = {}) {
+  const { jobId, batchId } = largeCrawlBatchProofPath(request.url, prefix);
+  const loaded = await loadLargeRenderedCrawl(env, access, jobId);
+  if (!loaded.ok) return jsonNoStore({ error: loaded.error }, loaded.status || 404);
+  const batchRow = loaded.batches.find((batch) => batch.id === batchId);
+  if (!batchRow?.id) return jsonNoStore({ error: "Large crawl batch not found." }, 404);
+  const body = await request.json().catch(() => ({}));
+  const pages = Array.isArray(body.pages) ? body.pages : [];
+  const failures = Array.isArray(body.failures) ? body.failures : [];
+  const now = new Date().toISOString();
+  const frontier = await env.WAITLIST_DB.prepare(
+    `SELECT * FROM large_crawl_frontier WHERE batch_id = ? ORDER BY priority ASC`
+  ).bind(batchId).all();
+  const frontierRows = (frontier.results || []).map(largeCrawlFrontierFromRow);
+  const statements = [];
+  for (const page of pages) {
+    const frontierRow = findLargeCrawlFrontierRow(frontierRows, batchId, page);
+    if (!frontierRow) continue;
+    const proof = largeRenderedCrawlProofFromPage(largeCrawlJobFromRow(loaded.row), largeCrawlBatchFromRow(batchRow), frontierRow, page, now);
+    statements.push(largeCrawlProofInsertStatement(env, proof));
+    statements.push(
+      env.WAITLIST_DB.prepare(
+        `UPDATE large_crawl_frontier SET status = 'rendered', last_error = NULL, updated_at = ? WHERE id = ?`
+      ).bind(now, frontierRow.id)
+    );
+  }
+  for (const failure of failures) {
+    const frontierRow = findLargeCrawlFrontierRow(frontierRows, batchId, failure);
+    if (!frontierRow) continue;
+    const retryCount = Number(frontierRow.retryCount || 0) + 1;
+    const lastError = cleanText(failure.error || failure.message || "Rendered proof failed.", 500);
+    statements.push(
+      env.WAITLIST_DB.prepare(
+        `UPDATE large_crawl_frontier SET status = 'failed', retry_count = ?, last_error = ?, updated_at = ? WHERE id = ?`
+      ).bind(retryCount, lastError, now, frontierRow.id)
+    );
+    if (retryCount >= LARGE_RENDERED_CRAWL_MAX_RETRIES) {
+      statements.push(
+        env.WAITLIST_DB.prepare(
+          `INSERT INTO large_crawl_dead_letters
+            (id, crawl_job_id, batch_id, frontier_id, url, error, retry_count, status, created_at, resolved_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, NULL)`
+        ).bind(workerLargeCrawlId("lcd"), jobId, batchId, frontierRow.id, frontierRow.url, lastError, retryCount, now)
+      );
+    }
+  }
+  await runD1BatchChunks(env, statements);
+  await refreshLargeCrawlCounters(env, jobId, batchId);
+  const row = await env.WAITLIST_DB.prepare(`SELECT * FROM large_crawl_jobs WHERE id = ? LIMIT 1`).bind(jobId).first();
+  const response = await largeRenderedCrawlResponseForRow(env, row);
+  if (response.status === "ready_to_merge") {
+    await deliverApiWebhooks(env, access.ownerEmail, "large_crawl.ready_to_merge", {
+      large_crawl: apiLargeRenderedCrawlResponse(response)
+    }).catch(() => {});
+  }
+  const batch = await env.WAITLIST_DB.prepare(`SELECT * FROM large_crawl_batches WHERE id = ? LIMIT 1`).bind(batchId).first();
+  return jsonNoStore(
+    options.api
+      ? { ok: true, large_crawl: apiLargeRenderedCrawlResponse(response), batch: apiLargeCrawlBatchResponse(largeCrawlBatchFromRow(batch)) }
+      : { ok: true, largeCrawl: response, batch: largeCrawlBatchResponse(largeCrawlBatchFromRow(batch)) }
+  );
+}
+
+async function markLargeRenderedCrawlReadyToMerge(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  return markLargeRenderedCrawlReadyToMergeForAccess(request, env, access, "/api/large-crawls/", { api: false });
+}
+
+async function apiMarkLargeRenderedCrawlReadyToMerge(request, env) {
+  const access = await apiAccessStatus(request, env);
+  if (!access.ok) return apiAccessResponse(access);
+  return markLargeRenderedCrawlReadyToMergeForAccess(request, env, access, "/v1/large-crawls/", { api: true });
+}
+
+async function markLargeRenderedCrawlReadyToMergeForAccess(request, env, access, prefix, options = {}) {
+  const id = pathId(request.url, prefix, "/merge");
+  const loaded = await loadLargeRenderedCrawl(env, access, id, { includeSample: true });
+  if (!loaded.ok) return jsonNoStore({ error: loaded.error }, loaded.status || 404);
+  const response = await largeRenderedCrawlResponseForRow(env, loaded.row);
+  const readiness = response.mergeReadiness;
+  if (!readiness.ready) {
+    return jsonNoStore({ error: "Large crawl cannot merge yet.", blockers: readiness.blockers, progress: readiness.progress }, 409);
+  }
+  const now = new Date().toISOString();
+  await env.WAITLIST_DB.prepare(
+    `UPDATE large_crawl_jobs SET status = 'ready_to_merge', merge_status = 'ready', updated_at = ? WHERE id = ?`
+  ).bind(now, id).run();
+  const row = await env.WAITLIST_DB.prepare(`SELECT * FROM large_crawl_jobs WHERE id = ? LIMIT 1`).bind(id).first();
+  const updated = await largeRenderedCrawlResponseForRow(env, row);
+  return jsonNoStore(
+    options.api
+      ? { ok: true, status: "ready_to_merge", large_crawl: apiLargeRenderedCrawlResponse(updated) }
+      : { ok: true, status: "ready_to_merge", largeCrawl: updated }
+  );
+}
+
+async function insertLargeRenderedCrawl(env, created = {}) {
+  const job = created.job;
+  const jobStatement = env.WAITLIST_DB.prepare(
+    `INSERT INTO large_crawl_jobs
+      (id, owner_email, owner_session_hash, owner_invite_id, access_mode, target_url, target_host, incremental_mode, previous_crawl_job_id, crawl_fingerprint, target_pages, batch_size, max_concurrency, crawl_delay_ms, max_retries, status, frontier_url_count, frontier_stored_count, frontier_ingestion_status, rendered_url_count, failed_url_count, completed_batch_count, total_batch_count, inventory_status, inventory_summary_json, merge_status, report_id, error, created_at, updated_at, started_at, completed_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    job.id,
+    job.ownerEmail,
+    job.ownerSessionHash || null,
+    job.ownerInviteId || null,
+    job.accessMode || "self-serve",
+    job.targetUrl,
+    job.targetHost,
+    job.incrementalMode ? 1 : 0,
+    job.previousCrawlJobId || null,
+    job.crawlFingerprint || null,
+    job.targetPages,
+    job.batchSize,
+    job.maxConcurrency,
+    job.crawlDelayMs,
+    job.maxRetries,
+    job.status,
+    job.frontierUrlCount,
+    job.frontierStoredCount || job.frontierUrlCount,
+    job.frontierIngestionStatus || "complete",
+    job.renderedUrlCount,
+    job.failedUrlCount,
+    job.completedBatchCount,
+    job.totalBatchCount,
+    job.inventoryStatus || null,
+    JSON.stringify(job.inventorySummary || {}),
+    job.mergeStatus || "blocked",
+    job.reportId || null,
+    job.error || null,
+    job.createdAt,
+    job.updatedAt,
+    job.startedAt || null,
+    job.completedAt || null,
+    job.expiresAt
+  );
+  const batchStatements = (created.batches || []).map((batch) =>
+    env.WAITLIST_DB.prepare(
+      `INSERT INTO large_crawl_batches
+        (id, crawl_job_id, batch_index, start_index, end_index, planned_url_count, rendered_url_count, failed_url_count, status, retry_count, error, leased_at, started_at, completed_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      batch.id,
+      batch.crawlJobId,
+      batch.batchIndex,
+      batch.startIndex,
+      batch.endIndex,
+      batch.plannedUrlCount,
+      batch.renderedUrlCount,
+      batch.failedUrlCount,
+      batch.status,
+      batch.retryCount,
+      batch.error || null,
+      batch.leasedAt || null,
+      batch.startedAt || null,
+      batch.completedAt || null,
+      batch.createdAt,
+      batch.updatedAt
+    )
+  );
+  await env.WAITLIST_DB.batch([jobStatement, ...batchStatements]);
+  await runD1BatchChunks(env, (created.frontierRows || []).map((row) => largeCrawlFrontierInsertStatement(env, row)), 100);
+}
+
+async function ingestRemainingLargeRenderedCrawlFrontier(env, jobId, normalized = {}, access = {}) {
+  if (!env.WAITLIST_DB || !jobId || !normalized.targetUrl) return;
+  try {
+    const inventory = await buildCrawlInventory(normalized.targetUrl, {
+      includeUrls: true,
+      maxUrls: normalized.targetPages,
+      fetcher: fetch
+    });
+    const full = createLargeRenderedCrawlJob({
+      id: jobId,
+      ownerEmail: access.ownerEmail,
+      accessMode: access.accessMode || "self-serve",
+      targetUrl: normalized.targetUrl,
+      targetPages: normalized.targetPages,
+      batchSize: normalized.batchSize,
+      maxConcurrency: normalized.maxConcurrency,
+      crawlDelayMs: normalized.crawlDelayMs,
+      inventoryUrls: inventory.urls || [],
+      seedUrls: normalized.seedUrls,
+      idFactory: workerLargeCrawlId
+    });
+    const [existingUrls, existingBatches] = await Promise.all([
+      env.WAITLIST_DB.prepare(`SELECT normalized_url FROM large_crawl_frontier WHERE crawl_job_id = ?`).bind(jobId).all(),
+      env.WAITLIST_DB.prepare(`SELECT batch_index FROM large_crawl_batches WHERE crawl_job_id = ?`).bind(jobId).all()
+    ]);
+    const urlSet = new Set((existingUrls.results || []).map((row) => row.normalized_url).filter(Boolean));
+    const batchIndexSet = new Set((existingBatches.results || []).map((row) => Number(row.batch_index || 0)).filter(Boolean));
+    const missingBatches = full.batches.filter((batch) => !batchIndexSet.has(Number(batch.batchIndex || 0)));
+    const missingFrontierRows = full.frontierRows.filter((row) => !urlSet.has(row.normalizedUrl || row.url || ""));
+    await runD1BatchChunks(env, missingBatches.map((batch) => largeCrawlBatchInsertStatement(env, batch)), 100);
+    await runD1BatchChunks(env, missingFrontierRows.map((row) => largeCrawlFrontierInsertStatement(env, row)), 100);
+    const now = new Date().toISOString();
+    const fingerprint = await largeCrawlFingerprint(normalized.targetUrl, full.frontierRows);
+    await env.WAITLIST_DB.prepare(
+      `UPDATE large_crawl_jobs
+       SET frontier_url_count = ?, frontier_stored_count = ?, frontier_ingestion_status = ?, total_batch_count = ?, inventory_status = ?, inventory_summary_json = ?, crawl_fingerprint = ?, updated_at = ?
+       WHERE id = ?`
+    ).bind(
+      full.frontierRows.length,
+      full.frontierRows.length,
+      largeCrawlFrontierIngestionStatus(full.frontierRows.length, normalized.targetPages, inventory),
+      full.batches.length,
+      inventory.status || "empty",
+      JSON.stringify(inventory.summary || {}),
+      fingerprint,
+      now,
+      jobId
+    ).run();
+  } catch (error) {
+    await env.WAITLIST_DB.prepare(
+      `UPDATE large_crawl_jobs SET frontier_ingestion_status = 'failed', error = ?, updated_at = ? WHERE id = ?`
+    ).bind(cleanText(error?.message || "Frontier ingestion failed.", 500), new Date().toISOString(), jobId).run();
+  }
+}
+
+function largeCrawlFrontierIngestionStatus(frontierCount = 0, targetPages = 0, inventory = {}) {
+  const stored = Number(frontierCount || 0);
+  if (!stored) return "empty";
+  if (stored >= Number(targetPages || 0)) return "complete";
+  return inventory.summary?.truncated ? "partial" : "complete";
+}
+
+function largeCrawlBatchInsertStatement(env, batch = {}) {
+  return env.WAITLIST_DB.prepare(
+    `INSERT INTO large_crawl_batches
+      (id, crawl_job_id, batch_index, start_index, end_index, planned_url_count, rendered_url_count, failed_url_count, status, retry_count, error, leased_at, started_at, completed_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    batch.id,
+    batch.crawlJobId,
+    batch.batchIndex,
+    batch.startIndex,
+    batch.endIndex,
+    batch.plannedUrlCount,
+    batch.renderedUrlCount,
+    batch.failedUrlCount,
+    batch.status,
+    batch.retryCount,
+    batch.error || null,
+    batch.leasedAt || null,
+    batch.startedAt || null,
+    batch.completedAt || null,
+    batch.createdAt,
+    batch.updatedAt
+  );
+}
+
+function largeCrawlFrontierInsertStatement(env, row = {}) {
+  return env.WAITLIST_DB.prepare(
+    `INSERT INTO large_crawl_frontier
+      (id, crawl_job_id, batch_id, batch_index, url, normalized_url, status, retry_count, last_error, discovered_from, depth, priority, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    row.id,
+    row.crawlJobId,
+    row.batchId,
+    row.batchIndex,
+    row.url,
+    row.normalizedUrl,
+    row.status,
+    row.retryCount,
+    row.lastError || null,
+    row.discoveredFrom || null,
+    row.depth || 0,
+    row.priority || 0,
+    row.createdAt,
+    row.updatedAt
+  );
+}
+
+function largeCrawlProofInsertStatement(env, row = {}) {
+  return env.WAITLIST_DB.prepare(
+    `INSERT OR REPLACE INTO large_crawl_url_proofs
+      (id, crawl_job_id, batch_id, frontier_id, url, final_url, status_code, content_type, title, description, h1s_json, canonical, robots, internal_links_count, external_links_count, schema_types_json, resource_timing_json, issue_facts_json, rendered_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    row.id,
+    row.crawlJobId,
+    row.batchId,
+    row.frontierId,
+    row.url,
+    row.finalUrl || null,
+    row.statusCode || 0,
+    row.contentType || null,
+    row.title || null,
+    row.description || null,
+    JSON.stringify(row.h1s || []),
+    row.canonical || null,
+    row.robots || null,
+    row.internalLinksCount || 0,
+    row.externalLinksCount || 0,
+    JSON.stringify(row.schemaTypes || []),
+    JSON.stringify(row.resourceTiming || {}),
+    JSON.stringify(row.issueFacts || {}),
+    row.renderedAt,
+    row.createdAt
+  );
+}
+
+async function listLargeRenderedCrawlRows(env, access) {
+  const rows = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM large_crawl_jobs
+     WHERE owner_email = ?
+       AND (expires_at IS NULL OR expires_at > ?)
+     ORDER BY updated_at DESC
+     LIMIT 50`
+  ).bind(access.ownerEmail, new Date().toISOString()).all();
+  return rows.results || [];
+}
+
+async function loadLargeRenderedCrawlFromRequest(request, env, access, prefix) {
+  const id = pathId(request.url, prefix);
+  return loadLargeRenderedCrawl(env, access, id);
+}
+
+async function loadLargeRenderedCrawl(env, access, id) {
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT * FROM large_crawl_jobs WHERE id = ? AND owner_email = ? LIMIT 1`
+  ).bind(id, access.ownerEmail).first();
+  if (!row?.id) return { ok: false, status: 404, error: "Large crawl not found." };
+  const batches = await env.WAITLIST_DB.prepare(
+    `SELECT * FROM large_crawl_batches WHERE crawl_job_id = ? ORDER BY batch_index ASC`
+  ).bind(id).all();
+  return { ok: true, row, batches: batches.results || [] };
+}
+
+async function largeRenderedCrawlResponseForRow(env, row = {}) {
+  const loaded = await loadLargeRenderedCrawl(env, { ownerEmail: row.owner_email }, row.id);
+  const frontier = await env.WAITLIST_DB.prepare(
+    `SELECT * FROM large_crawl_frontier WHERE crawl_job_id = ? ORDER BY priority ASC LIMIT 20`
+  ).bind(row.id).all();
+  const proofs = await env.WAITLIST_DB.prepare(
+    `SELECT * FROM large_crawl_url_proofs WHERE crawl_job_id = ? ORDER BY rendered_at DESC LIMIT 20`
+  ).bind(row.id).all();
+  const deadLetters = await env.WAITLIST_DB.prepare(
+    `SELECT COUNT(*) AS count FROM large_crawl_dead_letters WHERE crawl_job_id = ? AND status = 'open'`
+  ).bind(row.id).first();
+  const job = largeCrawlJobFromRow(row);
+  const batches = (loaded.batches || []).map(largeCrawlBatchFromRow);
+  const sampleFrontier = (frontier.results || []).map(largeCrawlFrontierFromRow);
+  const sampleProof = (proofs.results || []).map(largeCrawlProofFromRow);
+  const response = largeRenderedCrawlResponse(job, batches, sampleFrontier, sampleProof);
+  return {
+    ...response,
+    inventory: {
+      status: row.inventory_status || "",
+      summary: parseJson(row.inventory_summary_json, {})
+    },
+    incrementalMode: Boolean(row.incremental_mode),
+    previousCrawlJobId: row.previous_crawl_job_id || "",
+    crawlFingerprint: row.crawl_fingerprint || "",
+    frontierIngestionStatus: row.frontier_ingestion_status || "pending",
+    frontierStoredCount: Number(row.frontier_stored_count || row.frontier_url_count || 0),
+    mergeStatus: row.merge_status || "blocked",
+    mergeReadiness: largeRenderedCrawlMergeReadiness(job, batches, [], []),
+    deadLetterCount: Number(deadLetters?.count || 0)
+  };
+}
+
+async function refreshLargeCrawlCounters(env, jobId, batchId) {
+  const now = new Date().toISOString();
+  const [batchProofs, batchFailures, batchQueued, batchRendering] = await Promise.all([
+    env.WAITLIST_DB.prepare(`SELECT COUNT(*) AS count FROM large_crawl_url_proofs WHERE batch_id = ?`).bind(batchId).first(),
+    env.WAITLIST_DB.prepare(`SELECT COUNT(*) AS count FROM large_crawl_frontier WHERE batch_id = ? AND status = 'failed'`).bind(batchId).first(),
+    env.WAITLIST_DB.prepare(`SELECT COUNT(*) AS count FROM large_crawl_frontier WHERE batch_id = ? AND status = 'queued'`).bind(batchId).first(),
+    env.WAITLIST_DB.prepare(`SELECT COUNT(*) AS count FROM large_crawl_frontier WHERE batch_id = ? AND status = 'rendering'`).bind(batchId).first()
+  ]);
+  const failedRows = Number(batchFailures?.count || 0);
+  const queuedRows = Number(batchQueued?.count || 0);
+  const renderingRows = Number(batchRendering?.count || 0);
+  const batchStatus = failedRows ? "failed" : renderingRows ? "running" : queuedRows ? "queued" : "completed";
+  await env.WAITLIST_DB.prepare(
+    `UPDATE large_crawl_batches
+     SET status = ?, rendered_url_count = ?, failed_url_count = ?, completed_at = ?, error = ?, updated_at = ?
+     WHERE id = ?`
+  ).bind(
+    batchStatus,
+    Number(batchProofs?.count || 0),
+    failedRows,
+    batchStatus === "completed" ? now : null,
+    failedRows ? `${failedRows} URL proofs failed in this batch.` : null,
+    now,
+    batchId
+  ).run();
+
+  const [renderedRows, failedUrls, completedBatches, failedBatches, totalBatches, job] = await Promise.all([
+    env.WAITLIST_DB.prepare(`SELECT COUNT(*) AS count FROM large_crawl_url_proofs WHERE crawl_job_id = ?`).bind(jobId).first(),
+    env.WAITLIST_DB.prepare(`SELECT COUNT(*) AS count FROM large_crawl_frontier WHERE crawl_job_id = ? AND status = 'failed'`).bind(jobId).first(),
+    env.WAITLIST_DB.prepare(`SELECT COUNT(*) AS count FROM large_crawl_batches WHERE crawl_job_id = ? AND status = 'completed'`).bind(jobId).first(),
+    env.WAITLIST_DB.prepare(`SELECT COUNT(*) AS count FROM large_crawl_batches WHERE crawl_job_id = ? AND status = 'failed'`).bind(jobId).first(),
+    env.WAITLIST_DB.prepare(`SELECT COUNT(*) AS count FROM large_crawl_batches WHERE crawl_job_id = ?`).bind(jobId).first(),
+    env.WAITLIST_DB.prepare(`SELECT frontier_url_count, frontier_ingestion_status FROM large_crawl_jobs WHERE id = ? LIMIT 1`).bind(jobId).first()
+  ]);
+  const renderedCount = Number(renderedRows?.count || 0);
+  const failedCount = Number(failedUrls?.count || 0);
+  const completedCount = Number(completedBatches?.count || 0);
+  const failedBatchCount = Number(failedBatches?.count || 0);
+  const totalBatchCount = Number(totalBatches?.count || 0);
+  const frontierCount = Number(job?.frontier_url_count || 0);
+  const frontierIngestionComplete = ["", "complete"].includes(job?.frontier_ingestion_status || "complete");
+  const ready = frontierIngestionComplete && frontierCount > 0 && renderedCount >= frontierCount && completedCount === totalBatchCount && failedCount === 0 && failedBatchCount === 0;
+  const status = ready ? "ready_to_merge" : failedBatchCount || failedCount ? "retrying" : "running";
+  await env.WAITLIST_DB.prepare(
+    `UPDATE large_crawl_jobs
+     SET status = ?, rendered_url_count = ?, failed_url_count = ?, completed_batch_count = ?, total_batch_count = ?, merge_status = ?, updated_at = ?, completed_at = ?
+     WHERE id = ?`
+  ).bind(status, renderedCount, failedCount, completedCount, totalBatchCount, ready ? "ready" : "blocked", now, ready ? now : null, jobId).run();
+}
+
+async function activeLargeRenderedCrawlForTarget(env, access, targetUrl) {
+  return env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM large_crawl_jobs
+     WHERE owner_email = ?
+       AND target_url = ?
+       AND status IN ('queued', 'running', 'retrying', 'ready_to_merge')
+       AND (expires_at IS NULL OR expires_at > ?)
+     ORDER BY created_at DESC
+     LIMIT 1`
+  ).bind(access.ownerEmail, targetUrl, new Date().toISOString()).first();
+}
+
+async function activeLargeRenderedCrawlCount(env, access) {
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT COUNT(*) AS count
+     FROM large_crawl_jobs
+     WHERE owner_email = ?
+       AND status IN ('queued', 'running', 'retrying')
+       AND (expires_at IS NULL OR expires_at > ?)`
+  ).bind(access.ownerEmail, new Date().toISOString()).first();
+  return Number(row?.count || 0);
+}
+
+async function latestLargeRenderedCrawlForTarget(env, access, targetUrl) {
+  return env.WAITLIST_DB.prepare(
+    `SELECT id
+     FROM large_crawl_jobs
+     WHERE owner_email = ?
+       AND target_url = ?
+       AND status IN ('ready_to_merge', 'completed')
+       AND (expires_at IS NULL OR expires_at > ?)
+     ORDER BY updated_at DESC
+     LIMIT 1`
+  ).bind(access.ownerEmail, targetUrl, new Date().toISOString()).first();
+}
+
+async function largeCrawlQuotaStatus(request, env, access, targetUrl) {
+  const day = dayWindow(new Date());
+  const targetKey = safeHostname(targetUrl).replace(/[^a-z0-9.-]/gi, "").slice(0, 120);
+  const sessionKey = String(access.sessionHash || access.apiTokenId || access.ownerEmail || "").slice(0, 32);
+  return checkQuotaSet(env, [
+    {
+      bucket: `large-crawl:session-day:${day.key}:${sessionKey}`,
+      limit: 2,
+      windowStart: day.key,
+      resetAt: day.resetAt,
+      error: "Daily large-crawl limit reached. Try again tomorrow."
+    },
+    {
+      bucket: `large-crawl:target-day:${day.key}:${targetKey}`,
+      limit: 1,
+      windowStart: day.key,
+      resetAt: day.resetAt,
+      error: "That site already has a large crawl queued today."
+    }
+  ]);
+}
+
+function largeCrawlBillingStatus(env, access = {}) {
+  if (access.accessMode === "founder-override") return { ok: true };
+  if (String(env.SEOFIXKIT_LARGE_CRAWL_ENABLED || "").toLowerCase() === "true") return { ok: true };
+  return {
+    ok: false,
+    status: 402,
+    code: "LARGE_CRAWL_PLAN_REQUIRED",
+    error: "Large rendered crawls require an enabled large-crawl plan before browser workers run."
+  };
+}
+
+function largeCrawlJobFromRow(row = {}) {
+  return {
+    id: row.id || "",
+    ownerEmail: row.owner_email || "",
+    accessMode: row.access_mode || "self-serve",
+    targetUrl: row.target_url || "",
+    targetHost: row.target_host || "",
+    incrementalMode: Boolean(row.incremental_mode),
+    previousCrawlJobId: row.previous_crawl_job_id || "",
+    crawlFingerprint: row.crawl_fingerprint || "",
+    targetPages: Number(row.target_pages || 0),
+    batchSize: Number(row.batch_size || 1000),
+    maxConcurrency: Number(row.max_concurrency || 4),
+    crawlDelayMs: Number(row.crawl_delay_ms || 250),
+    maxRetries: Number(row.max_retries || LARGE_RENDERED_CRAWL_MAX_RETRIES),
+    status: row.status || "queued",
+    frontierUrlCount: Number(row.frontier_url_count || 0),
+    frontierIngestionStatus: row.frontier_ingestion_status || "pending",
+    renderedUrlCount: Number(row.rendered_url_count || 0),
+    failedUrlCount: Number(row.failed_url_count || 0),
+    completedBatchCount: Number(row.completed_batch_count || 0),
+    totalBatchCount: Number(row.total_batch_count || 0),
+    reportId: row.report_id || "",
+    error: row.error || "",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+    startedAt: row.started_at || "",
+    completedAt: row.completed_at || "",
+    expiresAt: row.expires_at || ""
+  };
+}
+
+function largeCrawlBatchFromRow(row = {}) {
+  return {
+    id: row.id || "",
+    crawlJobId: row.crawl_job_id || "",
+    batchIndex: Number(row.batch_index || 0),
+    startIndex: Number(row.start_index || 0),
+    endIndex: Number(row.end_index || 0),
+    plannedUrlCount: Number(row.planned_url_count || 0),
+    renderedUrlCount: Number(row.rendered_url_count || 0),
+    failedUrlCount: Number(row.failed_url_count || 0),
+    status: row.status || "queued",
+    retryCount: Number(row.retry_count || 0),
+    error: row.error || "",
+    leasedAt: row.leased_at || "",
+    startedAt: row.started_at || "",
+    completedAt: row.completed_at || "",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || ""
+  };
+}
+
+function largeCrawlFrontierFromRow(row = {}) {
+  return {
+    id: row.id || "",
+    crawlJobId: row.crawl_job_id || "",
+    batchId: row.batch_id || "",
+    batchIndex: Number(row.batch_index || 0),
+    url: row.url || "",
+    normalizedUrl: row.normalized_url || row.url || "",
+    status: row.status || "queued",
+    retryCount: Number(row.retry_count || 0),
+    lastError: row.last_error || "",
+    discoveredFrom: row.discovered_from || "",
+    depth: Number(row.depth || 0),
+    priority: Number(row.priority || 0),
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || ""
+  };
+}
+
+function largeCrawlProofFromRow(row = {}) {
+  return {
+    id: row.id || "",
+    crawlJobId: row.crawl_job_id || "",
+    batchId: row.batch_id || "",
+    frontierId: row.frontier_id || "",
+    url: row.url || "",
+    finalUrl: row.final_url || "",
+    statusCode: Number(row.status_code || 0),
+    title: row.title || "",
+    canonical: row.canonical || "",
+    renderedAt: row.rendered_at || ""
+  };
+}
+
+function apiLargeRenderedCrawlResponse(response = {}) {
+  return {
+    large_crawl_id: response.id || "",
+    status: response.status || "queued",
+    url: response.targetUrl || "",
+    target_host: response.targetHost || "",
+    target_pages: response.targetPages || 0,
+    batch_size: response.batchSize || 1000,
+    max_concurrency: response.maxConcurrency || 4,
+    crawl_delay_ms: response.crawlDelayMs || 250,
+    max_retries: response.maxRetries || LARGE_RENDERED_CRAWL_MAX_RETRIES,
+    progress: response.progress || {},
+    batches: (response.batches || []).map(apiLargeCrawlBatchResponse),
+    sample_frontier: (response.sampleFrontier || []).map(apiLargeCrawlFrontierResponse),
+    sample_proof: response.sampleProof || [],
+    inventory: response.inventory || {},
+    incremental_mode: Boolean(response.incrementalMode),
+    previous_crawl_job_id: response.previousCrawlJobId || "",
+    crawl_fingerprint: response.crawlFingerprint || "",
+    frontier_ingestion_status: response.frontierIngestionStatus || "pending",
+    frontier_stored_count: response.frontierStoredCount || 0,
+    merge_status: response.mergeStatus || "blocked",
+    merge_readiness: response.mergeReadiness || {},
+    dead_letter_count: response.deadLetterCount || 0,
+    report_id: response.reportId || "",
+    error: response.error || "",
+    created_at: response.createdAt || "",
+    updated_at: response.updatedAt || "",
+    started_at: response.startedAt || "",
+    completed_at: response.completedAt || "",
+    expires_at: response.expiresAt || ""
+  };
+}
+
+function largeCrawlBatchResponse(batch = {}) {
+  return {
+    id: batch.id || "",
+    batchIndex: Number(batch.batchIndex || 0),
+    startIndex: Number(batch.startIndex || 0),
+    endIndex: Number(batch.endIndex || 0),
+    plannedUrlCount: Number(batch.plannedUrlCount || 0),
+    renderedUrlCount: Number(batch.renderedUrlCount || 0),
+    failedUrlCount: Number(batch.failedUrlCount || 0),
+    status: batch.status || "queued",
+    retryCount: Number(batch.retryCount || 0),
+    error: batch.error || "",
+    updatedAt: batch.updatedAt || ""
+  };
+}
+
+function apiLargeCrawlBatchResponse(batch = {}) {
+  return {
+    batch_id: batch.id || "",
+    batch_index: Number(batch.batchIndex || batch.batch_index || 0),
+    start_index: Number(batch.startIndex || batch.start_index || 0),
+    end_index: Number(batch.endIndex || batch.end_index || 0),
+    planned_url_count: Number(batch.plannedUrlCount || batch.planned_url_count || 0),
+    rendered_url_count: Number(batch.renderedUrlCount || batch.rendered_url_count || 0),
+    failed_url_count: Number(batch.failedUrlCount || batch.failed_url_count || 0),
+    status: batch.status || "queued",
+    retry_count: Number(batch.retryCount || batch.retry_count || 0),
+    error: batch.error || "",
+    updated_at: batch.updatedAt || batch.updated_at || ""
+  };
+}
+
+function apiLargeCrawlFrontierResponse(row = {}) {
+  return {
+    frontier_id: row.id || "",
+    batch_id: row.batchId || row.batch_id || "",
+    url: row.url || "",
+    status: row.status || "queued",
+    retry_count: Number(row.retryCount || row.retry_count || 0),
+    last_error: row.lastError || row.last_error || ""
+  };
+}
+
+function findLargeCrawlFrontierRow(frontierRows = [], batchId = "", input = {}) {
+  const wantedId = input.frontierId || input.frontier_id || "";
+  const wantedUrl = stripUrlHash(input.url || input.targetUrl || input.target_url || "");
+  return frontierRows.find((row) => row.batchId === batchId && row.id === wantedId) ||
+    frontierRows.find((row) => row.batchId === batchId && stripUrlHash(row.url) === wantedUrl) ||
+    null;
+}
+
+function largeCrawlBatchProofPath(rawUrl, prefix) {
+  const pathname = new URL(rawUrl).pathname;
+  const value = pathname.slice(prefix.length);
+  const match = value.match(/^([^/]+)\/batches\/([^/]+)\/proof$/);
+  return {
+    jobId: decodeURIComponent(match?.[1] || ""),
+    batchId: decodeURIComponent(match?.[2] || "")
+  };
+}
+
+function pathId(rawUrl, prefix, suffix = "") {
+  const pathname = new URL(rawUrl).pathname;
+  const withoutPrefix = pathname.slice(prefix.length);
+  const value = suffix && withoutPrefix.endsWith(suffix)
+    ? withoutPrefix.slice(0, -suffix.length)
+    : withoutPrefix;
+  return decodeURIComponent(value.replace(/^\/|\/$/g, ""));
+}
+
+function stripUrlHash(value = "") {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return url.href;
+  } catch {
+    return String(value || "").split("#")[0];
+  }
+}
+
+function workerLargeCrawlId(prefix = "lc") {
+  return `${prefix}_${crypto.randomUUID()}`;
+}
+
+async function largeCrawlFingerprint(targetUrl = "", frontierRows = []) {
+  return sha256Hex([
+    targetUrl,
+    ...(frontierRows || []).slice(0, 50000).map((row) => row.normalizedUrl || row.url || "")
+  ].join("\n"));
+}
+
+async function runD1BatchChunks(env, statements = [], chunkSize = 100) {
+  for (let index = 0; index < statements.length; index += chunkSize) {
+    const chunk = statements.slice(index, index + chunkSize);
+    if (chunk.length) await env.WAITLIST_DB.batch(chunk);
+  }
+}
+
+async function activeAuditJobForTarget(env, access, targetUrl, competitorUrls = [], backlinkRows = [], localSeo = {}, keywordRows = [], renderedCrawlTarget = 0, maxPages = 10) {
+  const competitorKey = competitorUrlsKey(competitorUrls);
+  const backlinkKey = backlinkRowsKey(backlinkRows);
+  const localSeoKey = localSeoInputKey(localSeo);
+  const keywordKey = keywordRowsKey(keywordRows);
+  const renderedTarget = normalizeRenderedCrawlTarget(renderedCrawlTarget);
+  const pageLimit = clampPageLimit(maxPages || 10);
+  const rows = await env.WAITLIST_DB.prepare(
     `SELECT *
      FROM audit_jobs
      WHERE owner_email = ?
@@ -1220,10 +3760,19 @@ async function activeAuditJobForTarget(env, access, targetUrl) {
        AND status IN ('queued', 'running')
        AND (expires_at IS NULL OR expires_at > ?)
      ORDER BY created_at DESC
-     LIMIT 1`
+     LIMIT 10`
   )
     .bind(access.ownerEmail, targetUrl, new Date().toISOString())
-    .first();
+    .all();
+  const row = (rows.results || []).find(
+    (item) =>
+      competitorUrlsKey(parseJson(item.competitor_urls_json, [])) === competitorKey &&
+      backlinkRowsKey(parseJson(item.backlink_rows_json, [])) === backlinkKey &&
+      localSeoInputKey(parseJson(item.local_seo_input_json, { enabled: false })) === localSeoKey &&
+      keywordRowsKey(parseJson(item.keyword_rows_json, [])) === keywordKey &&
+      normalizeRenderedCrawlTarget(item.rendered_crawl_target || 0) === renderedTarget &&
+      clampPageLimit(item.max_pages || 10) === pageLimit
+  );
   return row?.id ? row : null;
 }
 
@@ -1240,7 +3789,7 @@ async function activeAuditJobCount(env, access) {
   return Number(row?.count || 0);
 }
 
-async function createAuditJob(env, access, targetUrl, maxPages) {
+async function createAuditJob(env, access, targetUrl, maxPages, options = {}) {
   const now = new Date().toISOString();
   const job = {
     id: crypto.randomUUID(),
@@ -1250,9 +3799,15 @@ async function createAuditJob(env, access, targetUrl, maxPages) {
     access_mode: access.accessMode || "invite",
     target_url: targetUrl,
     target_host: safeHostname(targetUrl),
+    competitor_urls_json: JSON.stringify(normalizeCompetitorUrlsList(options.competitorUrls || [], targetUrl)),
+    backlink_rows_json: JSON.stringify(parseBacklinkRows({ backlinkRows: options.backlinkRows || [] }, targetUrl, { allowPrivate: false }).rows || []),
+    local_seo_input_json: JSON.stringify(parseLocalSeoInput({ localSeo: options.localSeo || {} }, targetUrl, { allowPrivate: false }).input || { enabled: false }),
+    keyword_rows_json: JSON.stringify(parseKeywordRows({ keywordRows: options.keywordRows || [] }, targetUrl, { allowPrivate: false }).rows || []),
+    rendered_crawl_target: normalizeRenderedCrawlTarget(options.renderedCrawlTarget || 0),
     max_pages: maxPages,
     status: "queued",
     report_id: "",
+    schedule_id: options.scheduleId || "",
     error: "",
     created_at: now,
     updated_at: now,
@@ -1263,8 +3818,8 @@ async function createAuditJob(env, access, targetUrl, maxPages) {
 
   await env.WAITLIST_DB.prepare(
     `INSERT INTO audit_jobs
-      (id, owner_email, owner_session_hash, owner_invite_id, access_mode, target_url, target_host, max_pages, status, report_id, error, created_at, updated_at, started_at, completed_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (id, owner_email, owner_session_hash, owner_invite_id, access_mode, target_url, target_host, competitor_urls_json, backlink_rows_json, local_seo_input_json, keyword_rows_json, rendered_crawl_target, max_pages, status, report_id, schedule_id, error, created_at, updated_at, started_at, completed_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
     .bind(
       job.id,
@@ -1274,9 +3829,15 @@ async function createAuditJob(env, access, targetUrl, maxPages) {
       job.access_mode,
       job.target_url,
       job.target_host,
+      job.competitor_urls_json,
+      job.backlink_rows_json,
+      job.local_seo_input_json,
+      job.keyword_rows_json,
+      job.rendered_crawl_target,
       job.max_pages,
       job.status,
       null,
+      job.schedule_id || null,
       null,
       job.created_at,
       job.updated_at,
@@ -1286,7 +3847,163 @@ async function createAuditJob(env, access, targetUrl, maxPages) {
     )
     .run();
 
+  await persistBacklinkImportHistory(env, access, targetUrl, parseJson(job.backlink_rows_json, []));
+  await persistKeywordImportHistory(env, access, targetUrl, parseJson(job.keyword_rows_json, []));
+
   return job;
+}
+
+async function persistBacklinkImportHistory(env, access, targetUrl, rows = []) {
+  if (!rows.length) return;
+  const now = new Date().toISOString();
+  const targetHost = safeHostname(targetUrl);
+  const batchId = workerLargeCrawlId("bli");
+  const statements = [
+    env.WAITLIST_DB.prepare(
+      `INSERT INTO backlink_import_batches
+        (id, owner_email, target_host, source, row_count, live_count, lost_count, risky_count, imported_at, created_at)
+       VALUES (?, ?, ?, 'audit-import', ?, 0, 0, 0, ?, ?)`
+    ).bind(batchId, access.ownerEmail, targetHost, rows.length, now, now),
+    ...rows.map((row) => {
+      const sourceUrl = row.sourceUrl || "";
+      const target = row.targetUrl || targetUrl;
+      return env.WAITLIST_DB.prepare(
+        `INSERT OR REPLACE INTO backlink_edges
+          (id, owner_email, target_host, import_batch_id, source_url, source_host, target_url, anchor_text, rel, first_seen, last_seen, status, source_status, target_status, live, risky_signals_json, proof_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 'imported', 0, 0, 0, '[]', ?, ?, ?)`
+      ).bind(
+        workerLargeCrawlId("ble"),
+        access.ownerEmail,
+        targetHost,
+        batchId,
+        sourceUrl,
+        safeHostname(sourceUrl),
+        target,
+        row.anchorText || null,
+        row.firstSeen || null,
+        row.lastSeen || null,
+        JSON.stringify({ source: "audit-import", statusHint: row.statusHint || "" }),
+        now,
+        now
+      );
+    })
+  ];
+  await runD1BatchChunks(env, statements);
+}
+
+async function persistKeywordImportHistory(env, access, targetUrl, rows = []) {
+  if (!rows.length) return;
+  const now = new Date().toISOString();
+  const targetHost = safeHostname(targetUrl);
+  const batchId = workerLargeCrawlId("kwi");
+  const queryCount = new Set(rows.map((row) => row.normalizedQuery || String(row.query || "").toLowerCase()).filter(Boolean)).size;
+  const pageCount = new Set(rows.map((row) => row.pageUrl || "").filter(Boolean)).size;
+  const statements = [
+    env.WAITLIST_DB.prepare(
+      `INSERT INTO keyword_import_batches
+        (id, owner_email, target_host, source, row_count, query_count, landing_page_count, imported_at, created_at)
+       VALUES (?, ?, ?, 'audit-import', ?, ?, ?, ?, ?)`
+    ).bind(batchId, access.ownerEmail, targetHost, rows.length, queryCount, pageCount, now, now),
+    ...rows.map((row) =>
+      env.WAITLIST_DB.prepare(
+        `INSERT INTO keyword_rank_observations
+          (id, owner_email, target_host, import_batch_id, query, normalized_query, page_url, clicks, impressions, ctr, position, previous_clicks, previous_impressions, previous_ctr, previous_position, source, observed_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        workerLargeCrawlId("kro"),
+        access.ownerEmail,
+        targetHost,
+        batchId,
+        row.query || "",
+        row.normalizedQuery || String(row.query || "").toLowerCase(),
+        row.pageUrl || null,
+        Number(row.clicks || 0),
+        Number(row.impressions || 0),
+        Number(row.ctr || 0),
+        Number(row.position || 0),
+        Number(row.previousClicks || 0),
+        Number(row.previousImpressions || 0),
+        Number(row.previousCtr || 0),
+        Number(row.previousPosition || 0),
+        row.source || "audit-import",
+        now,
+        now
+      )
+    )
+  ];
+  await runD1BatchChunks(env, statements);
+}
+
+async function runDueAuditSchedules(env) {
+  if (!env.WAITLIST_DB) return;
+  const now = new Date().toISOString();
+  const rows = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM audit_schedules
+     WHERE status = 'active'
+       AND next_run_at <= ?
+     ORDER BY next_run_at ASC
+     LIMIT 5`
+  )
+    .bind(now)
+    .all();
+
+  for (const schedule of rows.results || []) {
+    await runAuditSchedule(env, schedule);
+  }
+}
+
+async function runAuditSchedule(env, schedule) {
+  if (!schedule?.id) return;
+  const now = new Date().toISOString();
+  const access = {
+    ownerEmail: schedule.owner_email,
+    sessionHash: schedule.owner_session_hash || "",
+    inviteId: schedule.owner_invite_id || "",
+    accessMode: schedule.access_mode || "schedule"
+  };
+
+  const existing = await activeAuditJobForTarget(env, access, schedule.target_url, [], [], {}, [], 0, schedule.max_pages || 10);
+  if (existing?.id) {
+    const retryAt = isoDaysFromDate(now, 1);
+    await env.WAITLIST_DB.prepare(
+      `UPDATE audit_schedules
+       SET last_error = ?, next_run_at = ?, updated_at = ?
+       WHERE id = ?`
+    )
+      .bind("Skipped because an audit is already queued or running for this URL.", retryAt, now, schedule.id)
+      .run();
+    return;
+  }
+
+  try {
+    const job = await createAuditJob(
+      env,
+      access,
+      schedule.target_url,
+      clampPageLimit(schedule.max_pages || 10),
+      { scheduleId: schedule.id }
+    );
+    await env.WAITLIST_DB.prepare(
+      `UPDATE audit_schedules
+       SET last_run_at = ?, last_job_id = ?, last_error = NULL, updated_at = ?
+       WHERE id = ?`
+    )
+      .bind(now, job.id, now, schedule.id)
+      .run();
+    await processAuditJob(env, job.id, {
+      appOrigin: String(env.SEOFIXKIT_APP_ORIGIN || "https://seofixkit.com")
+    });
+  } catch (error) {
+    const retryAt = isoDaysFromDate(now, 1);
+    await env.WAITLIST_DB.prepare(
+      `UPDATE audit_schedules
+       SET last_error = ?, next_run_at = ?, updated_at = ?
+       WHERE id = ?`
+    )
+      .bind(cleanText(error?.message || "Scheduled audit failed.", 260), retryAt, new Date().toISOString(), schedule.id)
+      .run();
+  }
 }
 
 async function processAuditJob(env, jobId, context = {}) {
@@ -1310,7 +4027,12 @@ async function processAuditJob(env, jobId, context = {}) {
   try {
     const report = await auditUrl(row.target_url, env, {
       maxPages: clampPageLimit(row.max_pages || 10),
-      appOrigin: context.appOrigin || "https://seofixkit.com"
+      appOrigin: context.appOrigin || "https://seofixkit.com",
+      competitorUrls: parseJson(row.competitor_urls_json, []),
+      backlinkRows: parseJson(row.backlink_rows_json, []),
+      localSeo: parseJson(row.local_seo_input_json, { enabled: false }),
+      keywordRows: parseJson(row.keyword_rows_json, []),
+      renderedCrawlTarget: row.rendered_crawl_target || 0
     });
     const saved = await saveAuditReportWithContext(
       report,
@@ -1331,6 +4053,35 @@ async function processAuditJob(env, jobId, context = {}) {
     )
       .bind(saved.id, completedAt, completedAt, jobId)
       .run();
+    if (row.schedule_id) {
+      const schedule = await env.WAITLIST_DB.prepare(
+        `SELECT interval_days FROM audit_schedules WHERE id = ? LIMIT 1`
+      )
+        .bind(row.schedule_id)
+        .first();
+      await env.WAITLIST_DB.prepare(
+        `UPDATE audit_schedules
+         SET last_report_id = ?, last_error = NULL, next_run_at = ?, updated_at = ?
+         WHERE id = ?`
+      )
+        .bind(
+          saved.id,
+          isoDaysFromDate(completedAt, Number(schedule?.interval_days || 7)),
+          completedAt,
+          row.schedule_id
+        )
+        .run();
+    }
+    await deliverApiWebhooks(env, row.owner_email, "audit.completed", {
+      audit: apiAuditResponse({
+        ...row,
+        status: "completed",
+        report_id: saved.id,
+        completed_at: completedAt,
+        updated_at: completedAt
+      }),
+      report: apiReportResponse(saved)
+    });
   } catch (error) {
     const completedAt = new Date().toISOString();
     const message = cleanText(error?.message || "The audit failed. Try another URL.", 260);
@@ -1341,6 +4092,25 @@ async function processAuditJob(env, jobId, context = {}) {
     )
       .bind(message, completedAt, completedAt, jobId)
       .run();
+    if (row.schedule_id) {
+      await env.WAITLIST_DB.prepare(
+        `UPDATE audit_schedules
+         SET last_error = ?, next_run_at = ?, updated_at = ?
+         WHERE id = ?`
+      )
+        .bind(message, isoDaysFromDate(completedAt, 1), completedAt, row.schedule_id)
+        .run();
+    }
+    await deliverApiWebhooks(env, row.owner_email, "audit.failed", {
+      audit: apiAuditResponse({
+        ...row,
+        status: "failed",
+        error: message,
+        completed_at: completedAt,
+        updated_at: completedAt
+      }),
+      error: message
+    });
   }
 }
 
@@ -1376,8 +4146,15 @@ function auditJobResponse(row = {}) {
     status: row.status || "queued",
     targetUrl: row.target_url || "",
     targetHost: row.target_host || safeHostname(row.target_url || ""),
+    competitorUrls: parseJson(row.competitor_urls_json, []),
+    backlinkRowsCount: parseJson(row.backlink_rows_json, []).length,
+    localSeoInput: localSeoInputSummary(parseJson(row.local_seo_input_json, { enabled: false })),
+    keywordRowsInput: keywordRowsSummary(parseJson(row.keyword_rows_json, [])),
+    renderedCrawlTarget: renderedCrawlTargetSummary(row.rendered_crawl_target || 0),
     maxPages: Number(row.max_pages || 10),
+    crawlDepth: crawlDepthSummary(row.max_pages || 10),
     reportId,
+    scheduleId: row.schedule_id || "",
     reportPath: reportId ? `/beta/reports/${reportId}` : "",
     error: row.error || "",
     createdAt: row.created_at || "",
@@ -1386,6 +4163,891 @@ function auditJobResponse(row = {}) {
     completedAt: row.completed_at || "",
     expiresAt: row.expires_at || ""
   };
+}
+
+function auditScheduleResponse(row = {}) {
+  const reportId = row.last_report_id || "";
+  return {
+    id: row.id || "",
+    status: row.status || "active",
+    targetUrl: row.target_url || "",
+    targetHost: row.target_host || safeHostname(row.target_url || ""),
+    maxPages: Number(row.max_pages || 10),
+    intervalDays: Number(row.interval_days || 7),
+    cadenceLabel: scheduleCadenceLabel(row.interval_days || 7),
+    nextRunAt: row.next_run_at || "",
+    lastRunAt: row.last_run_at || "",
+    lastJobId: row.last_job_id || "",
+    lastReportId: reportId,
+    lastReportPath: reportId ? `/beta/reports/${reportId}` : "",
+    lastError: row.last_error || "",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+    pausedAt: row.paused_at || ""
+  };
+}
+
+function apiTokenResponse(row = {}) {
+  return {
+    id: row.id || "",
+    label: row.label || "API key",
+    tokenPrefix: row.token_prefix || "",
+    scopes: parseJson(row.scopes_json, []),
+    status: row.status || "active",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+    lastUsedAt: row.last_used_at || "",
+    revokedAt: row.revoked_at || ""
+  };
+}
+
+function apiWebhookResponse(row = {}) {
+  return {
+    id: row.id || "",
+    url: row.url || "",
+    events: parseJson(row.events_json, []),
+    status: row.status || "active",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+    lastDeliveryAt: row.last_delivery_at || "",
+    lastDeliveryStatus: row.last_delivery_status || "",
+    lastError: row.last_error || ""
+  };
+}
+
+async function teamMembersForOwner(env, ownerEmail) {
+  const rows = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM team_members
+     WHERE owner_email = ?
+       AND status = 'active'
+     ORDER BY member_email ASC
+     LIMIT 50`
+  )
+    .bind(ownerEmail)
+    .all();
+  return (rows.results || []).map(teamMemberResponse);
+}
+
+function teamMemberResponse(row = {}) {
+  return {
+    id: row.id || "",
+    email: row.member_email || "",
+    name: row.member_name || "",
+    role: row.role || "editor",
+    status: row.status || "active",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || ""
+  };
+}
+
+async function reportCollaborationResponse(env, access, reportId, report) {
+  const [members, saved] = await Promise.all([
+    teamMembersForOwner(env, access.ownerEmail),
+    env.WAITLIST_DB.prepare(
+      `SELECT *
+       FROM issue_collaboration
+       WHERE report_id = ?
+         AND owner_email = ?`
+    )
+      .bind(reportId, access.ownerEmail)
+      .all()
+  ]);
+  const savedByIssue = new Map((saved.results || []).map((item) => [item.issue_id, item]));
+  return {
+    ok: true,
+    members,
+    issues: reportIssuesForCollaboration(report).map((finding) =>
+      issueCollaborationResponse(finding, savedByIssue.get(finding.id))
+    ),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function issueCollaborationResponse(finding = {}, row = {}) {
+  return {
+    issueId: finding.id || "",
+    title: finding.title || "",
+    severity: finding.severity || "notice",
+    pageLabel: finding.pageLabel || "",
+    pageUrl: finding.pageUrl || "",
+    proof: finding.evidence || "",
+    fix: finding.fix || "",
+    status: row?.status || "open",
+    assigneeEmail: row?.assignee_email || "",
+    note: row?.note || "",
+    updatedAt: row?.updated_at || "",
+    updatedByEmail: row?.updated_by_email || ""
+  };
+}
+
+async function saveIssueCollaborations(env, access, reportId, report, items = []) {
+  if (!Array.isArray(items)) return { ok: false, error: "Send collaboration items as a list." };
+  const issues = reportIssuesForCollaboration(report);
+  const issueIds = new Set(issues.map((issue) => issue.id));
+  const members = await teamMembersForOwner(env, access.ownerEmail);
+  const assignees = new Set(members.map((member) => member.email));
+  const now = new Date().toISOString();
+
+  for (const item of items.slice(0, 50)) {
+    const issueId = cleanText(item?.issueId || item?.issue_id || "", 160);
+    if (!issueIds.has(issueId)) return { ok: false, error: "Issue no longer exists in this report." };
+    const assigneeEmail = normalizeEmail(item?.assigneeEmail || item?.assignee_email || "");
+    if (assigneeEmail && !assignees.has(assigneeEmail)) {
+      return { ok: false, error: "Assign the issue to an active teammate." };
+    }
+    const existing = await env.WAITLIST_DB.prepare(
+      `SELECT id, created_at
+       FROM issue_collaboration
+       WHERE report_id = ?
+         AND issue_id = ?
+       LIMIT 1`
+    )
+      .bind(reportId, issueId)
+      .first();
+    const row = {
+      id: existing?.id || crypto.randomUUID(),
+      report_id: reportId,
+      owner_email: access.ownerEmail,
+      issue_id: issueId,
+      assignee_email: assigneeEmail,
+      status: cleanIssueStatus(item?.status),
+      note: cleanText(item?.note || "", 1200),
+      created_at: existing?.created_at || now,
+      updated_at: now,
+      updated_by_email: access.ownerEmail
+    };
+    await env.WAITLIST_DB.prepare(
+      `INSERT INTO issue_collaboration
+        (id, report_id, owner_email, issue_id, assignee_email, status, note, created_at, updated_at, updated_by_email)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(report_id, issue_id) DO UPDATE SET
+         assignee_email = excluded.assignee_email,
+         status = excluded.status,
+         note = excluded.note,
+         updated_at = excluded.updated_at,
+         updated_by_email = excluded.updated_by_email`
+    )
+      .bind(
+        row.id,
+        row.report_id,
+        row.owner_email,
+        row.issue_id,
+        row.assignee_email || null,
+        row.status,
+        row.note || null,
+        row.created_at,
+        row.updated_at,
+        row.updated_by_email
+      )
+      .run();
+  }
+  return { ok: true };
+}
+
+function reportIssuesForCollaboration(report = {}) {
+  return (report.findings || [])
+    .filter((finding) => finding?.id && finding.severity !== "good")
+    .slice(0, 50);
+}
+
+function reportIdFromSuffixPath(pathname, suffix) {
+  return decodeURIComponent(pathname.slice("/api/reports/".length, -suffix.length));
+}
+
+function cleanTeamRole(value) {
+  const role = String(value || "").trim().toLowerCase();
+  return ["admin", "editor", "viewer"].includes(role) ? role : "editor";
+}
+
+function cleanIssueStatus(value) {
+  const status = String(value || "").trim().toLowerCase();
+  return ["open", "in_progress", "fixed", "ignored"].includes(status) ? status : "open";
+}
+
+async function reportBrandingForOwner(env, ownerEmail) {
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM report_branding
+     WHERE owner_email = ?
+     LIMIT 1`
+  )
+    .bind(ownerEmail)
+    .first();
+  return normalizeBrandingInput(reportBrandingFromRow(row), defaultBranding(ownerEmail));
+}
+
+async function listReportDomains(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Report domain storage is not configured." }, 503);
+  const rows = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM report_domains
+     WHERE owner_email = ?
+       AND revoked_at IS NULL
+     ORDER BY updated_at DESC
+     LIMIT 20`
+  )
+    .bind(access.ownerEmail)
+    .all();
+  return jsonNoStore({
+    ok: true,
+    domains: (rows.results || []).map((row) => reportDomainResponse(row, env))
+  });
+}
+
+async function createReportDomain(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Report domain storage is not configured." }, 503);
+  if (!reportDomainsEnabled(env)) return jsonNoStore({ error: "Report custom domains are not configured yet." }, 503);
+  const body = await request.json().catch(() => ({}));
+  const domainName = cleanReportDomain(body.domain || body.customDomain || "");
+  if (!domainName) return jsonNoStore({ error: "Enter a valid report subdomain, like reports.example.com." }, 400);
+  if (workerAppHost(domainName, env)) {
+    return jsonNoStore({ error: "Use a customer-controlled report subdomain, not an app-owned hostname." }, 400);
+  }
+
+  const existing = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM report_domains
+     WHERE domain = ?
+       AND revoked_at IS NULL
+     LIMIT 1`
+  )
+    .bind(domainName)
+    .first();
+  if (existing?.id && existing.owner_email !== access.ownerEmail) {
+    return jsonNoStore({ error: "That report domain is already connected to another workspace." }, 409);
+  }
+  if (existing?.id) return jsonNoStore({ ok: true, domain: reportDomainResponse(existing, env) });
+
+  const now = new Date().toISOString();
+  const row = {
+    id: crypto.randomUUID(),
+    owner_email: access.ownerEmail,
+    domain: domainName,
+    verification_token: `sfk-report-domain=${randomHex(24)}`,
+    status: "pending",
+    created_at: now,
+    updated_at: now,
+    verified_at: "",
+    last_checked_at: "",
+    last_error: "",
+    revoked_at: ""
+  };
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO report_domains
+      (id, owner_email, domain, verification_token, status, created_at, updated_at, verified_at, last_checked_at, last_error, revoked_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(row.id, row.owner_email, row.domain, row.verification_token, row.status, row.created_at, row.updated_at, null, null, null, null)
+    .run();
+  return jsonNoStore({ ok: true, domain: reportDomainResponse(row, env) }, 201);
+}
+
+async function verifyReportDomain(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Report domain storage is not configured." }, 503);
+  if (!reportDomainsEnabled(env)) return jsonNoStore({ error: "Report custom domains are not configured yet." }, 503);
+  const url = new URL(request.url);
+  const id = decodeURIComponent(url.pathname.slice("/api/report-domains/".length, -"/verify".length));
+  if (!isSafeUuid(id)) return json({ error: "Report domain not found." }, 404);
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM report_domains
+     WHERE id = ?
+       AND owner_email = ?
+       AND revoked_at IS NULL
+     LIMIT 1`
+  )
+    .bind(id, access.ownerEmail)
+    .first();
+  if (!row?.id) return json({ error: "Report domain not found." }, 404);
+  if (workerAppHost(row.domain, env)) {
+    return jsonNoStore({ error: "Use a customer-controlled report subdomain, not an app-owned hostname." }, 400);
+  }
+
+  const result = await verifyReportDomainChallenge(row, env);
+  const now = new Date().toISOString();
+  if (!result.ok) {
+    await env.WAITLIST_DB.prepare(
+      `UPDATE report_domains
+       SET last_checked_at = ?, last_error = ?, updated_at = ?
+       WHERE id = ?`
+    )
+      .bind(now, result.error, now, id)
+      .run();
+    return jsonNoStore({
+      ok: false,
+      error: result.error,
+      domain: reportDomainResponse({ ...row, last_checked_at: now, last_error: result.error, updated_at: now }, env)
+    }, 400);
+  }
+
+  await env.WAITLIST_DB.prepare(
+    `UPDATE report_domains
+     SET status = 'verified', verified_at = COALESCE(verified_at, ?), last_checked_at = ?, last_error = NULL, updated_at = ?
+     WHERE id = ?`
+  )
+    .bind(now, now, now, id)
+    .run();
+  return jsonNoStore({
+    ok: true,
+    verified: true,
+    domain: reportDomainResponse({ ...row, status: "verified", verified_at: row.verified_at || now, last_checked_at: now, last_error: "", updated_at: now }, env)
+  });
+}
+
+async function revokeReportDomain(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Report domain storage is not configured." }, 503);
+  const id = decodeURIComponent(new URL(request.url).pathname.slice("/api/report-domains/".length));
+  if (!isSafeUuid(id)) return json({ error: "Report domain not found." }, 404);
+  const now = new Date().toISOString();
+  const updated = await env.WAITLIST_DB.prepare(
+    `UPDATE report_domains
+     SET status = 'revoked', revoked_at = ?, updated_at = ?
+     WHERE id = ?
+       AND owner_email = ?
+       AND revoked_at IS NULL`
+  )
+    .bind(now, now, id, access.ownerEmail)
+    .run();
+  if (Number(updated?.meta?.changes || 0) !== 1) return json({ error: "Report domain not found." }, 404);
+  return jsonNoStore({ ok: true, id, status: "revoked" });
+}
+
+async function getReportDomainChallenge(request, env) {
+  if (!env.WAITLIST_DB) return new Response("Report domain storage is not configured.", { status: 503 });
+  const domain = await reportDomainForHost(env, new URL(request.url).host);
+  if (!domain?.id) {
+    return new Response("Report domain challenge not found.", {
+      status: 404,
+      headers: secureHeaders({ "cache-control": "no-store", "content-type": "text/plain; charset=utf-8" })
+    });
+  }
+  return new Response(domain.verification_token || "", {
+    headers: secureHeaders({ "cache-control": "no-store", "content-type": "text/plain; charset=utf-8" })
+  });
+}
+
+function reportDomainResponse(row = {}, env = {}) {
+  const dnsName = reportDomainDnsName(row.domain || "");
+  const cnameTarget = cleanReportDomain(env.SEOFIXKIT_REPORT_DOMAIN_CNAME_TARGET || "") || "";
+  return {
+    id: row.id || "",
+    domain: row.domain || "",
+    status: row.status || "pending",
+    verificationToken: row.verification_token || "",
+    verificationMethod: "dns_txt",
+    verificationPath: "",
+    verificationUrl: "",
+    dnsName,
+    dnsType: "TXT",
+    dnsValue: row.verification_token || "",
+    cnameTarget,
+    shareOrigin: row.status === "verified" && row.domain ? `https://${row.domain}` : "",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+    verifiedAt: row.verified_at || "",
+    lastCheckedAt: row.last_checked_at || "",
+    lastError: row.last_error || ""
+  };
+}
+
+function reportDomainsEnabled(env = {}) {
+  return Boolean(cleanReportDomain(env.SEOFIXKIT_REPORT_DOMAIN_CNAME_TARGET || ""));
+}
+
+async function verifyReportDomainChallenge(row = {}, env = {}) {
+  const ownership = await verifyReportDomainTxt(row.domain || "", row.verification_token || "");
+  if (!ownership.ok) return ownership;
+  return verifyReportDomainCname(row.domain || "", env.SEOFIXKIT_REPORT_DOMAIN_CNAME_TARGET || "");
+}
+
+async function verifyReportDomainTxt(domain = "", token = "") {
+  const expected = token || "";
+  const dnsName = reportDomainDnsName(domain);
+  if (!expected || !dnsName) return { ok: false, error: "Report domain verification is not configured." };
+  try {
+    const response = await fetch(
+      `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(dnsName)}&type=TXT`,
+      { headers: { accept: "application/dns-json" } }
+    );
+    if (!response.ok) return { ok: false, error: "DNS verification lookup failed." };
+    const payload = await response.json().catch(() => ({}));
+    const answers = Array.isArray(payload.Answer) ? payload.Answer : [];
+    const matched = answers.some((answer) => normalizeDnsTxt(answer.data).includes(expected));
+    return matched ? { ok: true } : { ok: false, error: "DNS TXT record was not found yet." };
+  } catch {
+    return { ok: false, error: "DNS verification lookup failed." };
+  }
+}
+
+async function verifyReportDomainCname(domain = "", cnameTarget = "") {
+  const domainName = cleanReportDomain(domain);
+  const expected = cleanReportDomain(cnameTarget);
+  if (!domainName || !expected) return { ok: false, error: "Report domain routing is not configured." };
+  try {
+    const response = await fetch(
+      `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(domainName)}&type=CNAME`,
+      { headers: { accept: "application/dns-json" } }
+    );
+    if (!response.ok) return { ok: false, error: "CNAME verification lookup failed." };
+    const payload = await response.json().catch(() => ({}));
+    const answers = Array.isArray(payload.Answer) ? payload.Answer : [];
+    const matched = answers.some((answer) => normalizeDnsHost(answer.data) === expected);
+    return matched ? { ok: true } : { ok: false, error: "CNAME target was not found yet." };
+  } catch {
+    return { ok: false, error: "CNAME verification lookup failed." };
+  }
+}
+
+function reportDomainDnsName(domain = "") {
+  const clean = cleanReportDomain(domain);
+  return clean ? `_seofixkit-report-domain.${clean}` : "";
+}
+
+async function reportDomainForHost(env, hostValue, { verifiedOnly = false } = {}) {
+  const host = cleanReportDomain(hostValue);
+  if (!host) return null;
+  const statusClause = verifiedOnly ? "status = 'verified'" : "status IN ('pending', 'verified')";
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM report_domains
+     WHERE domain = ?
+       AND ${statusClause}
+       AND revoked_at IS NULL
+     LIMIT 1`
+  )
+    .bind(host)
+    .first();
+  return row?.id ? row : null;
+}
+
+async function primaryVerifiedReportDomain(env, ownerEmail) {
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM report_domains
+     WHERE owner_email = ?
+       AND status = 'verified'
+       AND revoked_at IS NULL
+     ORDER BY verified_at DESC, updated_at DESC
+     LIMIT 1`
+  )
+    .bind(ownerEmail)
+    .first();
+  return row?.id ? row : null;
+}
+
+async function clientReportHostAccess(env, request, share) {
+  const host = cleanReportDomain(new URL(request.url).host);
+  if (!host || workerAppHost(host, env)) return { ok: true };
+  const domain = await reportDomainForHost(env, host, { verifiedOnly: true });
+  if (!domain) return { ok: false, error: "Report domain not verified." };
+  if (share && domain.owner_email !== share.owner_email) return { ok: false, error: "Report link not found on this domain." };
+  return { ok: true, domain };
+}
+
+function reportBrandingFromRow(row = {}) {
+  return {
+    agencyName: row?.agency_name || "",
+    logoUrl: row?.logo_url || "",
+    brandColor: row?.brand_color || "",
+    accentColor: row?.accent_color || "",
+    customDomain: row?.custom_domain || "",
+    footerText: row?.footer_text || ""
+  };
+}
+
+async function ownerReportRow(env, reportId, access) {
+  if (!isSafeReportId(reportId)) return null;
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT report_json, owner_email, owner_invite_id, expires_at, url
+     FROM audit_reports
+     WHERE id = ?
+     LIMIT 1`
+  )
+    .bind(reportId)
+    .first();
+  if (!row?.report_json) return null;
+  if (row.expires_at && row.expires_at <= new Date().toISOString()) return null;
+  if (row.owner_email && row.owner_email !== access.ownerEmail) return null;
+  if (
+    row.owner_invite_id &&
+    access.accessMode !== "founder-override" &&
+    row.owner_invite_id !== access.inviteId
+  ) {
+    return null;
+  }
+  return row;
+}
+
+function reportShareResponse(row = {}, origin = "", customDomain = null, env = {}) {
+  const shareOrigin = customDomain?.domain ? `https://${customDomain.domain}` : origin;
+  return {
+    id: row.id || "",
+    reportId: row.report_id || "",
+    clientName: row.client_name || "",
+    status: row.status || "active",
+    passwordProtected: Boolean(row.password_hash),
+    passwordHint: row.password_hint || "",
+    sharePath: row.id ? `/r/${row.id}` : "",
+    shareUrl: row.id ? `${shareOrigin}/r/${row.id}` : "",
+    pdfPath: row.id ? `/r/${row.id}.pdf` : "",
+    pdfUrl: row.id ? `${shareOrigin}/r/${row.id}.pdf` : "",
+    customDomain: customDomain ? reportDomainResponse(customDomain, env) : null,
+    expiresAt: row.expires_at || "",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+    lastViewedAt: row.last_viewed_at || ""
+  };
+}
+
+function shareToCamel(row = {}) {
+  return {
+    id: row.id || "",
+    reportId: row.report_id || "",
+    ownerEmail: row.owner_email || "",
+    clientName: row.client_name || "",
+    status: row.status || "active",
+    passwordHint: row.password_hint || "",
+    expiresAt: row.expires_at || "",
+    createdAt: row.created_at || "",
+    updatedAt: row.updated_at || "",
+    lastViewedAt: row.last_viewed_at || ""
+  };
+}
+
+async function activeReportShare(env, id) {
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM report_share_links
+     WHERE id = ?
+     LIMIT 1`
+  )
+    .bind(id)
+    .first();
+  if (!row?.id || row.status !== "active") return null;
+  if (row.expires_at && row.expires_at <= new Date().toISOString()) {
+    await env.WAITLIST_DB.prepare(
+      `UPDATE report_share_links SET status = 'expired', updated_at = ? WHERE id = ?`
+    )
+      .bind(new Date().toISOString(), row.id)
+      .run();
+    return null;
+  }
+  return row;
+}
+
+function clientReportShareId(pathname, suffix = "") {
+  const relative = pathname.slice("/r/".length);
+  const id = suffix && relative.endsWith(suffix) ? relative.slice(0, -suffix.length) : relative;
+  return decodeURIComponent(id || "");
+}
+
+function clientReportLockedResponse(request, branding, share, status = 401, error = "", report = {}) {
+  const url = new URL(request.url);
+  return new Response(
+    buildWhiteLabelReportHtml({
+      report,
+      branding,
+      share,
+      origin: url.origin,
+      locked: true,
+      error
+    }),
+    {
+      status,
+      headers: secureHeaders({
+        "cache-control": "no-store",
+        "content-type": "text/html; charset=utf-8",
+        "x-robots-tag": "noindex, nofollow"
+      })
+    }
+  );
+}
+
+async function renderWorkerWhiteLabelPdf(env, { report, branding, share, origin }) {
+  if (!env.BROWSER) {
+    return jsonNoStore({ error: "PDF export requires the Browser Run binding." }, 503);
+  }
+  const html = buildWhiteLabelReportHtml({ report, branding, share, origin });
+  let browser = null;
+  try {
+    browser = await puppeteer.launch(env.BROWSER);
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: "networkidle0" });
+    const pdf = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      preferCSSPageSize: true,
+      margin: {
+        top: "24px",
+        right: "24px",
+        bottom: "28px",
+        left: "24px"
+      }
+    });
+    const headers = secureHeaders();
+    headers.set("cache-control", "no-store");
+    headers.set("content-disposition", `attachment; filename="${whiteLabelReportFilename({ report, branding, share })}"`);
+    headers.set("content-type", "application/pdf");
+    headers.set("x-robots-tag", "noindex, nofollow");
+    return new Response(pdf, { headers });
+  } catch (error) {
+    return jsonNoStore({ error: error?.message || "PDF export failed." }, 500);
+  } finally {
+    await browser?.close?.().catch(() => {});
+  }
+}
+
+function clientReportCookieName(share) {
+  return `sfk_report_${String(share.id || "").replace(/[^a-z0-9]/gi, "").slice(0, 36)}`;
+}
+
+async function clientReportCookieValue(share) {
+  return sha256Hex(`${share.id}:${share.password_hash || ""}:client-report`);
+}
+
+async function clientReportCookie(request, share) {
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  return `${clientReportCookieName(share)}=${encodeURIComponent(await clientReportCookieValue(share))}; Path=/r; HttpOnly; SameSite=Strict; Max-Age=${60 * 60 * 24 * 30}${secure}`;
+}
+
+async function clientReportUnlocked(request, share) {
+  const value = cookieValue(request, clientReportCookieName(share));
+  return Boolean(value) && constantTimeEqual(value, await clientReportCookieValue(share));
+}
+
+async function passwordFromRequest(request) {
+  const contentType = request.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    const body = await request.json().catch(() => ({}));
+    return String(body.password || "");
+  }
+  if (contentType.includes("form")) {
+    const form = await request.formData().catch(() => null);
+    return String(form?.get("password") || "");
+  }
+  const text = await request.text().catch(() => "");
+  return String(new URLSearchParams(text).get("password") || "");
+}
+
+async function clientReportUnlockQuotaStatus(request, env, share = {}) {
+  if (!env.WAITLIST_DB) return { ok: true };
+  const hour = hourWindow(new Date());
+  const ipHash = await requestIpHash(request);
+  const shareKey = String(share.id || "").replace(/[^a-f0-9-]/gi, "").slice(0, 40);
+  return checkQuotaSet(env, [
+    {
+      bucket: `client-report-unlock:ip:${hour.key}:${shareKey}:${ipHash}`,
+      limit: 10,
+      windowStart: hour.key,
+      resetAt: hour.resetAt,
+      error: "Too many password attempts for this report link. Try again later."
+    },
+    {
+      bucket: `client-report-unlock:share:${hour.key}:${shareKey}`,
+      limit: 50,
+      windowStart: hour.key,
+      resetAt: hour.resetAt,
+      error: "Too many password attempts for this report link. Try again later."
+    }
+  ]);
+}
+
+async function hashReportSharePassword(password = "") {
+  const salt = randomHex(16);
+  const hash = await deriveReportSharePasswordHash(password, salt, REPORT_SHARE_PASSWORD_PBKDF2_ITERATIONS);
+  return `pbkdf2$sha256$${REPORT_SHARE_PASSWORD_PBKDF2_ITERATIONS}$${salt}$${hash}`;
+}
+
+async function verifyReportSharePassword(password = "", storedHash = "") {
+  const stored = String(storedHash || "");
+  if (stored.startsWith("pbkdf2$")) {
+    const [, algorithm, iterations, salt, expected] = stored.split("$");
+    const iterationCount = Number(iterations || 0);
+    if (algorithm !== "sha256" || !iterationCount || !salt || !expected) return false;
+    const actual = await deriveReportSharePasswordHash(password, salt, iterationCount);
+    return constantTimeEqual(actual, expected);
+  }
+  return constantTimeEqual(await sha256Hex(password), stored);
+}
+
+async function deriveReportSharePasswordHash(password = "", saltHex = "", iterations = REPORT_SHARE_PASSWORD_PBKDF2_ITERATIONS) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(String(password || "")),
+    "PBKDF2",
+    false,
+    ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      hash: "SHA-256",
+      salt: hexToBytes(saltHex),
+      iterations
+    },
+    key,
+    256
+  );
+  return bytesToHex(new Uint8Array(bits));
+}
+
+function hexToBytes(hex = "") {
+  const clean = String(hex || "").replace(/[^a-f0-9]/gi, "");
+  const bytes = new Uint8Array(Math.floor(clean.length / 2));
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(clean.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function bytesToHex(bytes = new Uint8Array()) {
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function apiProjectResponse(row = {}) {
+  return {
+    id: row.id || "",
+    host: row.host || "",
+    status: row.status || "pending",
+    verification_method: row.verification_method || "",
+    verified_at: row.verified_at || "",
+    created_at: row.created_at || "",
+    updated_at: row.updated_at || "",
+    verification: siteClaimInstructions(row)
+  };
+}
+
+function apiAuditResponse(row = {}) {
+  const reportId = row.report_id || "";
+  return {
+    audit_id: row.id || "",
+    status: apiAuditStatus(row.status),
+    url: row.target_url || "",
+    target_host: row.target_host || safeHostname(row.target_url || ""),
+    competitor_urls: parseJson(row.competitor_urls_json, []),
+    backlink_rows_count: parseJson(row.backlink_rows_json, []).length,
+    local_seo_input: localSeoInputSummary(parseJson(row.local_seo_input_json, { enabled: false })),
+    keyword_rows_input: keywordRowsSummary(parseJson(row.keyword_rows_json, [])),
+    rendered_crawl_target: renderedCrawlTargetSummary(row.rendered_crawl_target || 0),
+    max_pages: Number(row.max_pages || 10),
+    crawl_depth: crawlDepthSummary(row.max_pages || 10),
+    report_id: reportId,
+    report_url: reportId ? `/v1/audits/${row.id}/report` : "",
+    issues_url: reportId ? `/v1/audits/${row.id}/issues` : "",
+    error: row.error || "",
+    created_at: row.created_at || "",
+    updated_at: row.updated_at || "",
+    started_at: row.started_at || "",
+    completed_at: row.completed_at || ""
+  };
+}
+
+function apiAuditStatus(status = "") {
+  if (status === "completed") return "complete";
+  return status || "queued";
+}
+
+function apiIssueResponse(finding = {}) {
+  return {
+    id: finding.id || "",
+    severity: finding.severity || "notice",
+    title: finding.title || "",
+    page_url: finding.pageUrl || "",
+    page_label: finding.pageLabel || "",
+    evidence: finding.evidence || "",
+    why: finding.why || "",
+    fix: finding.fix || "",
+    acceptance: finding.acceptance || "",
+    confidence: finding.confidence || "verified",
+    source: finding.source || ""
+  };
+}
+
+function apiReportResponse(report = {}) {
+  return {
+    id: report.id || "",
+    url: report.url || "",
+    score: report.score || 0,
+    summary: report.summary || {},
+    crawl_depth: report.crawlDepth || crawlDepthSummary(report.summary?.maxPages || 10),
+    crawl_inventory: report.crawlInventory || null,
+    rendered_crawl_scale: report.renderedCrawlScale || null,
+    crawl_intelligence: report.crawlIntelligence || null,
+    report_delta: report.reportDelta || null,
+    performance: report.performance || null,
+    resource_waterfall: report.resourceWaterfall || report.pages?.[0]?.resourceWaterfall || null,
+    competitor_benchmark: report.competitorBenchmark || null,
+    backlink_audit: report.backlinkAudit || null,
+    local_seo_audit: report.localSeoAudit || null,
+    keyword_rank_audit: report.keywordRankAudit || null,
+    platform_seo_audit: report.platformSeoAudit || null,
+    findings: (report.findings || []).map(apiIssueResponse),
+    repair_plan: report.repairPlan || [],
+    repair_brief: report.repairBrief || "",
+    pages: report.pages || [],
+    report_path: report.reportPath || "",
+    report_url: report.reportUrl || "",
+    created_at: report.scannedAt || report.createdAt || "",
+    expires_at: report.retention?.expiresAt || ""
+  };
+}
+
+function apiAuditIdFromPath(rawUrl, prefix, suffix = "") {
+  const pathname = new URL(rawUrl).pathname;
+  const withoutPrefix = pathname.slice(prefix.length);
+  const value = suffix && withoutPrefix.endsWith(suffix)
+    ? withoutPrefix.slice(0, -suffix.length)
+    : withoutPrefix;
+  return decodeURIComponent(value.replace(/^\/|\/$/g, ""));
+}
+
+async function resolveApiAuditReport(env, access, id) {
+  let job = null;
+  let reportId = id;
+  if (isSafeUuid(id)) {
+    job = await env.WAITLIST_DB.prepare(
+      `SELECT *
+       FROM audit_jobs
+       WHERE id = ?
+         AND owner_email = ?
+       LIMIT 1`
+    )
+      .bind(id, access.ownerEmail)
+      .first();
+    if (job?.id) reportId = job.report_id || "";
+  }
+  if (!reportId) {
+    if (job?.status === "failed") return { ok: false, status: 409, error: job.error || "Audit failed." };
+    return { ok: false, status: 409, error: "Audit is still running." };
+  }
+  if (!isSafeReportId(reportId)) return { ok: false, status: 404, error: "Report not found." };
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT report_json, owner_email, expires_at
+     FROM audit_reports
+     WHERE id = ?
+       AND owner_email = ?
+     LIMIT 1`
+  )
+    .bind(reportId, access.ownerEmail)
+    .first();
+  if (!row?.report_json) {
+    if (job?.status === "queued" || job?.status === "running") return { ok: false, status: 409, error: "Audit is still running." };
+    return { ok: false, status: 404, error: "Report not found." };
+  }
+  if (row.expires_at && row.expires_at <= new Date().toISOString()) {
+    await env.WAITLIST_DB.prepare(`DELETE FROM audit_reports WHERE id = ?`).bind(reportId).run();
+    return { ok: false, status: 404, error: "Report expired." };
+  }
+  return { ok: true, job, report: parseJson(row.report_json, {}) };
 }
 
 async function requestFixPack(request, env) {
@@ -1606,7 +5268,7 @@ async function getAccountSummary(request, env) {
   if (!access.ok) return betaAccessResponse(access);
   if (!env.WAITLIST_DB) return json({ error: "Account storage is not configured." }, 503);
 
-  const [reports, fixRequests, auditJobs, siteClaims] = await Promise.all([
+  const [reports, fixRequests, auditJobs, siteClaims, auditSchedules] = await Promise.all([
     env.WAITLIST_DB.prepare(
       `SELECT id, url, target_host, score, summary_json, created_at, expires_at
        FROM audit_reports
@@ -1646,6 +5308,16 @@ async function getAccountSummary(request, env) {
        LIMIT 20`
     )
       .bind(access.ownerEmail)
+      .all(),
+    env.WAITLIST_DB.prepare(
+      `SELECT *
+       FROM audit_schedules
+       WHERE owner_email = ?
+         AND status = 'active'
+       ORDER BY updated_at DESC
+       LIMIT 20`
+    )
+      .bind(access.ownerEmail)
       .all()
   ]);
 
@@ -1667,6 +5339,7 @@ async function getAccountSummary(request, env) {
   const requests = (fixRequests.results || []).map((row) => billingFixRequestResponse(row));
   const recentAuditJobs = (auditJobs.results || []).map(auditJobResponse);
   const sites = (siteClaims.results || []).map(siteClaimResponse);
+  const schedules = (auditSchedules.results || []).map(auditScheduleResponse);
   const verifiedSites = sites.filter((site) => site.status === "verified").length;
 
   return jsonNoStore({
@@ -1680,11 +5353,13 @@ async function getAccountSummary(request, env) {
       fixRequests: requests.length,
       openFixRequests: requests.filter((request) => !["delivered", "refunded"].includes(request.status)).length,
       runningAudits: recentAuditJobs.filter((job) => ["queued", "running"].includes(job.status)).length,
-      verifiedSites
+      verifiedSites,
+      monitors: schedules.length
     },
     recentReports,
     recentAuditJobs,
     sites,
+    schedules,
     fixRequests: requests,
     nextActions: accountNextActions(recentReports, requests, sites, recentAuditJobs)
   });
@@ -1902,6 +5577,115 @@ function siteVerificationText(token) {
   return `seofixkit-site-verification=${token}`;
 }
 
+function cleanWebhookEvents(events = []) {
+  const allowed = new Set(["audit.completed", "audit.failed", "large_crawl.created", "large_crawl.ready_to_merge"]);
+  const values = Array.isArray(events) ? events : [];
+  const cleaned = values.filter((event) => allowed.has(String(event)));
+  return cleaned.length ? [...new Set(cleaned)] : ["audit.completed", "audit.failed"];
+}
+
+async function apiWebhookSigningSecret(env, webhookId) {
+  const seed = String(env.SEOFIXKIT_API_WEBHOOK_SECRET || env.ADMIN_EXPORT_TOKEN || "local-seofixkit-webhooks");
+  const digest = await hmacSha256Hex(seed, webhookId);
+  return `whsec_${digest.slice(0, 32)}`;
+}
+
+async function apiWebhookSignature(env, webhookId, timestamp, body) {
+  const secret = await apiWebhookSigningSecret(env, webhookId);
+  return hmacSha256Hex(secret, `${timestamp}.${body}`);
+}
+
+async function deliverApiWebhooks(env, ownerEmail, eventType, data = {}) {
+  if (!env.WAITLIST_DB) return;
+  const rows = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM api_webhooks
+     WHERE owner_email = ?
+       AND status = 'active'
+       AND revoked_at IS NULL
+     ORDER BY created_at ASC
+     LIMIT 20`
+  )
+    .bind(ownerEmail)
+    .all();
+  const webhooks = (rows.results || []).filter((row) => parseJson(row.events_json, []).includes(eventType));
+  for (const webhook of webhooks) {
+    const now = new Date().toISOString();
+    const payload = {
+      id: crypto.randomUUID(),
+      event: eventType,
+      created_at: now,
+      data
+    };
+    const body = JSON.stringify(payload);
+    const eventId = payload.id;
+    await env.WAITLIST_DB.prepare(
+      `INSERT INTO api_webhook_events
+        (id, webhook_id, owner_email, event_type, audit_job_id, report_id, status, http_status, error, payload_json, created_at, delivered_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+      .bind(
+        eventId,
+        webhook.id,
+        ownerEmail,
+        eventType,
+        data.audit?.audit_id || null,
+        data.audit?.report_id || data.report?.id || null,
+        "pending",
+        null,
+        null,
+        body,
+        now,
+        null
+      )
+      .run();
+    try {
+      const timestamp = String(Math.floor(Date.now() / 1000));
+      const response = await fetch(webhook.url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "user-agent": "SEO Fix Kit Webhooks",
+          "x-seofixkit-event": eventType,
+          "x-seofixkit-signature": `t=${timestamp},v1=${await apiWebhookSignature(env, webhook.id, timestamp, body)}`
+        },
+        body,
+        redirect: "manual"
+      });
+      const deliveredAt = new Date().toISOString();
+      const status = response.ok ? "delivered" : "failed";
+      const error = response.ok ? "" : `HTTP ${response.status}`;
+      await env.WAITLIST_DB.batch([
+        env.WAITLIST_DB.prepare(
+          `UPDATE api_webhook_events
+           SET status = ?, http_status = ?, error = ?, delivered_at = ?
+           WHERE id = ?`
+        ).bind(status, response.status, error || null, deliveredAt, eventId),
+        env.WAITLIST_DB.prepare(
+          `UPDATE api_webhooks
+           SET last_delivery_at = ?, last_delivery_status = ?, last_error = ?, updated_at = ?
+           WHERE id = ?`
+        ).bind(deliveredAt, status, error || null, deliveredAt, webhook.id)
+      ]);
+    } catch (error) {
+      const deliveredAt = new Date().toISOString();
+      const message = cleanText(error?.message || "Webhook delivery failed.", 500);
+      await env.WAITLIST_DB.batch([
+        env.WAITLIST_DB.prepare(
+          `UPDATE api_webhook_events
+           SET status = 'failed', error = ?, delivered_at = ?
+           WHERE id = ?`
+        ).bind(message, deliveredAt, eventId),
+        env.WAITLIST_DB.prepare(
+          `UPDATE api_webhooks
+           SET last_delivery_at = ?, last_delivery_status = 'failed', last_error = ?, updated_at = ?
+           WHERE id = ?`
+        ).bind(deliveredAt, message, deliveredAt, webhook.id)
+      ]);
+    }
+  }
+}
+
 async function verifySiteClaimDns(host, token) {
   const expected = siteVerificationText(token);
   const dnsName = `_seofixkit.${host}`;
@@ -1965,6 +5749,10 @@ function normalizeDnsTxt(value) {
     .replaceAll('" "', "")
     .replaceAll('"', "")
     .trim();
+}
+
+function normalizeDnsHost(value) {
+  return cleanReportDomain(String(value || "").replace(/\.$/, ""));
 }
 
 async function billingPricingState(request, env, access, config) {
@@ -3179,11 +6967,15 @@ async function saveAuditReportWithContext(report, env, access, origin) {
   const now = new Date().toISOString();
   const expiresAt = isoDaysFromNow(REPORT_RETENTION_DAYS);
   const targetHost = new URL(report.url).hostname.toLowerCase();
+  const previousReport = await latestSavedReportForDelta(env, access, targetHost, now);
+  const reportDelta = buildReportDelta(report, previousReport);
   const saved = {
     ...report,
     id,
     reportPath: `/beta/reports/${id}`,
     reportUrl: `${origin}/beta/reports/${id}`,
+    reportDelta,
+    repairBrief: appendReportDeltaBrief(report.repairBrief || "", reportDelta),
     owner: {
       email: access.ownerEmail,
       inviteId: access.inviteId || null,
@@ -3194,6 +6986,7 @@ async function saveAuditReportWithContext(report, env, access, origin) {
       days: REPORT_RETENTION_DAYS
     }
   };
+  const storageReport = compactAuditReportForStorage(saved);
 
   await env.WAITLIST_DB.prepare(
     `INSERT INTO audit_reports
@@ -3206,7 +6999,7 @@ async function saveAuditReportWithContext(report, env, access, origin) {
       saved.origin,
       saved.score,
       JSON.stringify(saved.summary || {}),
-      JSON.stringify(saved),
+      JSON.stringify(storageReport),
       now,
       now,
       access.ownerEmail,
@@ -3217,7 +7010,106 @@ async function saveAuditReportWithContext(report, env, access, origin) {
     )
     .run();
 
-  return saved;
+  return storageReport;
+}
+
+function compactAuditReportForStorage(report = {}) {
+  return {
+    ...report,
+    pages: Array.isArray(report.pages) ? report.pages.slice(0, 1000).map(compactAuditPageForStorage) : [],
+    pageSummaries: Array.isArray(report.pageSummaries) ? report.pageSummaries.slice(0, 1000) : [],
+    resourceWaterfall: compactResourceWaterfallForStorage(report.resourceWaterfall)
+  };
+}
+
+function compactAuditPageForStorage(page = {}) {
+  return {
+    ...page,
+    static: compactRenderedFactsForStorage(page.static),
+    rendered: compactRenderedFactsForStorage(page.rendered),
+    linkChecks: compactResourceChecksForStorage(page.linkChecks, 60),
+    imageChecks: compactResourceChecksForStorage(page.imageChecks, 60),
+    resourceWaterfall: compactResourceWaterfallForStorage(page.resourceWaterfall)
+  };
+}
+
+function compactRenderedFactsForStorage(facts = {}) {
+  if (!facts || typeof facts !== "object") return facts;
+  const compact = { ...facts };
+  if (compact.bodyText && !compact.bodySample) compact.bodySample = cleanText(compact.bodyText, 280);
+  delete compact.bodyText;
+  delete compact.resourceTimings;
+  if (compact.bodySample) compact.bodySample = cleanText(compact.bodySample, 280);
+  compact.links = compactListForStorage(compact.links, 80);
+  compact.images = compactListForStorage(compact.images, 80);
+  compact.internalLinks = compactListForStorage(compact.internalLinks, 120);
+  compact.externalLinks = compactListForStorage(compact.externalLinks, 60);
+  compact.headings = compactListForStorage(compact.headings, 80);
+  compact.h1s = compactListForStorage(compact.h1s, 20);
+  compact.hreflangs = compactListForStorage(compact.hreflangs, 80);
+  compact.schemaTypes = compactListForStorage(compact.schemaTypes, 40);
+  compact.schemaErrors = compactListForStorage(compact.schemaErrors, 20);
+  return compact;
+}
+
+function compactResourceChecksForStorage(checks = [], limit = 60) {
+  if (!Array.isArray(checks)) return [];
+  return checks.slice(0, limit).map((check) => ({
+    url: check.url || "",
+    finalUrl: check.finalUrl || "",
+    label: cleanText(check.label || "", 220),
+    kind: check.kind || "",
+    ok: Boolean(check.ok),
+    status: Number(check.status || 0),
+    redirected: Boolean(check.redirected),
+    error: cleanText(check.error || "", 300),
+    evidence: cleanText(check.evidence || "", 400)
+  }));
+}
+
+function compactResourceWaterfallForStorage(waterfall = null) {
+  if (!waterfall || typeof waterfall !== "object") return waterfall || null;
+  return {
+    ...waterfall,
+    resources: compactListForStorage(waterfall.resources, 25),
+    slowResources: compactListForStorage(waterfall.slowResources, 10),
+    heavyResources: compactListForStorage(waterfall.heavyResources, 10),
+    renderBlockingCandidates: compactListForStorage(waterfall.renderBlockingCandidates, 10),
+    thirdPartyHosts: compactListForStorage(waterfall.thirdPartyHosts, 10),
+    repairOpportunities: compactListForStorage(waterfall.repairOpportunities, 10)
+  };
+}
+
+function compactListForStorage(items = [], limit = 50) {
+  if (!Array.isArray(items)) return [];
+  return items.slice(0, limit).map(compactValueForStorage);
+}
+
+function compactValueForStorage(value) {
+  if (typeof value === "string") return cleanText(value, 500);
+  if (!value || typeof value !== "object") return value;
+  const compact = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "bodyText" || key === "resourceTimings") continue;
+    compact[key] = typeof item === "string" ? cleanText(item, 500) : item;
+  }
+  return compact;
+}
+
+async function latestSavedReportForDelta(env, access, targetHost, now) {
+  if (!env.WAITLIST_DB || !access.ownerEmail || !targetHost) return null;
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT report_json
+     FROM audit_reports
+     WHERE owner_email = ?
+       AND target_host = ?
+       AND (expires_at IS NULL OR expires_at > ?)
+     ORDER BY created_at DESC
+     LIMIT 1`
+  )
+    .bind(access.ownerEmail, targetHost, now)
+    .first();
+  return parseJson(row?.report_json, null);
 }
 
 async function getSavedReport(request, env) {
@@ -3310,6 +7202,7 @@ async function auditUrl(inputUrl, env, options = {}) {
   const pages = [];
   const queue = [startUrl];
   const visited = new Set();
+  const resourceValidationBudget = { remainingPages: maxPages > 50 ? 10 : maxPages };
 
   try {
     while (queue.length && pages.length < maxPages) {
@@ -3317,7 +7210,7 @@ async function auditUrl(inputUrl, env, options = {}) {
       if (visited.has(nextUrl)) continue;
       visited.add(nextUrl);
 
-      const page = await inspectPage(nextUrl, browser);
+      const page = await inspectPage(nextUrl, browser, { resourceValidationBudget });
       if (!page.isHtml) continue;
       pages.push(page);
       if (pages.length === 1 && page.rendered?.finalUrl) {
@@ -3341,19 +7234,25 @@ async function auditUrl(inputUrl, env, options = {}) {
     await browser.close();
   }
 
+  const performance = await collectPerformanceInsights(startUrl, pages[0], {
+    pageSpeed: options.pageSpeed,
+    pageSpeedApiKey: env.GOOGLE_PAGESPEED_API_KEY || env.PAGESPEED_API_KEY || "",
+    disabled: env.SEOFIXKIT_PAGESPEED_DISABLED === "1"
+  });
+
   const findings = buildFindings({
     pages,
     startUrl,
     robots,
-    sitemap
+    sitemap,
+    performance
   });
   const score = scoreFindings(findings);
   const pageSummaries = buildPageSummaries(pages, findings, startUrl);
   const summary = summarize(findings, pages, maxPages);
-  const repairPlan = buildRepairPlan(findings);
+  let repairPlan = buildRepairPlan(findings);
   const fixPack = buildFixPack(pages[0], origin, findings);
-
-  return {
+  const report = {
     id: `${new URL(startUrl).hostname.replace(/[^a-z0-9]+/gi, "-")}-${startedAt.toString(36)}`,
     url: startUrl,
     origin,
@@ -3361,25 +7260,109 @@ async function auditUrl(inputUrl, env, options = {}) {
     durationMs: Date.now() - startedAt,
     score,
     summary,
+    crawlDepth: crawlDepthSummary(maxPages),
     warnings: [],
     docs: DOCS,
+    performance,
     pages,
     pageSummaries,
     findings,
     repairPlan,
-    repairBrief: buildRepairBrief({
-      startUrl,
-      score,
-      summary,
-      pages,
-      findings,
-      repairPlan
-    }),
+    repairBrief: "",
     fixPack
   };
+
+  report.crawlInventory = await buildCrawlInventory(startUrl, {
+    robots,
+    sitemap,
+    pages,
+    maxUrls: options.crawlInventoryMaxUrls,
+    maxSitemaps: options.crawlInventoryMaxSitemaps,
+    fetcher: fetch
+  });
+
+  const renderedCrawlScale = buildRenderedCrawlScalePlan(report, report.crawlInventory, {
+    renderedCrawlTarget: options.renderedCrawlTarget || options.crawlScaleTarget
+  });
+  if (renderedCrawlScale.status === "ready") {
+    report.renderedCrawlScale = renderedCrawlScale;
+    repairPlan = mergeRepairPlans(repairPlan, renderedCrawlScale.repairOpportunities);
+    report.repairPlan = repairPlan;
+  }
+
+  const crawlIntelligence = buildCrawlIntelligence(report, report.crawlInventory);
+  if (crawlIntelligence.status === "ready") {
+    report.crawlIntelligence = crawlIntelligence;
+    repairPlan = mergeRepairPlans(repairPlan, crawlIntelligence.repairOpportunities);
+    report.repairPlan = repairPlan;
+  }
+
+  const competitorReports = await auditCompetitorUrls(startUrl, env, options);
+  if (competitorReports.reports.length) {
+    report.competitorBenchmark = buildCompetitorBenchmark(report, competitorReports.reports);
+  }
+  if (competitorReports.warnings.length) {
+    report.warnings.push(...competitorReports.warnings);
+  }
+
+  const backlinkAudit = await buildBacklinkAudit(report, options.backlinks || options.backlinkRows || [], {
+    allowPrivate: false,
+    fetcher: fetch
+  });
+  if (backlinkAudit.status === "ready") {
+    report.backlinkAudit = backlinkAudit;
+    repairPlan = mergeRepairPlans(repairPlan, backlinkAudit.repairOpportunities);
+    report.repairPlan = repairPlan;
+  }
+
+  const localSeoAudit = await buildLocalSeoAudit(report, options.localSeo || options.localSeoInput || {}, {
+    allowPrivate: false,
+    fetcher: fetch
+  });
+  if (localSeoAudit.status === "ready") {
+    report.localSeoAudit = localSeoAudit;
+    repairPlan = mergeRepairPlans(repairPlan, localSeoAudit.repairOpportunities);
+    report.repairPlan = repairPlan;
+  }
+
+  const keywordRankAudit = buildKeywordRankAudit(report, options.keywordRows || options.keywordRankRows || [], {
+    allowPrivate: false
+  });
+  if (keywordRankAudit.status === "ready") {
+    report.keywordRankAudit = keywordRankAudit;
+    repairPlan = mergeRepairPlans(repairPlan, keywordRankAudit.repairOpportunities);
+    report.repairPlan = repairPlan;
+  }
+
+  const platformSeoAudit = buildPlatformSeoAudit(report);
+  if (platformSeoAudit.status === "ready") {
+    report.platformSeoAudit = platformSeoAudit;
+    repairPlan = mergeRepairPlans(repairPlan, platformSeoAudit.repairOpportunities);
+    report.repairPlan = repairPlan;
+  }
+
+  report.repairBrief = buildRepairBrief({
+    startUrl,
+    score,
+    summary,
+    pages,
+    findings,
+    repairPlan,
+    performance,
+    competitorBenchmark: report.competitorBenchmark,
+    crawlInventory: report.crawlInventory,
+    renderedCrawlScale: report.renderedCrawlScale,
+    crawlIntelligence: report.crawlIntelligence,
+    backlinkAudit: report.backlinkAudit,
+    localSeoAudit: report.localSeoAudit,
+    keywordRankAudit: report.keywordRankAudit,
+    platformSeoAudit: report.platformSeoAudit
+  });
+
+  return report;
 }
 
-async function inspectPage(url, browser) {
+async function inspectPage(url, browser, options = {}) {
   const staticFetch = await fetchText(url);
   const isHtml = isHtmlResponse(staticFetch, url);
   const finalUrl = staticFetch.url || url;
@@ -3387,6 +7370,13 @@ async function inspectPage(url, browser) {
   const safeToRender = finalUrlCheck.ok;
   const staticFacts = extractStaticFacts(staticFetch.body || "", finalUrl, staticFetch);
   const rendered = isHtml && safeToRender ? await extractRenderedFacts(browser, finalUrl) : staticFacts;
+  const shouldValidateResources = isHtml && consumeResourceValidationBudget(options.resourceValidationBudget);
+  const resources = shouldValidateResources ? await validatePageResources(rendered) : emptyResourceChecks();
+  const resourceWaterfall = buildResourceWaterfall({
+    url,
+    finalUrl,
+    rendered
+  });
 
   return {
     url,
@@ -3396,10 +7386,54 @@ async function inspectPage(url, browser) {
     status: staticFetch.status,
     ok: staticFetch.ok,
     contentType: staticFetch.contentType,
+    headers: staticFetch.headers || {},
+    redirectChain: staticFetch.redirectChain || [],
+    responseTimeMs: staticFetch.responseTimeMs || null,
+    transferSize: staticFetch.contentLength || byteLength(staticFetch.body || ""),
     isHtml,
     static: staticFacts,
-    rendered
+    rendered,
+    linkChecks: resources.links,
+    imageChecks: resources.images,
+    canonicalCheck: resources.canonical,
+    resourceWaterfall
   };
+}
+
+function consumeResourceValidationBudget(budget) {
+  if (!budget) return true;
+  if (Number(budget.remainingPages || 0) <= 0) return false;
+  budget.remainingPages -= 1;
+  return true;
+}
+
+async function auditCompetitorUrls(startUrl, env, options = {}) {
+  if (options.skipCompetitors) return { reports: [], warnings: [] };
+  const urls = normalizeCompetitorUrlsList(options.competitorUrls || options.competitors || [], startUrl);
+  const reports = [];
+  const warnings = [];
+
+  for (const competitorUrl of urls) {
+    try {
+      const report = await auditUrl(competitorUrl, env, {
+        maxPages: Math.min(clampPageLimit(options.competitorMaxPages || 1), 3),
+        pageSpeed: options.competitorPageSpeed === true,
+        skipCompetitors: true,
+        crawlInventoryMaxUrls: 1,
+        crawlInventoryMaxSitemaps: 1,
+        renderedCrawlTarget: 0
+      });
+      reports.push(report);
+    } catch (error) {
+      warnings.push({
+        title: "Competitor benchmark unavailable",
+        body: `Could not benchmark ${competitorUrl}.`,
+        detail: error?.message || "The competitor snapshot failed."
+      });
+    }
+  }
+
+  return { reports, warnings };
 }
 
 async function extractRenderedFacts(browser, url) {
@@ -3444,28 +7478,101 @@ async function extractRenderedFacts(browser, url) {
           alt: alt || "",
           hasAlt: node.hasAttribute("alt"),
           role: node.getAttribute("role") || "",
-          ariaHidden: node.getAttribute("aria-hidden") === "true"
+          ariaHidden: node.getAttribute("aria-hidden") === "true",
+          width: node.getAttribute("width") || null,
+          height: node.getAttribute("height") || null
         };
       });
-      const schemaTypes = [...document.querySelectorAll('script[type="application/ld+json"]')]
-        .flatMap((node) => {
+      const scripts = [...document.querySelectorAll("script[src]")].map((node) => ({
+        src: absolute(node.getAttribute("src")),
+        type: node.getAttribute("type") || "",
+        async: node.hasAttribute("async"),
+        defer: node.hasAttribute("defer")
+      }));
+      const stylesheets = [...document.querySelectorAll('link[rel~="stylesheet"][href]')].map((node) => ({
+        href: absolute(node.getAttribute("href")),
+        media: node.getAttribute("media") || ""
+      }));
+      const schemaTypesFor = (value) => {
+        const types = [];
+        const visit = (item) => {
+          if (!item || typeof item !== "object") return;
+          const type = item["@type"];
+          if (Array.isArray(type)) types.push(...type.filter(Boolean));
+          else if (type) types.push(type);
+          for (const key of ["@graph", "itemListElement", "mainEntity", "hasPart", "review", "offers", "aggregateRating", "breadcrumb"]) {
+            const child = item[key];
+            if (Array.isArray(child)) child.forEach(visit);
+            else visit(child);
+          }
+        };
+        if (Array.isArray(value)) value.forEach(visit);
+        else visit(value);
+        return types;
+      };
+      const schemaResults = [...document.querySelectorAll('script[type="application/ld+json"]')]
+        .map((node, index) => {
           try {
             const parsed = JSON.parse(node.textContent || "{}");
-            return (Array.isArray(parsed) ? parsed : [parsed])
-              .map((item) => item["@type"])
-              .filter(Boolean);
+            const values = Array.isArray(parsed) ? parsed : [parsed];
+            return {
+              index: index + 1,
+              types: schemaTypesFor(parsed),
+              missingContext: values.some((item) => item && !item["@context"])
+            };
           } catch {
-            return ["invalid-json"];
+            return {
+              index: index + 1,
+              types: ["invalid-json"],
+              error: "JSON-LD could not be parsed."
+            };
           }
-        });
+      });
       const bodyText = text(document.body);
       const origin = location.origin;
+      const number = (value) => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 0;
+      };
+      const navigation = performance.getEntriesByType("navigation")[0] || null;
+      const navigationTiming = navigation
+        ? {
+            startTimeMs: number(navigation.startTime),
+            responseStartMs: number(navigation.responseStart),
+            responseEndMs: number(navigation.responseEnd),
+            domInteractiveMs: number(navigation.domInteractive),
+            domContentLoadedMs: number(navigation.domContentLoadedEventEnd),
+            loadEventMs: number(navigation.loadEventEnd),
+            durationMs: number(navigation.duration),
+            transferSize: number(navigation.transferSize),
+            encodedBodySize: number(navigation.encodedBodySize),
+            decodedBodySize: number(navigation.decodedBodySize),
+            protocol: navigation.nextHopProtocol || ""
+          }
+        : {};
+      const allResourceTimings = performance.getEntriesByType("resource")
+        .map((entry) => ({
+          name: entry.name,
+          initiatorType: entry.initiatorType || "",
+          startTime: number(entry.startTime),
+          responseStart: number(entry.responseStart),
+          responseEnd: number(entry.responseEnd),
+          duration: number(entry.duration),
+          transferSize: number(entry.transferSize),
+          encodedBodySize: number(entry.encodedBodySize),
+          decodedBodySize: number(entry.decodedBodySize),
+          renderBlockingStatus: entry.renderBlockingStatus || "",
+          nextHopProtocol: entry.nextHopProtocol || ""
+        }))
+        .sort((a, b) => a.startTime - b.startTime || b.duration - a.duration);
+      const resourceTimings = allResourceTimings.slice(0, 150);
 
       return {
         source: "rendered-dom",
         finalUrl: location.href,
         title: document.title || "",
         description: metaByName("description"),
+        generator: metaByName("generator"),
         robots: metaByName("robots"),
         canonical: absolute(document.querySelector('link[rel="canonical"]')?.getAttribute("href")),
         lang: document.documentElement.getAttribute("lang") || null,
@@ -3485,10 +7592,13 @@ async function extractRenderedFacts(browser, url) {
         externalLinks: links.filter((link) => new URL(link.href).origin !== origin),
         images,
         imagesMissingAlt: images.filter((image) => !image.hasAlt),
+        scripts,
+        stylesheets,
         openGraph: {
           title: metaByProperty("og:title"),
           description: metaByProperty("og:description"),
           image: absolute(metaByProperty("og:image")),
+          url: absolute(metaByProperty("og:url")),
           type: metaByProperty("og:type")
         },
         twitter: {
@@ -3499,8 +7609,15 @@ async function extractRenderedFacts(browser, url) {
         },
         favicon: absolute(document.querySelector('link[rel~="icon"]')?.getAttribute("href")),
         appleTouchIcon: absolute(document.querySelector('link[rel="apple-touch-icon"]')?.getAttribute("href")),
-        schemaTypes,
+        schemaTypes: schemaResults.flatMap((item) => item.types || []),
+        schemaErrors: schemaResults
+          .filter((item) => item.error || item.missingContext)
+          .map((item) => item.error || `JSON-LD block ${item.index} is missing @context.`),
+        navigationTiming,
+        resourceTimings,
+        resourceTimingsTotal: allResourceTimings.length,
         wordCount: bodyText ? bodyText.split(/\s+/).filter(Boolean).length : 0,
+        bodyText: bodyText.slice(0, 6000),
         bodySample: bodyText.slice(0, 280)
       };
     });
@@ -3538,9 +7655,38 @@ function extractStaticFacts(html, url, fetchResult = {}) {
       alt: alt || "",
       hasAlt: alt !== null,
       role: attr(match[0], "role") || "",
-      ariaHidden: attr(match[0], "aria-hidden") === "true"
+      ariaHidden: attr(match[0], "aria-hidden") === "true",
+      width: attr(match[0], "width") || null,
+      height: attr(match[0], "height") || null
     };
   });
+  const scripts = [...html.matchAll(/<script\b[^>]*src=["']([^"']+)["'][^>]*>/gi)].map((match) => ({
+    src: absolute(match[1], base.href),
+    type: attr(match[0], "type") || "",
+    async: attr(match[0], "async") !== null,
+    defer: attr(match[0], "defer") !== null
+  }));
+  const stylesheets = [...html.matchAll(/<link\b(?=[^>]*rel=["'][^"']*stylesheet[^"']*["'])(?=[^>]*href=["']([^"']+)["'])[^>]*>/gi)].map((match) => ({
+    href: absolute(match[1], base.href),
+    media: attr(match[0], "media") || ""
+  }));
+  const schemaTypesFor = (value) => {
+    const types = [];
+    const visit = (item) => {
+      if (!item || typeof item !== "object") return;
+      const type = item["@type"];
+      if (Array.isArray(type)) types.push(...type.filter(Boolean));
+      else if (type) types.push(type);
+      for (const key of ["@graph", "itemListElement", "mainEntity", "hasPart", "review", "offers", "aggregateRating", "breadcrumb"]) {
+        const child = item[key];
+        if (Array.isArray(child)) child.forEach(visit);
+        else visit(child);
+      }
+    };
+    if (Array.isArray(value)) value.forEach(visit);
+    else visit(value);
+    return types;
+  };
   const headings = [];
   for (const match of html.matchAll(/<(h[1-6])\b[^>]*>([\s\S]*?)<\/\1>/gi)) {
     headings.push({
@@ -3548,15 +7694,22 @@ function extractStaticFacts(html, url, fetchResult = {}) {
       text: decodeEntities(stripTags(match[2])).replace(/\s+/g, " ").trim()
     });
   }
-  const schemaTypes = [...html.matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)]
-    .flatMap((match) => {
+  const schemaResults = [...html.matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)]
+    .map((match, index) => {
       try {
         const parsed = JSON.parse(match[1] || "{}");
-        return (Array.isArray(parsed) ? parsed : [parsed])
-          .map((item) => item["@type"])
-          .filter(Boolean);
+        const values = Array.isArray(parsed) ? parsed : [parsed];
+        return {
+          index: index + 1,
+          types: schemaTypesFor(parsed),
+          missingContext: values.some((item) => item && !item["@context"])
+        };
       } catch {
-        return ["invalid-json"];
+        return {
+          index: index + 1,
+          types: ["invalid-json"],
+          error: "JSON-LD could not be parsed."
+        };
       }
     });
 
@@ -3566,6 +7719,7 @@ function extractStaticFacts(html, url, fetchResult = {}) {
     status: fetchResult.status || null,
     title: decodeEntities(stripTags(head.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "")),
     description: meta(head, "name", "description"),
+    generator: meta(head, "name", "generator"),
     robots: meta(head, "name", "robots"),
     canonical: absolute(linkRel(head, "canonical"), base.href),
     lang: html.match(/<html\b[^>]*lang=["']([^"']+)["']/i)?.[1] || null,
@@ -3588,10 +7742,13 @@ function extractStaticFacts(html, url, fetchResult = {}) {
     externalLinks: links.filter((link) => new URL(link.href).origin !== base.origin),
     images,
     imagesMissingAlt: images.filter((image) => !image.hasAlt),
+    scripts,
+    stylesheets,
     openGraph: {
       title: meta(head, "property", "og:title"),
       description: meta(head, "property", "og:description"),
       image: absolute(meta(head, "property", "og:image"), base.href),
+      url: absolute(meta(head, "property", "og:url"), base.href),
       type: meta(head, "property", "og:type")
     },
     twitter: {
@@ -3602,13 +7759,17 @@ function extractStaticFacts(html, url, fetchResult = {}) {
     },
     favicon: absolute(linkRel(head, "icon"), base.href),
     appleTouchIcon: absolute(linkRel(head, "apple-touch-icon"), base.href),
-    schemaTypes,
+    schemaTypes: schemaResults.flatMap((item) => item.types || []),
+    schemaErrors: schemaResults
+      .filter((item) => item.error || item.missingContext)
+      .map((item) => item.error || `JSON-LD block ${item.index} is missing @context.`),
     wordCount: bodyText ? bodyText.split(/\s+/).filter(Boolean).length : 0,
+    bodyText: bodyText.slice(0, 6000),
     bodySample: bodyText.slice(0, 280)
   };
 }
 
-function buildFindings({ pages, startUrl, robots, sitemap }) {
+function buildFindings({ pages, startUrl, robots, sitemap, performance }) {
   const findings = [];
   let activePage = null;
   const add = (finding) => {
@@ -3632,6 +7793,24 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
     const rendered = page.rendered;
     const staticFacts = page.static;
     const label = pathLabel(page.url, startUrl);
+    const finalUrl = rendered.finalUrl || page.finalUrl || page.url;
+    const finalUrlObject = new URL(finalUrl);
+    const linkChecks = page.linkChecks || [];
+    const imageChecks = page.imageChecks || [];
+    const brokenInternalLinks = linkChecks.filter((check) => check.kind === "internal" && isBrokenResource(check));
+    const brokenExternalLinks = linkChecks.filter((check) => check.kind === "external" && isBrokenResource(check));
+    const redirectedInternalLinks = linkChecks.filter(
+      (check) => check.kind === "internal" && !isBrokenResource(check) && check.redirected
+    );
+    const brokenImages = imageChecks.filter(isBrokenResource);
+    const oversizedImages = imageChecks.filter(
+      (check) => !isBrokenResource(check) && check.contentLength > RESOURCE_LIMITS.largeImageBytes
+    );
+    const nonHttpsResources = [...(rendered.links || []), ...(rendered.images || [])].filter(
+      (resource) =>
+        finalUrlObject.protocol === "https:" &&
+        (resource.href || resource.src || "").startsWith("http:")
+    );
     const addRenderedGuard = ({ title, evidence, fix, source }) =>
       add({
         type: "guard",
@@ -3643,6 +7822,85 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
         source: source || DOCS.javascript
       });
 
+    if (page === pages[0]) {
+      addPerformanceFindings(add, performance, label);
+    }
+
+    for (const finding of resourceWaterfallFindings(page.resourceWaterfall, label, DOCS.coreWebVitals)) {
+      add(finding);
+    }
+
+    if (brokenInternalLinks.length) {
+      add({
+        type: "issue",
+        severity: "critical",
+        title: `Broken internal links on ${label}`,
+        why: "Broken internal links waste crawl paths and send users to dead pages.",
+        evidence: formatResourceEvidence(brokenInternalLinks),
+        fix: "Update each internal link to a live replacement URL, restore the missing page, or remove the link if it no longer has a valid destination.",
+        source: DOCS.linkBestPractices
+      });
+    }
+
+    if (brokenExternalLinks.length) {
+      add({
+        type: "issue",
+        severity: "warning",
+        title: `Broken external links on ${label}`,
+        why: "Broken outbound references weaken the page experience and can make supporting proof look stale.",
+        evidence: formatResourceEvidence(brokenExternalLinks),
+        fix: "Replace broken references with live authoritative sources or remove the outbound links.",
+        source: DOCS.linkBestPractices,
+        confidence: "needs-review"
+      });
+    }
+
+    if (redirectedInternalLinks.length) {
+      add({
+        type: "issue",
+        severity: "notice",
+        title: `Redirecting internal links on ${label}`,
+        why: "Internal links should usually point directly to the final canonical URL instead of spending crawl budget on redirects.",
+        evidence: formatResourceEvidence(redirectedInternalLinks),
+        fix: "Update internal links so they point directly to the final destination URL."
+      });
+    }
+
+    if (brokenImages.length) {
+      add({
+        type: "issue",
+        severity: "warning",
+        title: `Broken images on ${label}`,
+        why: "Broken images hurt page quality, social previews, and image-search context.",
+        evidence: formatResourceEvidence(brokenImages),
+        fix: "Replace the missing image URLs, restore the assets, or remove image tags that no longer have valid files."
+      });
+    }
+
+    if (oversizedImages.length) {
+      add({
+        type: "issue",
+        severity: "notice",
+        title: `Large image files on ${label}`,
+        why: "Large images can slow down the page and make Core Web Vitals harder to pass.",
+        evidence: formatResourceEvidence(oversizedImages),
+        fix: "Compress these images, serve next-gen formats, and resize them to the rendered display dimensions.",
+        source: DOCS.coreWebVitals,
+        confidence: "needs-review"
+      });
+    }
+
+    if (nonHttpsResources.length) {
+      add({
+        type: "issue",
+        severity: "warning",
+        title: `Non-HTTPS resources on ${label}`,
+        why: "HTTP resources on an HTTPS page can create mixed-content warnings and weaken user trust.",
+        evidence: `${nonHttpsResources.length} rendered resources use http://, including ${formatResourceUrl(nonHttpsResources[0].href || nonHttpsResources[0].src)}.`,
+        fix: "Serve every link, script, image, and canonical asset over HTTPS."
+      });
+    }
+
     if (page.redirected || stripHash(rendered.finalUrl || page.finalUrl || page.url) !== stripHash(page.url)) {
       add({
         type: "issue",
@@ -3651,6 +7909,43 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
         why: "Redirects are normal, but audit evidence should show the final URL search engines and users reach.",
         evidence: `Requested ${page.url}; final URL ${rendered.finalUrl || page.finalUrl}.`,
         fix: "Make sure canonicals, internal links, and sitemaps point at the final preferred URL.",
+        confidence: "needs-review"
+      });
+    }
+
+    if (page.redirectChain?.length > 1) {
+      add({
+        type: "issue",
+        severity: "warning",
+        title: `Long redirect chain before rendering on ${label}`,
+        why: "Long redirect chains slow crawlers and users before the page can even render.",
+        evidence: formatRedirectChain(page.redirectChain),
+        fix: "Collapse the chain so the requested URL redirects once to the final canonical URL."
+      });
+    }
+
+    if (rendered.loadDurationMs > RESOURCE_LIMITS.slowRenderMs) {
+      add({
+        type: "issue",
+        severity: "warning",
+        title: `Slow rendered load on ${label}`,
+        why: "Slow rendering is a page-experience risk and can make Core Web Vitals harder to pass.",
+        evidence: `Rendered audit reached network idle in ${rendered.loadDurationMs}ms.`,
+        fix: "Reduce render-blocking scripts, compress heavy assets, defer non-critical JavaScript, and rerun with field Core Web Vitals data.",
+        source: DOCS.coreWebVitals,
+        confidence: "needs-review"
+      });
+    }
+
+    if (page.transferSize > RESOURCE_LIMITS.largeHtmlBytes) {
+      add({
+        type: "issue",
+        severity: "notice",
+        title: `Large HTML response on ${label}`,
+        why: "Large HTML responses slow the first crawl and usually point to unnecessary inline payload.",
+        evidence: `Initial HTML response was about ${formatBytes(page.transferSize)}.`,
+        fix: "Move large inline data out of the HTML, trim unused markup, and compress server responses.",
+        source: DOCS.coreWebVitals,
         confidence: "needs-review"
       });
     }
@@ -3738,6 +8033,76 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
         evidence: `Rendered schema types: ${rendered.schemaTypes.join(", ")}`,
         fix: "Do not add duplicate JSON-LD; validate the rendered schema instead.",
         source: DOCS.structuredData
+      });
+    }
+
+    if (rendered.schemaErrors?.length) {
+      add({
+        type: "issue",
+        severity: "warning",
+        title: `Structured data JSON is invalid on ${label}`,
+        why: "Invalid JSON-LD can stop rich-result eligibility and creates false confidence if the audit only checks presence.",
+        evidence: rendered.schemaErrors.slice(0, 3).join(" "),
+        fix: "Fix the JSON-LD syntax and include @context and @type values that match visible page content.",
+        source: DOCS.structuredData
+      });
+    }
+
+    const hreflangIssues = validateHreflang(rendered.hreflangs || [], finalUrl);
+    for (const issue of hreflangIssues) {
+      add({
+        type: "issue",
+        severity: issue.severity,
+        title: `${issue.title} on ${label}`,
+        why: issue.why,
+        evidence: issue.evidence,
+        fix: issue.fix,
+        source: DOCS.hreflang,
+        confidence: issue.confidence || "verified"
+      });
+    }
+
+    if (rendered.canonical && page.canonicalCheck && isBrokenResource(page.canonicalCheck)) {
+      add({
+        type: "issue",
+        severity: "warning",
+        title: `Canonical URL is not reachable on ${label}`,
+        why: "Canonical tags should point to a live preferred URL that search engines can fetch.",
+        evidence: formatResourceEvidence([page.canonicalCheck]),
+        fix: "Update the canonical href to a live indexable URL, or restore the canonical destination.",
+        source: DOCS.javascript
+      });
+    } else if (rendered.canonical && page.canonicalCheck?.redirected) {
+      add({
+        type: "issue",
+        severity: "notice",
+        title: `Canonical URL redirects on ${label}`,
+        why: "Canonical tags should point directly to the final preferred URL.",
+        evidence: formatResourceEvidence([page.canonicalCheck]),
+        fix: "Change the canonical href to the final destination URL."
+      });
+    }
+
+    if (rendered.canonical && rendered.openGraph?.url && canonicalKey(rendered.canonical) !== canonicalKey(rendered.openGraph.url)) {
+      add({
+        type: "issue",
+        severity: "notice",
+        title: `Canonical and og:url disagree on ${label}`,
+        why: "Search and social tags should agree on the preferred URL for this page.",
+        evidence: `Canonical: ${rendered.canonical}; og:url: ${rendered.openGraph.url}.`,
+        fix: "Set og:url to the same final preferred URL used by rel=canonical.",
+        confidence: "needs-review"
+      });
+    }
+
+    if (rendered.canonical && (rendered.robots || "").toLowerCase().includes("noindex")) {
+      add({
+        type: "issue",
+        severity: "critical",
+        title: `Canonical conflicts with noindex on ${label}`,
+        why: "A page should not ask search engines to consolidate signals through a canonical while also telling them not to index it.",
+        evidence: `Canonical: ${rendered.canonical}; robots meta: "${rendered.robots}".`,
+        fix: "If the page should rank, remove noindex. If it should not rank, remove misleading canonical consolidation."
       });
     }
 
@@ -3960,7 +8325,7 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
       });
     }
 
-    if (!rendered.schemaTypes.length) {
+    if (!rendered.schemaTypes.length || rendered.schemaTypes.every((type) => type === "invalid-json")) {
       add({
         type: "enhancement",
         severity: "notice",
@@ -3970,6 +8335,29 @@ function buildFindings({ pages, startUrl, robots, sitemap }) {
         fix: "Add truthful schema that matches visible content.",
         source: DOCS.structuredData,
         snippet: buildSchemaSnippet(page.url, rendered)
+      });
+    }
+
+    if (finalUrlObject.protocol === "http:" && !isLocalhost(finalUrlObject.hostname)) {
+      add({
+        type: "issue",
+        severity: "warning",
+        title: `Page is not served over HTTPS on ${label}`,
+        why: "HTTPS is table-stakes for user trust and browser security signals.",
+        evidence: `Final rendered URL uses ${finalUrlObject.protocol}//.`,
+        fix: "Enable HTTPS, redirect HTTP to HTTPS, and update canonical and sitemap URLs to HTTPS."
+      });
+    }
+
+    if (finalUrlObject.protocol === "https:" && !headerValue(page.headers, "strict-transport-security")) {
+      add({
+        type: "issue",
+        severity: "notice",
+        title: `HSTS security header missing on ${label}`,
+        why: "Strict-Transport-Security helps browsers keep repeat visits on HTTPS.",
+        evidence: "The initial HTML response did not include a strict-transport-security header.",
+        fix: "Add a Strict-Transport-Security header after confirming HTTPS works across the full host.",
+        confidence: "needs-review"
       });
     }
   }
@@ -4022,7 +8410,15 @@ function buildRepairPlan(findings) {
     }));
 }
 
-function buildRepairBrief({ startUrl, score, summary, pages, findings, repairPlan }) {
+function mergeRepairPlans(basePlan = [], extraItems = []) {
+  const merged = [...basePlan, ...(extraItems || [])];
+  return merged.map((item, index) => ({
+    ...item,
+    priority: index + 1
+  }));
+}
+
+function buildRepairBrief({ startUrl, score, summary, pages, findings, repairPlan, performance, competitorBenchmark, crawlInventory, renderedCrawlScale, crawlIntelligence, backlinkAudit, localSeoAudit, keywordRankAudit, platformSeoAudit }) {
   const lines = [
     "# SEO Fix Kit repair brief",
     "",
@@ -4066,9 +8462,43 @@ function buildRepairBrief({ startUrl, score, summary, pages, findings, repairPla
     lines.push(`- Rendered H1s: ${facts.h1s?.join(" | ") || "none"}`);
     lines.push(`- Rendered word count: ${facts.wordCount ?? "unknown"}`);
     lines.push(`- Rendered internal links: ${facts.internalLinks?.length ?? 0}`);
+    lines.push(`- Broken rendered links: ${pages[0].linkChecks?.filter(isBrokenResource).length ?? 0}`);
+    lines.push(`- Broken rendered images: ${pages[0].imageChecks?.filter(isBrokenResource).length ?? 0}`);
+    lines.push(`- Rendered load time: ${facts.loadDurationMs ?? "unknown"}ms`);
     lines.push(`- Rendered schema types: ${facts.schemaTypes?.join(", ") || "none"}`);
     lines.push("");
   }
+
+  if (performance && performance.status !== "skipped") {
+    lines.push("## Performance proof snapshot", "");
+    lines.push(`- Source: ${performance.source || "rendered-lab"}`);
+    if (Number.isFinite(performance.performanceScore)) {
+      lines.push(`- Mobile PageSpeed score: ${performance.performanceScore}/100`);
+    }
+    const metrics = performance.labMetrics || {};
+    if (metrics.largestContentfulPaint?.display) lines.push(`- LCP: ${metrics.largestContentfulPaint.display}`);
+    if (metrics.totalBlockingTime?.display) lines.push(`- TBT: ${metrics.totalBlockingTime.display}`);
+    if (metrics.cumulativeLayoutShift?.display) lines.push(`- CLS: ${metrics.cumulativeLayoutShift.display}`);
+    if (metrics.speedIndex?.display) lines.push(`- Speed Index: ${metrics.speedIndex.display}`);
+    if (performance.fieldData?.overallCategory) {
+      lines.push(`- Field data category: ${performance.fieldData.overallCategory}`);
+    }
+    if (performance.opportunities?.length) {
+      lines.push(`- Top opportunity: ${performance.opportunities[0].title} (${performanceOpportunityEvidence(performance.opportunities[0])})`);
+    }
+    if (performance.reason) lines.push(`- Note: ${performance.reason}`);
+    lines.push("");
+  }
+
+  lines.push(...resourceWaterfallBriefLines(pages[0]?.resourceWaterfall));
+  lines.push(...competitorBenchmarkBriefLines(competitorBenchmark));
+  lines.push(...crawlInventoryBriefLines(crawlInventory));
+  lines.push(...renderedCrawlScaleBriefLines(renderedCrawlScale));
+  lines.push(...crawlIntelligenceBriefLines(crawlIntelligence));
+  lines.push(...backlinkAuditBriefLines(backlinkAudit));
+  lines.push(...localSeoAuditBriefLines(localSeoAudit));
+  lines.push(...keywordRankAuditBriefLines(keywordRankAudit));
+  lines.push(...platformSeoAuditBriefLines(platformSeoAudit));
 
   lines.push("Re-run SEO Fix Kit after shipping changes and keep only fixes that match visible page content.");
   return lines.join("\n");
@@ -4123,11 +8553,38 @@ function acceptanceCheck(finding) {
   if (title.includes("internal links")) {
     return "The rendered DOM exposes normal internal anchor links to important pages.";
   }
-  if (title.includes("canonical")) {
-    return "The rendered head includes one rel=canonical pointing to the preferred URL.";
+  if (title.includes("broken") && title.includes("link")) {
+    return "Every link in the finding returns a live 2xx/3xx response or has been removed intentionally.";
+  }
+  if (title.includes("broken") && title.includes("image")) {
+    return "Every image in the finding loads successfully or has been removed intentionally.";
+  }
+  if (title.includes("redirecting internal")) {
+    return "Internal links point directly to their final canonical destination.";
+  }
+  if (title.includes("canonical conflicts")) {
+    return "The page either removes noindex because it should rank, or removes misleading canonical consolidation because it should stay out of search.";
   }
   if (title.includes("noindex")) {
     return "The rendered robots meta does not include noindex for pages that should rank.";
+  }
+  if (title.includes("canonical")) {
+    return "The rendered head includes one rel=canonical pointing to the preferred URL.";
+  }
+  if (title.includes("hreflang")) {
+    return "Hreflang tags are unique, valid, self-referencing where relevant, and point at live localized URLs.";
+  }
+  if (title.includes("json")) {
+    return "JSON-LD parses cleanly and includes @context plus @type values matching visible content.";
+  }
+  if (title.includes("https") || title.includes("hsts") || title.includes("security")) {
+    return "The page loads over HTTPS and sends the expected security headers without mixed-content resources.";
+  }
+  if (title.includes("pagespeed") || title.includes("largest contentful paint") || title.includes("total blocking time") || title.includes("layout shift")) {
+    return "A rerun shows PageSpeed lab metrics back in the acceptable range and the repair evidence no longer appears.";
+  }
+  if (title.includes("slow") || title.includes("large image") || title.includes("large html")) {
+    return "A rerun shows smaller transfer weight or faster rendered load, then field Core Web Vitals can be checked.";
   }
   if (title.includes("social share")) {
     return "The rendered head includes og:image and twitter:image using a 1200x630 image.";
@@ -4204,10 +8661,599 @@ function buildSchemaSnippet(url, facts) {
   )}\n</script>`;
 }
 
-async function fetchText(url) {
+async function collectPerformanceInsights(startUrl, homePage, options = {}) {
+  const fallback = buildRenderedPerformanceSummary(homePage);
+  if (!shouldRunPageSpeed(startUrl, options)) {
+    return {
+      status: "skipped",
+      source: "rendered-lab",
+      reason: "PageSpeed Insights skipped for local, private, or disabled runs.",
+      ...fallback
+    };
+  }
+
   try {
+    const raw = await fetchPageSpeedInsights(startUrl, options);
+    return {
+      ...fallback,
+      ...parsePageSpeedResult(raw),
+      status: "success",
+      source: "pagespeed-insights-v5",
+      strategy: "mobile"
+    };
+  } catch (error) {
+    return {
+      status: "unavailable",
+      source: "rendered-lab",
+      reason: error.message || "PageSpeed Insights did not return performance data.",
+      ...fallback
+    };
+  }
+}
+
+function shouldRunPageSpeed(startUrl, options = {}) {
+  if (options.pageSpeed === false || options.disabled) return false;
+  if (options.pageSpeed === true) return true;
+  const parsed = new URL(startUrl);
+  return ["http:", "https:"].includes(parsed.protocol) && !isLocalhost(parsed.hostname);
+}
+
+async function fetchPageSpeedInsights(url, options = {}) {
+  const endpoint = new URL("https://pagespeedonline.googleapis.com/pagespeedonline/v5/runPagespeed");
+  endpoint.searchParams.set("url", url);
+  endpoint.searchParams.set("strategy", "mobile");
+  endpoint.searchParams.append("category", "performance");
+  endpoint.searchParams.set("locale", "en_US");
+  if (options.pageSpeedApiKey) {
+    endpoint.searchParams.set("key", options.pageSpeedApiKey);
+  }
+  const response = await fetch(endpoint.href, {
+    headers: {
+      "user-agent": `SEOFixKit/${VERSION} (+https://seofixkit.com; PageSpeed proof audit)`
+    },
+    signal: AbortSignal.timeout(45_000)
+  });
+  if (!response.ok) {
+    throw new Error(`PageSpeed Insights returned HTTP ${response.status}.`);
+  }
+  return response.json();
+}
+
+function parsePageSpeedResult(raw = {}) {
+  const lighthouse = raw.lighthouseResult || {};
+  const audits = lighthouse.audits || {};
+  const rawScore = lighthouse.categories?.performance?.score;
+  const performanceScore = Number.isFinite(rawScore) ? Math.round(rawScore * 100) : null;
+  const labMetrics = {
+    firstContentfulPaint: metricFromAudit(audits["first-contentful-paint"]),
+    largestContentfulPaint: metricFromAudit(audits["largest-contentful-paint"]),
+    totalBlockingTime: metricFromAudit(audits["total-blocking-time"]),
+    cumulativeLayoutShift: metricFromAudit(audits["cumulative-layout-shift"]),
+    speedIndex: metricFromAudit(audits["speed-index"])
+  };
+  const fieldMetrics = parseFieldMetrics(raw.loadingExperience);
+  return {
+    analysisTimestamp: raw.analysisUTCTimestamp || "",
+    finalUrl: raw.id || "",
+    performanceScore,
+    category: scoreCategory(performanceScore),
+    fieldData: {
+      overallCategory: raw.loadingExperience?.overall_category || "",
+      originFallback: Boolean(raw.loadingExperience?.origin_fallback),
+      metrics: fieldMetrics
+    },
+    labMetrics,
+    opportunities: topPageSpeedOpportunities(audits)
+  };
+}
+
+function metricFromAudit(audit = {}) {
+  return {
+    title: audit.title || "",
+    value: Number(audit.numericValue || 0),
+    display: audit.displayValue || formatMetricValue(audit.numericValue),
+    score: typeof audit.score === "number" ? Math.round(audit.score * 100) : null
+  };
+}
+
+function parseFieldMetrics(loadingExperience = {}) {
+  const metrics = loadingExperience.metrics || {};
+  return {
+    largestContentfulPaint: fieldMetric(metrics.LARGEST_CONTENTFUL_PAINT_MS, "ms"),
+    interactionToNextPaint: fieldMetric(metrics.INTERACTION_TO_NEXT_PAINT, "ms"),
+    cumulativeLayoutShift: fieldMetric(metrics.CUMULATIVE_LAYOUT_SHIFT_SCORE, "ratio"),
+    firstContentfulPaint: fieldMetric(metrics.FIRST_CONTENTFUL_PAINT_MS, "ms")
+  };
+}
+
+function fieldMetric(metric, unit) {
+  if (!metric) return null;
+  const percentile =
+    unit === "ratio" ? Number(metric.percentile || 0) / 100 : Number(metric.percentile || 0);
+  return {
+    percentile,
+    display: unit === "ratio" ? percentile.toFixed(2) : `${Math.round(percentile)}ms`,
+    category: metric.category || ""
+  };
+}
+
+function topPageSpeedOpportunities(audits = {}) {
+  const ids = [
+    "render-blocking-resources",
+    "unused-javascript",
+    "unused-css-rules",
+    "unminified-javascript",
+    "unminified-css",
+    "modern-image-formats",
+    "uses-optimized-images",
+    "uses-responsive-images",
+    "offscreen-images",
+    "total-byte-weight",
+    "server-response-time",
+    "largest-contentful-paint-element"
+  ];
+  return ids
+    .map((id) => {
+      const audit = audits[id];
+      if (!audit) return null;
+      const savingsMs = Number(audit.details?.overallSavingsMs || 0);
+      const savingsBytes = Number(audit.details?.overallSavingsBytes || 0);
+      const score = typeof audit.score === "number" ? audit.score : null;
+      const hasSavings = savingsMs > 0 || savingsBytes > 0;
+      const failed = score !== null && score < 0.9;
+      if (!hasSavings && !failed) return null;
+      return {
+        id,
+        title: audit.title || id,
+        description: audit.description || "",
+        displayValue: audit.displayValue || "",
+        score: score === null ? null : Math.round(score * 100),
+        savingsMs,
+        savingsBytes
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.savingsMs - a.savingsMs || b.savingsBytes - a.savingsBytes)
+    .slice(0, 5);
+}
+
+function buildRenderedPerformanceSummary(homePage) {
+  const rendered = homePage?.rendered || {};
+  return {
+    performanceScore: null,
+    category: "",
+    fieldData: {
+      overallCategory: "",
+      originFallback: false,
+      metrics: {}
+    },
+    labMetrics: {
+      renderedLoad: {
+        title: "Rendered browser load",
+        value: Number(rendered.loadDurationMs || 0),
+        display: rendered.loadDurationMs ? `${Math.round(rendered.loadDurationMs)}ms` : "unknown",
+        score: null
+      },
+      htmlTransfer: {
+        title: "Initial HTML transfer",
+        value: Number(homePage?.transferSize || 0),
+        display: formatBytes(homePage?.transferSize || 0),
+        score: null
+      }
+    },
+    opportunities: []
+  };
+}
+
+function addPerformanceFindings(add, performance = {}, label) {
+  if (!performance || performance.status === "skipped") return;
+  if (performance.status === "unavailable") {
+    add({
+      type: "performance",
+      severity: "notice",
+      title: `PageSpeed data unavailable on ${label}`,
+      why: "PageSpeed data adds Lighthouse lab proof for performance fixes. The rendered audit still collected local load proof.",
+      evidence: performance.reason || "PageSpeed Insights did not return a result.",
+      fix: "Rerun the audit later, or add a PageSpeed API key if automated volume is hitting public limits.",
+      source: DOCS.coreWebVitals,
+      confidence: "needs-review"
+    });
+    return;
+  }
+
+  if (Number.isFinite(performance.performanceScore) && performance.performanceScore < PERFORMANCE_LIMITS.needsImprovementScore) {
+    add({
+      type: "performance",
+      severity: performance.performanceScore < PERFORMANCE_LIMITS.poorScore ? "critical" : "warning",
+      title: `Low mobile PageSpeed performance on ${label}`,
+      why: "Page speed affects user experience and is part of the page-experience signal set.",
+      evidence: `Mobile PageSpeed performance score is ${performance.performanceScore}/100 (${performance.category || "unknown"}).`,
+      fix: "Prioritize the PageSpeed opportunities in this report, then rerun until the mobile performance score is at least 75.",
+      source: DOCS.coreWebVitals,
+      confidence: "needs-review"
+    });
+  }
+
+  const lcp = performance.labMetrics?.largestContentfulPaint;
+  if (lcp?.value > PERFORMANCE_LIMITS.lcpNeedsImprovementMs) {
+    add({
+      type: "performance",
+      severity: lcp.value > PERFORMANCE_LIMITS.lcpPoorMs ? "critical" : "warning",
+      title: `Slow Largest Contentful Paint on ${label}`,
+      why: "LCP measures when the main content becomes visible. Slow LCP usually means users wait too long for the page's main value.",
+      evidence: `PageSpeed lab LCP is ${lcp.display || `${Math.round(lcp.value)}ms`}.`,
+      fix: "Optimize the LCP element, reduce render-blocking work, preload the hero asset, and compress or resize above-the-fold media.",
+      source: DOCS.coreWebVitals,
+      confidence: "needs-review"
+    });
+  }
+
+  const tbt = performance.labMetrics?.totalBlockingTime;
+  if (tbt?.value > PERFORMANCE_LIMITS.tbtNeedsImprovementMs) {
+    add({
+      type: "performance",
+      severity: tbt.value > PERFORMANCE_LIMITS.tbtPoorMs ? "critical" : "warning",
+      title: `High Total Blocking Time on ${label}`,
+      why: "High blocking time means JavaScript is keeping the page from responding quickly.",
+      evidence: `PageSpeed lab TBT is ${tbt.display || `${Math.round(tbt.value)}ms`}.`,
+      fix: "Remove unused JavaScript, split bundles, defer non-critical scripts, and reduce third-party script work.",
+      source: DOCS.coreWebVitals,
+      confidence: "needs-review"
+    });
+  }
+
+  const cls = performance.labMetrics?.cumulativeLayoutShift;
+  if (cls?.value > PERFORMANCE_LIMITS.clsNeedsImprovement) {
+    add({
+      type: "performance",
+      severity: cls.value > PERFORMANCE_LIMITS.clsPoor ? "critical" : "warning",
+      title: `Layout shift risk on ${label}`,
+      why: "Unexpected layout shift makes pages feel unstable and can hurt Core Web Vitals.",
+      evidence: `PageSpeed lab CLS is ${cls.display || cls.value.toFixed(2)}.`,
+      fix: "Reserve dimensions for images, ads, embeds, and late-loading UI so content does not jump after render.",
+      source: DOCS.coreWebVitals,
+      confidence: "needs-review"
+    });
+  }
+
+  for (const opportunity of performance.opportunities || []) {
+    add({
+      type: "performance",
+      severity: opportunity.savingsMs > 1000 || opportunity.savingsBytes > 250_000 ? "warning" : "notice",
+      title: `${opportunity.title} on ${label}`,
+      why: "PageSpeed flagged this as a concrete performance repair opportunity.",
+      evidence: performanceOpportunityEvidence(opportunity),
+      fix: performanceOpportunityFix(opportunity),
+      source: DOCS.coreWebVitals,
+      confidence: "needs-review"
+    });
+  }
+}
+
+function performanceOpportunityEvidence(opportunity) {
+  const savings = [];
+  if (opportunity.savingsMs) savings.push(`${Math.round(opportunity.savingsMs)}ms potential savings`);
+  if (opportunity.savingsBytes) savings.push(`${formatBytes(opportunity.savingsBytes)} potential transfer savings`);
+  if (opportunity.displayValue) savings.push(opportunity.displayValue);
+  if (opportunity.score !== null) savings.push(`audit score ${opportunity.score}/100`);
+  return savings.join("; ") || opportunity.title;
+}
+
+function performanceOpportunityFix(opportunity) {
+  const id = opportunity.id || "";
+  if (id.includes("render-blocking")) return "Inline critical CSS, defer non-critical CSS/JS, and remove blocking assets from the initial render path.";
+  if (id.includes("unused-javascript")) return "Delete unused scripts, split the bundle by route, and defer code that is not needed for the first view.";
+  if (id.includes("unused-css")) return "Remove unused CSS rules and ship only the styles needed for this route.";
+  if (id.includes("image") || id.includes("offscreen")) return "Compress images, serve WebP/AVIF where safe, lazy-load below-the-fold images, and size assets to their rendered dimensions.";
+  if (id.includes("total-byte-weight")) return "Reduce total transfer weight by compressing assets, pruning unused code, and removing heavy third-party payloads.";
+  if (id.includes("server-response")) return "Improve server response time with caching, faster backend work, or edge delivery.";
+  if (id.includes("largest-contentful-paint")) return "Optimize the LCP element directly: preload it, compress it, and avoid hiding it behind client-side rendering.";
+  return "Review the PageSpeed opportunity and apply the smallest code or content change that removes the measured bottleneck.";
+}
+
+function scoreCategory(score) {
+  if (!Number.isFinite(score)) return "";
+  if (score >= 90) return "fast";
+  if (score >= PERFORMANCE_LIMITS.needsImprovementScore) return "good";
+  if (score >= PERFORMANCE_LIMITS.poorScore) return "needs-improvement";
+  return "poor";
+}
+
+function formatMetricValue(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return "";
+  return number >= 1000 ? `${(number / 1000).toFixed(1)}s` : `${Math.round(number)}ms`;
+}
+
+async function validatePageResources(rendered = {}) {
+  const pageUrl = rendered.finalUrl || "";
+  const pageOrigin = pageUrl ? new URL(pageUrl).origin : "";
+  const links = uniqueResources(rendered.links || [], "href")
+    .slice(0, RESOURCE_LIMITS.linksPerPage)
+    .map((link) => ({
+      url: link.href,
+      label: link.text || link.rawHref || link.href,
+      kind: link.href && new URL(link.href).origin === pageOrigin ? "internal" : "external"
+    }));
+  const images = uniqueResources(
+    (rendered.images || []).filter((image) => isHttpResourceUrl(image.src)),
+    "src"
+  )
+    .slice(0, RESOURCE_LIMITS.imagesPerPage)
+    .map((image) => ({
+      url: image.src,
+      label: image.alt || image.src,
+      kind: "image"
+    }));
+
+  const [linkChecks, imageChecks, canonicalCheck] = await Promise.all([
+    Promise.all(links.map(checkResource)),
+    Promise.all(images.map(checkResource)),
+    rendered.canonical
+      ? checkResource({ url: rendered.canonical, label: "canonical", kind: "canonical" })
+      : Promise.resolve(null)
+  ]);
+
+  return {
+    links: linkChecks,
+    images: imageChecks,
+    canonical: canonicalCheck
+  };
+}
+
+function isHttpResourceUrl(value = "") {
+  try {
+    return ["http:", "https:"].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
+function emptyResourceChecks() {
+  return { links: [], images: [], canonical: null };
+}
+
+async function checkResource(resource) {
+  const checked = await fetchResource(resource.url, "HEAD");
+  const result =
+    checked.status === 403 || checked.status === 405
+      ? await fetchResource(resource.url, "GET")
+      : checked;
+  return {
+    ...resource,
+    ...result,
+    redirected: (result.redirectChain || []).length > 0
+  };
+}
+
+async function fetchResource(url, method) {
+  try {
+    const result = publicAuditUrlStatus(url);
+    if (!result.ok) {
+      return {
+        ok: false,
+        status: null,
+        finalUrl: url,
+        contentType: "",
+        contentLength: 0,
+        headers: {},
+        redirectChain: [],
+        error: result.error
+      };
+    }
+
     let currentUrl = url;
     let response = null;
+    const redirectChain = [];
+    for (let redirectCount = 0; redirectCount <= RESOURCE_LIMITS.maxRedirects; redirectCount += 1) {
+      response = await fetch(currentUrl, {
+        method,
+        redirect: "manual",
+        headers: { "user-agent": `SEOFixKit/${VERSION} (+https://seofixkit.com; evidence-backed SEO audit)` },
+        signal: AbortSignal.timeout(RESOURCE_LIMITS.timeoutMs)
+      });
+
+      if (![301, 302, 303, 307, 308].includes(response.status)) break;
+      const location = response.headers.get("location");
+      if (!location) break;
+      const nextUrl = new URL(location, currentUrl).href;
+      const nextStatus = publicAuditUrlStatus(nextUrl);
+      if (!nextStatus.ok) {
+        return {
+          ok: false,
+          status: response.status,
+          finalUrl: nextUrl,
+          contentType: "",
+          contentLength: 0,
+          headers: headersToObject(response.headers),
+          redirectChain,
+          error: nextStatus.error
+        };
+      }
+      redirectChain.push({ status: response.status, from: currentUrl, to: nextUrl });
+      currentUrl = nextUrl;
+    }
+
+    if (!response) throw new Error("No response returned.");
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      finalUrl: currentUrl,
+      contentType: response.headers.get("content-type") || "",
+      contentLength: Number(response.headers.get("content-length")) || 0,
+      headers: headersToObject(response.headers),
+      redirectChain,
+      error: ""
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: null,
+      finalUrl: url,
+      contentType: "",
+      contentLength: 0,
+      headers: {},
+      redirectChain: [],
+      error: error.message
+    };
+  }
+}
+
+function validateHreflang(hreflangs = [], pageUrl = "") {
+  const issues = [];
+  if (!hreflangs.length) return issues;
+
+  const seen = new Map();
+  for (const tag of hreflangs) {
+    const code = String(tag.hreflang || "").toLowerCase();
+    if (!code || !/^(x-default|[a-z]{2,3}(-[a-z0-9]{2,8})*)$/i.test(code)) {
+      issues.push({
+        severity: "warning",
+        title: "Invalid hreflang code",
+        why: "Invalid hreflang values can prevent Google from understanding localized page alternates.",
+        evidence: `Invalid hreflang value "${tag.hreflang || "missing"}" points to ${tag.href || "missing href"}.`,
+        fix: "Use valid BCP 47 language or language-region codes, or x-default for the fallback URL."
+      });
+    }
+    if (seen.has(code)) {
+      issues.push({
+        severity: "warning",
+        title: "Duplicate hreflang tag",
+        why: "Duplicate hreflang codes create conflicting alternate-page signals.",
+        evidence: `${code} appears more than once: ${seen.get(code)} and ${tag.href || "missing href"}.`,
+        fix: "Keep one hreflang entry per language or language-region code."
+      });
+    }
+    seen.set(code, tag.href || "");
+  }
+
+  const pageKey = canonicalKey(pageUrl);
+  const hasSelfReference = hreflangs.some((tag) => canonicalKey(tag.href) === pageKey);
+  if (!hasSelfReference) {
+    issues.push({
+      severity: "notice",
+      title: "Hreflang is missing a self-reference",
+      why: "Each localized page should usually include itself in its hreflang cluster.",
+      evidence: `No hreflang href matches the current page ${pageUrl}.`,
+      fix: "Add a hreflang entry for the current page alongside the alternate language URLs.",
+      confidence: "needs-review"
+    });
+  }
+
+  if (hreflangs.length > 1 && !seen.has("x-default")) {
+    issues.push({
+      severity: "notice",
+      title: "Hreflang cluster has no x-default",
+      why: "An x-default URL gives Google a fallback page when no language or region fits.",
+      evidence: `${hreflangs.length} hreflang tags were found, but none use x-default.`,
+      fix: "Add an x-default hreflang entry when there is a neutral fallback URL.",
+      confidence: "needs-review"
+    });
+  }
+
+  return dedupeHreflangIssues(issues);
+}
+
+function dedupeHreflangIssues(issues) {
+  const seen = new Set();
+  return issues.filter((issue) => {
+    const key = `${issue.title}:${issue.evidence}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function isBrokenResource(check) {
+  return !check || !check.ok || !check.status || check.status >= 400;
+}
+
+function formatResourceEvidence(resources = []) {
+  const shown = resources.slice(0, 5).map((resource) => {
+    const status = resource.status || resource.error || "no response";
+    const destination =
+      resource.redirected && resource.finalUrl && resource.finalUrl !== resource.url
+        ? ` -> ${formatResourceUrl(resource.finalUrl)}`
+        : "";
+    const size = resource.contentLength ? ` (${formatBytes(resource.contentLength)})` : "";
+    return `${formatResourceUrl(resource.url)} returned ${status}${destination}${size}`;
+  });
+  const extra = resources.length > shown.length ? `; ${resources.length - shown.length} more` : "";
+  return `${shown.join("; ")}${extra}.`;
+}
+
+function formatRedirectChain(chain = []) {
+  if (!chain.length) return "No redirect chain recorded.";
+  return chain
+    .slice(0, 6)
+    .map((step) => `${step.status}: ${formatResourceUrl(step.from)} -> ${formatResourceUrl(step.to)}`)
+    .join("; ");
+}
+
+function formatResourceUrl(value = "") {
+  try {
+    const url = new URL(value);
+    return `${url.hostname}${url.pathname}${url.search}`.replace(/\/$/, url.pathname === "/" ? "/" : "");
+  } catch {
+    return String(value || "unknown");
+  }
+}
+
+function canonicalKey(value = "") {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    url.searchParams.sort?.();
+    return url.href.replace(/\/$/, "");
+  } catch {
+    return String(value || "");
+  }
+}
+
+function uniqueResources(items = [], key) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const value = item?.[key];
+    if (!value || seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  });
+}
+
+function headersToObject(headers) {
+  const output = {};
+  headers?.forEach?.((value, key) => {
+    output[key.toLowerCase()] = value;
+  });
+  return output;
+}
+
+function headerValue(headers = {}, name) {
+  return headers[String(name).toLowerCase()] || "";
+}
+
+function byteLength(value) {
+  return new TextEncoder().encode(String(value || "")).length;
+}
+
+function formatBytes(bytes = 0) {
+  if (!bytes) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isLocalhost(hostname = "") {
+  return ["localhost", "127.0.0.1", "::1"].includes(hostname) || hostname.endsWith(".local");
+}
+
+async function fetchText(url) {
+  try {
+    const started = Date.now();
+    let currentUrl = url;
+    let response = null;
+    const redirectChain = [];
     for (let redirectCount = 0; redirectCount < 6; redirectCount += 1) {
       const status = publicAuditUrlStatus(currentUrl);
       if (!status.ok) {
@@ -4217,6 +9263,10 @@ async function fetchText(url) {
           url: currentUrl,
           contentType: "",
           body: "",
+          headers: {},
+          redirectChain,
+          responseTimeMs: Date.now() - started,
+          contentLength: 0,
           error: status.error
         };
       }
@@ -4230,7 +9280,9 @@ async function fetchText(url) {
       if (![301, 302, 303, 307, 308].includes(response.status)) break;
       const location = response.headers.get("location");
       if (!location) break;
-      currentUrl = new URL(location, currentUrl).href;
+      const nextUrl = new URL(location, currentUrl).href;
+      redirectChain.push({ status: response.status, from: currentUrl, to: nextUrl });
+      currentUrl = nextUrl;
     }
 
     if (!response) {
@@ -4244,9 +9296,30 @@ async function fetchText(url) {
       contentType.includes("xml")
         ? await readTextLimited(response, MAX_HTML_BYTES)
         : "";
-    return { ok: response.ok, status: response.status, url: response.url || currentUrl, contentType, body };
+    return {
+      ok: response.ok,
+      status: response.status,
+      url: currentUrl,
+      contentType,
+      body,
+      headers: headersToObject(response.headers),
+      redirectChain,
+      responseTimeMs: Date.now() - started,
+      contentLength: Number(response.headers.get("content-length")) || byteLength(body)
+    };
   } catch (error) {
-    return { ok: false, status: null, url, contentType: "", body: "", error: error.message };
+    return {
+      ok: false,
+      status: null,
+      url,
+      contentType: "",
+      body: "",
+      headers: {},
+      redirectChain: [],
+      responseTimeMs: null,
+      contentLength: 0,
+      error: error.message
+    };
   }
 }
 
@@ -4325,6 +9398,9 @@ function buildPageSummaries(pages, findings, startUrl) {
       h1: facts.h1s?.[0] || "",
       wordCount: facts.wordCount || 0,
       internalLinks: facts.internalLinks?.length || 0,
+      brokenLinks: page.linkChecks?.filter(isBrokenResource).length || 0,
+      brokenImages: page.imageChecks?.filter(isBrokenResource).length || 0,
+      loadDurationMs: facts.loadDurationMs || 0,
       schemaTypes: facts.schemaTypes || [],
       staticWordCount: staticFacts.wordCount || 0,
       staticH1: staticFacts.h1s?.[0] || "",
@@ -4417,9 +9493,13 @@ function headingHierarchyIssue(headings = []) {
 
 function estimatedEffort(finding) {
   const title = finding.title.toLowerCase();
+  if (title.includes("broken link") || title.includes("broken image")) return "15-45 min";
+  if (title.includes("pagespeed") || title.includes("largest contentful paint") || title.includes("total blocking time") || title.includes("layout shift")) return "45-120 min";
   if (title.includes("robots") || title.includes("sitemap")) return "15-30 min";
   if (title.includes("title") || title.includes("description") || title.includes("canonical")) return "5-15 min";
   if (title.includes("social") || title.includes("schema") || title.includes("viewport")) return "15-45 min";
+  if (title.includes("hreflang") || title.includes("security") || title.includes("https")) return "30-90 min";
+  if (title.includes("slow") || title.includes("large")) return "45-120 min";
   if (title.includes("thin") || title.includes("internal links") || title.includes("heading")) return "30-90 min";
   return "15-30 min";
 }
@@ -4432,7 +9512,10 @@ function workType(finding) {
   if (title.includes("schema") || title.includes("canonical") || title.includes("viewport") || title.includes("social")) {
     return "code";
   }
-  if (title.includes("robots") || title.includes("sitemap") || title.includes("redirect")) {
+  if (title.includes("broken link") || title.includes("broken image")) {
+    return "content";
+  }
+  if (title.includes("robots") || title.includes("sitemap") || title.includes("redirect") || title.includes("hreflang") || title.includes("https") || title.includes("security") || title.includes("slow") || title.includes("large") || title.includes("pagespeed") || title.includes("largest contentful paint") || title.includes("total blocking time") || title.includes("layout shift")) {
     return "technical";
   }
   return "review";
@@ -4481,6 +9564,87 @@ function normalizeUrl(input) {
   return url.href;
 }
 
+function cleanReportDomain(input) {
+  let value = String(input || "").trim().toLowerCase();
+  if (!value) return "";
+  value = value.replace(/^https?:\/\//, "").split("/")[0].split("?")[0].split("#")[0].replace(/\.$/, "");
+  value = value.split(":")[0];
+  if (value.length < 4 || value.length > 253) return "";
+  if (!value.includes(".")) return "";
+  if (/[^a-z0-9.-]/.test(value)) return "";
+  if (value.includes("..") || value.startsWith(".") || value.endsWith(".")) return "";
+  if (value === "localhost" || value.endsWith(".localhost")) return "";
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(value)) return "";
+  if (value.endsWith(".internal") || value.endsWith(".invalid")) return "";
+  return value;
+}
+
+function workerAppHost(host = "", env = {}) {
+  const clean = cleanReportDomain(host);
+  if (!clean) return true;
+  const appHosts = new Set(
+    [
+      "seofixkit.com",
+      "www.seofixkit.com",
+      ...String(env.SEOFIXKIT_APP_HOSTS || "")
+        .split(",")
+        .map((value) => cleanReportDomain(value))
+        .filter(Boolean)
+    ]
+  );
+  return appHosts.has(clean) || clean.endsWith(".workers.dev");
+}
+
+function parseAuditCompetitorUrls(body = {}, targetUrl = "") {
+  const input = body.competitorUrls ?? body.competitor_urls ?? body.competitors ?? "";
+  const raw = Array.isArray(input)
+    ? input
+    : String(input || "")
+        .split(/[\n,]+/)
+        .map((value) => value.trim());
+  const urls = [];
+  const seen = new Set();
+  const targetHost = normalizedHostname(targetUrl);
+
+  for (const value of raw) {
+    if (!value) continue;
+    if (urls.length >= 5) break;
+    let normalized = "";
+    try {
+      normalized = normalizeUrl(value);
+    } catch {
+      return { ok: false, error: "Enter valid competitor URLs, one per line." };
+    }
+    const check = publicAuditUrlStatus(normalized);
+    if (!check.ok) {
+      return { ok: false, error: `Competitor ${value}: ${check.error}` };
+    }
+    const host = normalizedHostname(normalized);
+    if (!host || host === targetHost || seen.has(host)) continue;
+    seen.add(host);
+    urls.push(normalized);
+  }
+
+  return { ok: true, urls };
+}
+
+function normalizeCompetitorUrlsList(values = [], targetUrl = "") {
+  const result = parseAuditCompetitorUrls({ competitorUrls: values }, targetUrl);
+  return result.ok ? result.urls : [];
+}
+
+function competitorUrlsKey(values = []) {
+  return normalizeCompetitorUrlsList(values).map(normalizedHostname).sort().join(",");
+}
+
+function normalizedHostname(value = "") {
+  try {
+    return new URL(value).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
 function claimHostFromInput(input) {
   try {
     const url = new URL(normalizeUrl(String(input || "").trim()));
@@ -4516,7 +9680,18 @@ function cleanAccessToken(input) {
 function cleanAccessMode(input) {
   const mode = String(input || "").trim().toLowerCase();
   if (mode === "invite" || mode === "self-serve" || mode === "founder-override") return mode;
+  if (mode === "api") return "api";
   return "invite";
+}
+
+function randomHex(length) {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function randomApiTokenSecret() {
+  return `sfk_live_${randomHex(24)}`;
 }
 
 function randomInviteCode() {
@@ -4526,9 +9701,22 @@ function randomInviteCode() {
 }
 
 function clampPageLimit(value) {
+  return normalizeCrawlLimit(value);
+}
+
+function clampScheduleInterval(value) {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return 10;
-  return Math.min(Math.max(Math.round(parsed), 1), 10);
+  if (!Number.isFinite(parsed)) return 7;
+  if (parsed <= 7) return 7;
+  if (parsed <= 14) return 14;
+  return 30;
+}
+
+function scheduleCadenceLabel(value) {
+  const days = clampScheduleInterval(value);
+  if (days === 7) return "Weekly";
+  if (days === 14) return "Every 2 weeks";
+  return "Monthly";
 }
 
 function cleanText(input, maxLength) {
@@ -4639,6 +9827,46 @@ function betaAccessResponse(access) {
     response.headers.append("set-cookie", clearSessionCookie());
   }
   return response;
+}
+
+async function apiAccessStatus(request, env) {
+  if (!env.WAITLIST_DB) {
+    return { ok: false, status: 503, error: "Developer API storage is not configured." };
+  }
+  const auth = request.headers.get("authorization") || "";
+  const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+  if (!bearer) return { ok: false, status: 401, error: "API key required." };
+  const tokenHash = await sha256Hex(bearer);
+  const now = new Date().toISOString();
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT id, owner_email, token_hash, status
+     FROM api_tokens
+     WHERE token_hash = ?
+       AND status = 'active'
+       AND revoked_at IS NULL
+     LIMIT 1`
+  )
+    .bind(tokenHash)
+    .first();
+  if (!row?.id) return { ok: false, status: 401, error: "API key is invalid or revoked." };
+  await env.WAITLIST_DB.prepare(
+    `UPDATE api_tokens
+     SET last_used_at = ?, updated_at = ?
+     WHERE id = ?`
+  )
+    .bind(now, now, row.id)
+    .run();
+  return {
+    ok: true,
+    ownerEmail: row.owner_email,
+    accessMode: "api",
+    sessionHash: row.token_hash,
+    apiTokenId: row.id
+  };
+}
+
+function apiAccessResponse(access) {
+  return jsonNoStore({ error: access.error || "API key required." }, access.status || 401);
 }
 
 async function auditQuotaStatus(request, env, access, targetUrl) {
@@ -5159,6 +10387,20 @@ async function sha256Hex(value) {
     .join("");
 }
 
+async function hmacSha256Hex(secret, value) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(String(secret || "")),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(String(value || "")));
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 function hourWindow(now) {
   const resetAt = new Date(now);
   resetAt.setUTCMinutes(0, 0, 0);
@@ -5185,6 +10427,12 @@ function isoSecondsFromNow(seconds) {
 
 function isoDaysFromNow(days) {
   return isoSecondsFromNow(days * 24 * 60 * 60);
+}
+
+function isoDaysFromDate(value, days) {
+  const start = new Date(value);
+  const base = Number.isNaN(start.getTime()) ? Date.now() : start.getTime();
+  return new Date(base + Number(days || 0) * 24 * 60 * 60 * 1000).toISOString();
 }
 
 async function cleanupExpiredRows(env) {
@@ -5223,6 +10471,35 @@ function publicAuditUrlStatus(value) {
   }
 
   return { ok: true };
+}
+
+function publicWebhookUrlStatus(value) {
+  let parsed = null;
+  try {
+    parsed = new URL(String(value || ""));
+  } catch {
+    return { ok: false, error: "Enter a valid HTTPS webhook URL." };
+  }
+
+  if (parsed.protocol !== "https:") {
+    return { ok: false, error: "Webhook URLs must use HTTPS." };
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal") ||
+    isPrivateHostname(host)
+  ) {
+    return { ok: false, error: "Use a public HTTPS webhook URL, not a private or local address." };
+  }
+
+  parsed.hash = "";
+  parsed.username = "";
+  parsed.password = "";
+  return { ok: true, url: parsed.href };
 }
 
 function isPrivateHostname(host) {
@@ -5445,12 +10722,27 @@ SEO Fix Kit is a private-beta, self-serve SEO audit and paid Fix Pack workflow.
 Live product claims:
 - Visitors can request a secure email access link.
 - Verified sessions can run rate-limited private audits and save owner-only reports.
+- Verified sessions can choose self-serve crawl depth up to 1,000 pages per queued audit.
+- Reports include robots.txt and sitemap crawl inventory up to 50,000 discovered URLs.
+- Verified sessions can create separate 50,000-page large rendered crawl jobs with 1,000-page batches, stored frontier, retry state, proof ingest, dead letters, incremental-crawl metadata, and merge-readiness gates.
+- Reports include rendered crawl intelligence for internal link depth, low-inbound pages, sitemap-sample orphan candidates, duplicate metadata/content, parameterized URLs, and keyword-cannibalization heuristics.
+- Saved reruns include audit-history deltas for fixed, new, and still-open proven issues.
+- Reports include rendered browser resource-waterfall proof with slow, heavy, and render-blocking repair actions.
+- Verified sessions can import backlink rows for live/lost link proof, repair actions, and import-backed link-edge history.
+- Verified sessions can supply local business details, keywords, and citation URLs for local SEO proof and repair actions.
+- Verified sessions can import Search Console or rank-tracker keyword rows for low-CTR, page-two, decline, cannibalization, intent-match, uncrawled landing-page repair actions, and rank observation history.
+- Reports include rendered WordPress and ecommerce platform proof for Product schema, breadcrumbs, faceted links, archives, and plugin resource impact.
 - Dodo is the source of truth for visible Fix Pack pricing and checkout.
 - Paid Fix Pack fulfillment includes status, delivery notes, and one rerun after fixes.
 
 Current product boundary:
-- Does not provide backlink databases.
-- Does not provide keyword volume databases.
+- Does not claim CrawlRaven-style completed 50,000-page rendered validation until every large-crawl batch has page-level proof and merge readiness is clear.
+- 100,000+ enterprise rendered crawls and browser-container fleet autoscaling are not live yet.
+- Does not provide full-site rank, index, or orphan discovery beyond rendered crawl proof and sitemap inventory samples.
+- Does not provide proprietary backlink discovery beyond supplied/imported link-edge history.
+- Does not provide live keyword volume providers, traffic estimates, or continuous rank tracking yet.
+- Does not scrape private Google Business Profile data or discover every citation automatically.
+- Does not log into WordPress, Shopify, WooCommerce, Magento, or private CMS/plugin admin settings.
 - Does not replace Ahrefs or Semrush.
 - Does not provide anonymous public audits.
 - Does not guarantee rankings, traffic, indexing, or revenue.

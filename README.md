@@ -13,7 +13,19 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Rendered-page audit with Playwright.
 - Static HTML vs rendered DOM comparison.
 - Evidence-backed findings.
-- 10-page private beta crawl with per-page scores and page proof.
+- Self-serve crawl-depth tiers up to 1,000 pages per queued audit, with per-page scores and page proof.
+- High-scale crawl inventory from robots.txt and sitemaps, discovering up to 50,000 sitemap URLs while keeping rendered repair proof separate.
+- Separate large rendered crawl jobs for 50,000-page targets, with 1,000-page batches, stored frontier/proof/retry state, merge-readiness gates, and scale-readiness repair actions.
+- Crawl intelligence from rendered proof, including internal link graph depth, low-inbound pages, sitemap-sample orphan candidates, duplicate titles/descriptions/H1s, near-duplicate content, parameterized internal URLs, and keyword-cannibalization heuristics.
+- Audit history deltas for saved reruns, showing fixed, new, and still-open proven issues against the previous report for the same host.
+- Technical validation pack for broken links, redirecting internal links, broken images, canonical reachability, hreflang mistakes, invalid JSON-LD, HTTPS/HSTS, large assets, and slow rendered loads.
+- PageSpeed Insights / Lighthouse performance proof for public URLs, with mobile score, Core Web Vitals lab metrics, top opportunities, and repair-ready findings.
+- Browser resource-waterfall proof from rendered scans, with request counts, observed transfer size, slow/heavy/render-blocking resource evidence, and repair actions.
+- Self-serve competitor benchmarking for up to five public competitor homepages, with competitor-backed repair gaps added to reports and briefs.
+- Self-serve backlink import audit and import-history tables for supplied rows, with live/lost link proof, risky source signals, broken target checks, anchor concentration flags, and repair actions.
+- Self-serve local SEO audit for supplied business details, Google Business Profile URL, local keywords, and citation URLs, with NAP, LocalBusiness schema, citation consistency, and repair actions.
+- Self-serve keyword/rank import audit and trend-history tables for supplied Search Console or rank-tracker rows, with low-CTR, page-two, zero-click, decline, cannibalization, intent-match, and uncrawled landing-page repair actions; keyword volume imports have a storage path but no live provider yet.
+- Rendered WordPress and ecommerce platform audit for detected stores/CMS pages, with Product schema, BreadcrumbList schema, faceted/variant URLs, WordPress archive links, and plugin resource repair actions.
 - False-positive guard section for static-vs-rendered mismatches.
 - Exact fix snippets for common SEO repairs.
 - Copyable developer repair brief with priority, effort, proof, acceptance checks, and snippets.
@@ -28,6 +40,8 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Single-use self-serve access tokens backed by D1 `access_tokens`.
 - Site ownership claims backed by D1 `site_claims`; non-founder audits require an exact verified host.
 - Queued audit jobs backed by D1 `audit_jobs`, with status polling before the private report loads.
+- Weekly self-serve audit monitors backed by D1 `audit_schedules`, with dashboard controls to add or pause monitors for verified hosts.
+- Self-serve Developer API keys, `/v1/audits` JSON endpoints, project-style verified sites, and audit completion webhooks.
 - Saved private report URLs backed by D1 `audit_reports`, tied to the beta owner email and invite where available.
 - 30-day report retention with cleanup for expired reports, sessions, and quota buckets.
 - D1-backed abuse controls across access links, login, waitlist, network, session, daily, and target-site audit buckets.
@@ -64,9 +78,19 @@ Cloudflare cannot run the local Express + Chromium server directly. The deployab
 - `/api/beta/session` checks the current beta session, and `/api/beta/logout` revokes it
 - `/api/account/summary` powers the customer workspace dashboard
 - `/api/sites`, `/api/sites/claim`, and `/api/sites/verify` manage DNS TXT / HTTPS file site ownership checks
-- `/api/audit` creates a queued job only with a valid beta session; non-founder sessions must verify the exact target host first
+- `/api/audit` creates a queued job only with a valid beta session; non-founder sessions must verify the exact target host first; `maxPages` supports self-serve crawl-depth tiers up to 1,000 pages, optional `renderedCrawlTarget` stores a staged 50K/100K rendered-crawl plan, reports include browser resource-waterfall proof, rendered WordPress/ecommerce platform proof, sitemap crawl inventory up to 50,000 discovered URLs, rendered crawl-intelligence proof, and saved-report deltas against the previous same-host audit, optional `competitorUrls` benchmarks up to five public competitor homepages, optional `backlinkRows`/`backlinkCsv` imports backlink rows for live link-audit proof, optional `keywordRows`/`keywordCsv` imports keyword/rank rows for keyword repair proof, and optional `localSeo` checks supplied local business proof
 - `/api/audit/jobs/:id` returns queued/running/completed/failed status only to the job owner
+- `/api/large-crawls`, `/api/large-crawls/:id`, `/api/large-crawls/:id/retry`, `/api/large-crawls/:id/batches/claim`, `/api/large-crawls/:id/batches/process`, `/api/large-crawls/:id/batches/:batchId/proof`, and `/api/large-crawls/:id/merge` power verified-host large rendered crawl jobs with stored frontier, browser-worker processing, batch progress, retries, proof ingest, previous-crawl metadata, crawl fingerprints, and merge gating
+- `/api/audit/schedules` lists and creates verified-host audit monitors; `/api/audit/schedules/:id` pauses a monitor
+- `/api/developer`, `/api/developer/tokens`, and `/api/developer/webhooks` power self-serve API keys and webhook setup
+- `/v1/audits`, `/v1/audits/:id`, `/v1/audits/:id/issues`, `/v1/audits/:id/report`, `/v1/large-crawls`, `/v1/large-crawls/:id`, and `/v1/projects` expose bearer-token JSON API access; audit creation accepts `max_pages`/`maxPages`, `rendered_crawl_target`/`renderedCrawlTarget`, `competitor_urls`/`competitorUrls`, `backlink_rows`/`backlinkRows`, `keyword_rows`/`keywordRows`, and `local_seo`/`localSeo`
 - `/api/reports/:id` and `/api/reports/:id/brief.md` return saved private reports only to the report owner
+- `/api/branding`, `/api/reports/:id/share`, `/api/reports/:id/shares`, and `/api/report-shares/:id` power white-label client report links
+- `/api/report-domains` and `/api/report-domains/:id/verify` power self-serve verified report subdomains for white-label client links
+- Report-domain verification uses a DNS TXT challenge at `_seofixkit-report-domain.<customer-domain>` before white-label links use that host
+- `/api/reports/:id/client.pdf` generates a branded PDF export for the report owner
+- `/r/:id` and `/r/:id.pdf` render noindex client-facing web and PDF reports with saved agency branding and optional password protection
+- `/api/team`, `/api/team/members`, and `/api/reports/:id/collaboration` power teammate assignees, issue notes, and repair status tracking
 - `/api/beta/fix-request` creates a Dodo checkout session for the one-site SEO Fix Pack when Dodo config is present
 - `/api/billing/summary` powers the private customer billing portal with Dodo pricing, Fix Pack requests, payment history, and truthful subscription state
 - `/api/webhooks/dodo` verifies Dodo Standard Webhooks signatures and marks successful Fix Pack payments
@@ -91,9 +115,13 @@ Apply D1 migrations after creating or changing the waitlist schema:
 wrangler d1 migrations apply seofixkit_waitlist --remote
 ```
 
-Migration `0004_audit_usage.sql` adds the private beta quota table. Migration `0005_beta_controls.sql` adds beta sessions, report ownership, target-host indexing, and report expiry. Migration `0006_ops_funnel.sql` adds invite codes, invite-bound ownership, fix requests, and admin audit logging. Migration `0007_fix_pack_checkout.sql` adds Dodo checkout/payment tracking and webhook idempotency. Migration `0008_fix_pack_fulfillment.sql` adds the paid Fix Pack delivery queue and payment notification log. Migration `0009_product_hardening.sql` adds webhook-only payment guardrails, test request separation, due dates, delivery notification state, status events, admin sessions, and ops digests. Migration `0010_self_serve_access.sql` adds self-serve access tokens and explicit beta session access modes. Migration `0011_site_claims.sql` adds DNS TXT / HTTPS file site ownership verification. Migration `0012_audit_jobs.sql` adds queued audit job status records.
+Migration `0004_audit_usage.sql` adds the private beta quota table. Migration `0005_beta_controls.sql` adds beta sessions, report ownership, target-host indexing, and report expiry. Migration `0006_ops_funnel.sql` adds invite codes, invite-bound ownership, fix requests, and admin audit logging. Migration `0007_fix_pack_checkout.sql` adds Dodo checkout/payment tracking and webhook idempotency. Migration `0008_fix_pack_fulfillment.sql` adds the paid Fix Pack delivery queue and payment notification log. Migration `0009_product_hardening.sql` adds webhook-only payment guardrails, test request separation, due dates, delivery notification state, status events, admin sessions, and ops digests. Migration `0010_self_serve_access.sql` adds self-serve access tokens and explicit beta session access modes. Migration `0011_site_claims.sql` adds DNS TXT / HTTPS file site ownership verification. Migration `0012_audit_jobs.sql` adds queued audit job status records. Migration `0013_audit_schedules.sql` adds weekly audit monitors and links scheduled runs back to audit jobs. Migration `0014_developer_api.sql` adds API keys, webhooks, and delivery logs. Migration `0015_white_label_reports.sql` adds agency branding and client report share links. Migration `0016_team_repair_board.sql` adds teammate assignees and issue-level repair tracking. Migration `0017_competitor_benchmarks.sql` stores queued audit competitor URLs for benchmark reports. Migration `0018_report_domains.sql` adds verified white-label report domains. Migration `0019_backlink_imports.sql` stores queued backlink import rows for link-audit reports. Migration `0020_local_seo_inputs.sql` stores queued local SEO inputs for local proof reports. Migration `0021_keyword_rank_inputs.sql` stores queued keyword/rank import rows for keyword proof reports. Migration `0022_rendered_crawl_targets.sql` stores staged rendered crawl targets for 50K/100K planning. Migration `0023_large_rendered_crawls.sql` adds the separate large-crawl job, batch, frontier, proof, dead-letter, worker-heartbeat, and event tables. Migration `0024_link_keyword_databases.sql` adds backlink import/link-edge tables and keyword rank/volume observation tables.
 
 The protected admin APIs require the `ADMIN_EXPORT_TOKEN` Worker secret. Browser admin use exchanges the token for a short-lived HttpOnly admin session cookie; scripts may still use `Authorization: Bearer ...`. The private beta login uses invite codes or self-serve email links; `BETA_ACCESS_PASSWORD` remains as a founder override only.
+
+Large rendered crawls are expensive and separately entitlement-gated. Founder override sessions can create them locally; non-founder beta/API sessions require `SEOFIXKIT_LARGE_CRAWL_ENABLED=true` until plan billing is wired to account entitlements.
+
+Large-crawl browser workers are also opt-in. Set `SEOFIXKIT_LARGE_CRAWL_WORKERS_ENABLED=true` to let the scheduled Worker process queued batches through Browser Run. `SEOFIXKIT_LARGE_CRAWL_WORKER_BATCHES` and `SEOFIXKIT_LARGE_CRAWL_WORKER_URLS` cap each scheduled tick.
 
 ## Dodo checkout
 
@@ -150,4 +178,4 @@ Payment-success, repair-started, delivery-ready, and daily ops digest emails use
 
 ## Product boundary
 
-This MVP can beat weak SEO audit tools on accuracy and fix quality. It should not claim backlink intelligence, keyword volume, traffic estimates, or rank tracking until those data sources are integrated.
+This MVP can beat weak SEO audit tools on accuracy and fix quality. Competitor benchmarks are public homepage proof snapshots only. Self-serve rendered repair crawl currently supports up to 1,000 pages inside a normal report, while sitemap inventory can discover up to 50,000 URLs and separate large-crawl jobs can store 50,000-page frontier, batch, retry, proof, and incremental-crawl metadata. It should not claim CrawlRaven-style completed 50,000-page rendered validation until every large-crawl batch has page-level proof and merge readiness is clear. Crawl intelligence is based on the rendered crawl and the sitemap inventory sample; orphan URLs and cannibalization are repair heuristics, not full-site rank or index data. Backlink data starts with supplied/imported rows and link-edge history; it does not provide proprietary backlink discovery. Keyword/rank data starts with supplied/imported Search Console or rank-tracker rows and observation history; it does not provide live keyword volume providers, traffic estimates, or continuous rank tracking yet. Local SEO audit uses supplied business details and citation URLs; it does not scrape private Google Business Profile data or discover every citation automatically. Platform SEO audit uses rendered public proof only; it does not log into WordPress, Shopify, WooCommerce, Magento, Google Business Profile, or private plugin/admin settings.
