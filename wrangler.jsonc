@@ -22,10 +22,7 @@
     "DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID": "pdt_0NfFwlntrooPljJUYoXK8",
     "DODO_SEOFIXKIT_ENVIRONMENT": "live",
     "DODO_SEOFIXKIT_ADAPTIVE_CURRENCY_FEES_INCLUSIVE": "true",
-    "PLUNK_FROM_EMAIL": "hello@seofixkit.com",
-    "PLUNK_FROM_NAME": "SEO Fix Kit",
-    "PLUNK_REPLY_TO": "hello@seofixkit.com",
-    "PLUNK_SENDING_DOMAIN": "seofixkit.com"
+    "POSTMARK_MESSAGE_STREAM": "outbound"
   },
   "assets": {
     "directory": "./dist",
