@@ -13,7 +13,7 @@ import {
   buildPaymentNotificationEmail,
   buildStatusNotificationEmail,
   fixRequestStatusLabel,
-  isPostmarkEmailConfigured,
+  isEmailConfigured,
   normalizeFixRequestStatus
 } from "../shared/fulfillment.js";
 
@@ -94,17 +94,20 @@ assert.equal(fixRequestStatusLabel("refunded"), "Refunded");
 assert.equal(ADMIN_EDITABLE_FIX_REQUEST_STATUSES.has("paid"), false);
 assert.equal(ADMIN_EDITABLE_FIX_REQUEST_STATUSES.has("delivered"), true);
 assert.equal(DODO_REFUND_SUCCESS_EVENTS.has("refund.succeeded"), true);
-assert.equal(isPostmarkEmailConfigured({}), false);
+const fakeEmailBinding = { send: async () => ({ messageId: "test-message-id" }) };
+assert.equal(isEmailConfigured({}), false);
+assert.equal(isEmailConfigured({ SEOFIXKIT_EMAIL_FROM: "hello@seofixkit.com" }), false);
+assert.equal(isEmailConfigured({ EMAIL: fakeEmailBinding }), false);
 assert.equal(
-  isPostmarkEmailConfigured({
-    POSTMARK_SERVER_TOKEN: "POSTMARK_API_TEST",
+  isEmailConfigured({
+    EMAIL: fakeEmailBinding,
     SEOFIXKIT_EMAIL_FROM: "hello@seofixkit.com"
   }),
   true
 );
 assert.equal(
-  isPostmarkEmailConfigured({
-    POSTMARK_SERVER_TOKEN: "server-token",
+  isEmailConfigured({
+    EMAIL: fakeEmailBinding,
     SEOFIXKIT_EMAIL_FROM: "SEO Fix Kit <hello@seofixkit.com>"
   }),
   true

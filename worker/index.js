@@ -27,7 +27,7 @@ import {
   buildPaymentNotificationEmail,
   buildStatusNotificationEmail,
   fixRequestStatusLabel,
-  isPostmarkEmailConfigured,
+  isEmailConfigured,
   normalizeFixRequestStatus
 } from "../shared/fulfillment.js";
 import {
@@ -157,7 +157,7 @@ const FIX_PACK_OFFER = {
 const FIX_PACK_DUE_DAYS = 5;
 const FIX_PACK_NEXT_UPDATE_DAYS = 2;
 const PAID_LIKE_FIX_REQUEST_STATUSES = new Set(["paid", "in_progress", "delivered"]);
-const POSTMARK_API_BASE_URL = "https://api.postmarkapp.com";
+const EMAIL_PROVIDER = "cloudflare_email";
 
 export default {
   async scheduled(_event, env, ctx) {
@@ -186,7 +186,7 @@ export default {
           runtime: "cloudflare-worker",
           browserRun: Boolean(env.BROWSER),
           waitlistDb: Boolean(env.WAITLIST_DB),
-          emailNotifications: isPostmarkEmailConfigured(env),
+          emailNotifications: isEmailConfigured(env),
           version: VERSION
         });
       }
@@ -680,7 +680,7 @@ async function requestAccessLink(request, env) {
   const quota = await accessLinkQuotaStatus(request, env, ownerEmail);
   if (!quota.ok) return jsonNoStore({ error: quota.error, resetAt: quota.resetAt }, 429);
 
-  if (!isPostmarkEmailConfigured(env)) {
+  if (!isEmailConfigured(env)) {
     return jsonNoStore({ error: "Access email is not configured yet. Use an invite code for now." }, 503);
   }
 
@@ -796,66 +796,34 @@ async function sendAccessLinkEmail(env, { ownerEmail, accessUrl, expiresAt, toke
     "<p>SEO Fix Kit audits produce proof-backed repair briefs. No ranking promises are made.</p>"
   ].join("");
 
-  return sendPostmarkEmail(
-    env,
-    postmarkMessage(env, {
-      to: ownerEmail,
-      subject,
-      text,
-      html,
-      tag: "access-link"
-    }),
-    "seo-fix-kit-worker/0.11"
-  );
-}
-
-function postmarkMessage(env, { to, subject, text, html, tag, metadata = {} }) {
-  const replyTo = normalizeEmail(env.SEOFIXKIT_REPLY_TO || env.POSTMARK_REPLY_TO || "");
-  return {
-    From: postmarkSender(env),
-    To: Array.isArray(to) ? to.join(",") : to,
-    Subject: subject,
-    TextBody: text,
-    HtmlBody: html,
-    MessageStream: String(env.POSTMARK_MESSAGE_STREAM || "outbound").trim() || "outbound",
-    TrackOpens: false,
-    TrackLinks: "None",
-    ...(tag ? { Tag: tag } : {}),
-    ...(replyTo ? { ReplyTo: replyTo } : {}),
-    ...(Object.keys(metadata).length ? { Metadata: metadata } : {})
-  };
-}
-
-function postmarkSender(env) {
-  return String(env.SEOFIXKIT_EMAIL_FROM || env.POSTMARK_FROM_EMAIL || "").trim();
-}
-
-function postmarkMessageId(payload) {
-  return payload?.MessageID || payload?.MessageId || "";
-}
-
-async function sendPostmarkEmail(env, body, userAgent) {
-  const baseUrl = String(env.POSTMARK_API_BASE_URL || POSTMARK_API_BASE_URL).replace(/\/+$/, "");
-  const response = await fetch(`${baseUrl}/email`, {
-    method: "POST",
-    headers: {
-      "X-Postmark-Server-Token": env.POSTMARK_SERVER_TOKEN,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      "User-Agent": userAgent
-    },
-    body: JSON.stringify(body)
+  return sendWorkerEmail(env, {
+    to: ownerEmail,
+    subject,
+    text,
+    html,
+    tag: "access-link"
   });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || Number(payload?.ErrorCode || 0) !== 0) {
-    const message =
-      payload?.Message ||
-      payload?.message ||
-      payload?.error ||
-      `Postmark returned ${response.status}`;
-    throw new Error(String(message));
-  }
-  return payload;
+}
+
+function emailSender(env) {
+  return String(env.SEOFIXKIT_EMAIL_FROM || "").trim();
+}
+
+async function sendWorkerEmail(env, { to, subject, text, html, tag }) {
+  const replyTo = normalizeEmail(env.SEOFIXKIT_REPLY_TO || env.POSTMARK_REPLY_TO || "");
+  const headers = {
+    ...(tag ? { "X-SEOFIXKIT-Tag": tag } : {}),
+    ...(replyTo ? { "Reply-To": replyTo } : {})
+  };
+  const result = await env.EMAIL.send({
+    from: emailSender(env),
+    to: Array.isArray(to) ? to.join(",") : to,
+    subject,
+    html,
+    text,
+    ...(Object.keys(headers).length ? { headers } : {})
+  });
+  return { messageId: result?.messageId || "" };
 }
 
 async function recordWaitlistLead(request, env, email, body = {}, sourceFallback = "locked-homepage", now = new Date().toISOString()) {
@@ -1124,7 +1092,7 @@ async function getAdminSummary(request, env) {
       fixRequestStatuses: Object.fromEntries(
         (fixStatusCounts.results || []).map((row) => [row.status || "unknown", row.count || 0])
       ),
-      emailNotificationsConfigured: isPostmarkEmailConfigured(env)
+      emailNotificationsConfigured: isEmailConfigured(env)
     },
     opsHealth,
     paymentHealth: {
@@ -6657,23 +6625,23 @@ async function sendFixPackPaymentEmail({
       recipientType,
       recipientEmail: "",
       status: "skipped",
-      provider: "postmark",
+      provider: EMAIL_PROVIDER,
       error: "missing_recipient"
     });
     return { recipientType, status: "skipped", error: "missing_recipient" };
   }
 
-  if (!isPostmarkEmailConfigured(env)) {
+  if (!isEmailConfigured(env)) {
     await logFixRequestNotification(env, {
       fixRequestId: fixRequest.id,
       event,
       recipientType,
       recipientEmail,
       status: "skipped",
-      provider: "postmark",
-      error: "missing_postmark_config"
+      provider: EMAIL_PROVIDER,
+      error: "missing_email_config"
     });
-    return { recipientType, status: "skipped", error: "missing_postmark_config" };
+    return { recipientType, status: "skipped", error: "missing_email_config" };
   }
 
   const email = buildPaymentNotificationEmail({
@@ -6684,29 +6652,21 @@ async function sendFixPackPaymentEmail({
     recipientType
   });
   try {
-    const payload = await sendPostmarkEmail(
-      env,
-      postmarkMessage(env, {
-        to: recipientEmail,
-        subject: email.subject,
-        text: email.text,
-        html: email.html,
-        tag: "fix-pack-payment",
-        metadata: {
-          fix_request_id: String(fixRequest.id || ""),
-          recipient_type: recipientType
-        }
-      }),
-      "seo-fix-kit-worker/0.11"
-    );
-    const providerMessageId = postmarkMessageId(payload);
+    const payload = await sendWorkerEmail(env, {
+      to: recipientEmail,
+      subject: email.subject,
+      text: email.text,
+      html: email.html,
+      tag: "fix-pack-payment"
+    });
+    const providerMessageId = payload.messageId;
     await logFixRequestNotification(env, {
       fixRequestId: fixRequest.id,
       event,
       recipientType,
       recipientEmail,
       status: "sent",
-      provider: "postmark",
+      provider: EMAIL_PROVIDER,
       providerMessageId
     });
     return { recipientType, status: "sent", providerMessageId };
@@ -6718,7 +6678,7 @@ async function sendFixPackPaymentEmail({
       recipientType,
       recipientEmail,
       status: "error",
-      provider: "postmark",
+      provider: EMAIL_PROVIDER,
       error: message
     });
     return { recipientType, status: "error", error: message };
@@ -6804,23 +6764,23 @@ async function sendFixPackStatusEmail({
       recipientType,
       recipientEmail: "",
       status: "skipped",
-      provider: "postmark",
+      provider: EMAIL_PROVIDER,
       error: "missing_recipient"
     });
     return { recipientType, status: "skipped", error: "missing_recipient" };
   }
 
-  if (!isPostmarkEmailConfigured(env)) {
+  if (!isEmailConfigured(env)) {
     await logFixRequestNotification(env, {
       fixRequestId: fixRequest.id,
       event,
       recipientType,
       recipientEmail,
       status: "skipped",
-      provider: "postmark",
-      error: "missing_postmark_config"
+      provider: EMAIL_PROVIDER,
+      error: "missing_email_config"
     });
-    return { recipientType, status: "skipped", error: "missing_postmark_config" };
+    return { recipientType, status: "skipped", error: "missing_email_config" };
   }
 
   const email = buildStatusNotificationEmail({
@@ -6832,30 +6792,21 @@ async function sendFixPackStatusEmail({
     recipientType
   });
   try {
-    const payload = await sendPostmarkEmail(
-      env,
-      postmarkMessage(env, {
-        to: recipientEmail,
-        subject: email.subject,
-        text: email.text,
-        html: email.html,
-        tag: event === "delivery_ready" ? "fix-pack-delivery" : "fix-pack-status",
-        metadata: {
-          fix_request_id: String(fixRequest.id || ""),
-          recipient_type: recipientType,
-          status: String(status || "")
-        }
-      }),
-      "seo-fix-kit-worker/0.11"
-    );
-    const providerMessageId = postmarkMessageId(payload);
+    const payload = await sendWorkerEmail(env, {
+      to: recipientEmail,
+      subject: email.subject,
+      text: email.text,
+      html: email.html,
+      tag: event === "delivery_ready" ? "fix-pack-delivery" : "fix-pack-status"
+    });
+    const providerMessageId = payload.messageId;
     await logFixRequestNotification(env, {
       fixRequestId: fixRequest.id,
       event,
       recipientType,
       recipientEmail,
       status: "sent",
-      provider: "postmark",
+      provider: EMAIL_PROVIDER,
       providerMessageId
     });
     return { recipientType, status: "sent", providerMessageId };
@@ -6867,7 +6818,7 @@ async function sendFixPackStatusEmail({
       recipientType,
       recipientEmail,
       status: "error",
-      provider: "postmark",
+      provider: EMAIL_PROVIDER,
       error: message
     });
     return { recipientType, status: "error", error: message };
@@ -10224,7 +10175,7 @@ async function sendDailyOpsDigest(env) {
     snapshot = await buildOpsSnapshot(env);
     const appOrigin = String(env.SEOFIXKIT_APP_ORIGIN || "https://seofixkit.com").replace(/\/+$/, "");
     const adminEmail = adminNotificationEmail(env);
-    if (!adminEmail || !isPostmarkEmailConfigured(env)) {
+    if (!adminEmail || !isEmailConfigured(env)) {
       await env.WAITLIST_DB.prepare(
         `UPDATE ops_digest_runs SET status = 'skipped', summary_json = ?, error = ?, updated_at = ? WHERE digest_key = ?`
       )
@@ -10234,17 +10185,13 @@ async function sendDailyOpsDigest(env) {
     }
 
     const email = buildOpsDigestEmail({ appOrigin, snapshot });
-    await sendPostmarkEmail(
-      env,
-      postmarkMessage(env, {
-        to: adminEmail,
-        subject: email.subject,
-        text: email.text,
-        html: email.html,
-        tag: "ops-digest"
-      }),
-      "seo-fix-kit-worker/0.11"
-    );
+    await sendWorkerEmail(env, {
+      to: adminEmail,
+      subject: email.subject,
+      text: email.text,
+      html: email.html,
+      tag: "ops-digest"
+    });
     await env.WAITLIST_DB.prepare(
       `UPDATE ops_digest_runs SET status = 'sent', summary_json = ?, sent_at = ?, error = '', updated_at = ? WHERE digest_key = ?`
     )
@@ -10875,13 +10822,13 @@ function privacyHtml(origin) {
         <li>We store your email address, signup source, UTM fields, landing path, referrer, browser user agent, country code when Cloudflare provides it, signup timestamps, and short-lived access-link records.</li>
         <li>Private audits store the website URL, rendered-page audit findings, screenshots or extracted page facts when available, report owner, beta session reference, target host, and report expiry timestamp.</li>
         <li>Fix Pack records store checkout status, Dodo payment identifiers, payment amount and currency, fulfillment notes, final rerun report links, delivery notifications, and admin audit events.</li>
-        <li>Cloudflare hosts the app and database. Dodo processes checkout and payment webhooks. Postmark sends access, payment, delivery, and ops emails.</li>
+        <li>Cloudflare hosts the app and database. Dodo processes checkout and payment webhooks. Cloudflare Email Service sends access, payment, delivery, and ops emails.</li>
         <li>Reports are retained for 30 days unless removed earlier. Admin logs, payment records, and notification logs are kept for operating, support, abuse prevention, and payment reconciliation.</li>
         <li>We do not sell your email address.</li>
         <li>We do not send unrelated promotions.</li>
         <li>To request deletion of beta data, reply to any email we send or use the support path.</li>
       </ul>
-      <p>Last updated: May 21, 2026.</p>
+      <p>Last updated: June 11, 2026.</p>
     </main>
   </body>
 </html>`;

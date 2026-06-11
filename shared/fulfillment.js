@@ -36,10 +36,10 @@ export function fixRequestStatusLabel(status) {
   return labels[normalizeFixRequestStatus(status)] || labels.new;
 }
 
-export function isPostmarkEmailConfigured(env) {
-  const serverToken = String(env?.POSTMARK_SERVER_TOKEN || "").trim();
-  const fromEmail = normalizeEmail(senderEmail(env?.SEOFIXKIT_EMAIL_FROM || env?.POSTMARK_FROM_EMAIL || ""));
-  return Boolean(serverToken && fromEmail);
+export function isEmailConfigured(env) {
+  const emailBindingReady = typeof env?.EMAIL?.send === "function";
+  const fromEmail = normalizeEmail(senderEmail(env?.SEOFIXKIT_EMAIL_FROM || ""));
+  return Boolean(emailBindingReady && fromEmail);
 }
 
 export function adminNotificationEmail(env) {
