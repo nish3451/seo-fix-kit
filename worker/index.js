@@ -1305,6 +1305,9 @@ async function updateFixRequestAdmin(request, env) {
   const updated = await env.WAITLIST_DB.prepare("SELECT * FROM fix_requests WHERE id = ? LIMIT 1")
     .bind(id)
     .first();
+  if (updated && PRESERVED_FIX_REQUEST_STATUSES.includes(updated.status)) {
+    await preserveFixRequestReports(env, updated);
+  }
   if (requestedStatus === "in_progress" && existing.status !== "in_progress") {
     await notifyFixRequestStatus(env, updated, "in_progress");
   }
@@ -5977,6 +5980,21 @@ function isAllowedAdminStatusTransition(currentStatus, requestedStatus) {
   return Boolean(allowed[current]?.has(requested));
 }
 
+const PRESERVED_FIX_REQUEST_STATUSES = ["paid", "in_progress", "delivered", "refunded", "refund_failed", "disputed"];
+
+async function preserveFixRequestReports(env, fixRequest) {
+  const ids = [fixRequest?.report_id, fixRequest?.final_report_id]
+    .map((value) => String(value || ""))
+    .filter((value) => isSafeReportId(value));
+  if (!ids.length) return;
+  const placeholders = ids.map(() => "?").join(", ");
+  await env.WAITLIST_DB.prepare(
+    `UPDATE audit_reports SET expires_at = NULL, updated_at = ? WHERE id IN (${placeholders})`
+  )
+    .bind(new Date().toISOString(), ...ids)
+    .run();
+}
+
 async function validateFinalReportForFixRequest(env, fixRequest, finalReportId) {
   if (!isSafeReportId(finalReportId)) return { ok: false, error: "Final rerun report was not found." };
   const row = await env.WAITLIST_DB.prepare(
@@ -6372,6 +6390,7 @@ async function processDodoPaymentWebhook(env, eventType, payment, webhookId = ""
     const updated = await env.WAITLIST_DB.prepare("SELECT * FROM fix_requests WHERE id = ? LIMIT 1")
       .bind(fixRequest.id)
       .first();
+    await preserveFixRequestReports(env, updated || fixRequest);
     return {
       ok: true,
       status: "processed",
@@ -7117,6 +7136,9 @@ async function getSavedReport(request, env) {
 
   const report = JSON.parse(row.report_json);
   report.reportUrl = `${url.origin}${report.reportPath || `/beta/reports/${id}`}`;
+  if (!row.expires_at && report.retention) {
+    report.retention = { ...report.retention, expiresAt: "", preserved: true };
+  }
 
   if (wantsBrief) {
     return new Response(report.repairBrief || "# SEO Fix Kit repair brief\n", {
@@ -10396,7 +10418,19 @@ function isoDaysFromDate(value, days) {
 async function cleanupExpiredRows(env) {
   const now = new Date().toISOString();
   await env.WAITLIST_DB.batch([
-    env.WAITLIST_DB.prepare(`DELETE FROM audit_reports WHERE expires_at IS NOT NULL AND expires_at < ?`).bind(now),
+    env.WAITLIST_DB.prepare(
+      `DELETE FROM audit_reports
+       WHERE expires_at IS NOT NULL AND expires_at < ?
+         AND id NOT IN (
+           SELECT report_id FROM fix_requests
+           WHERE report_id IS NOT NULL AND report_id != ''
+             AND status IN ('paid', 'in_progress', 'delivered', 'refunded', 'refund_failed', 'disputed')
+           UNION
+           SELECT final_report_id FROM fix_requests
+           WHERE final_report_id IS NOT NULL AND final_report_id != ''
+             AND status IN ('paid', 'in_progress', 'delivered', 'refunded', 'refund_failed', 'disputed')
+         )`
+    ).bind(now),
     env.WAITLIST_DB.prepare(`DELETE FROM audit_jobs WHERE expires_at IS NOT NULL AND expires_at < ?`).bind(now),
     env.WAITLIST_DB.prepare(`DELETE FROM access_tokens WHERE expires_at < ? OR (used_at IS NOT NULL AND used_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),
     env.WAITLIST_DB.prepare(`DELETE FROM beta_sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),
