@@ -17,12 +17,16 @@
   "triggers": {
     "crons": ["17 3 * * *"]
   },
+  "send_email": [
+    {
+      "name": "EMAIL"
+    }
+  ],
   "vars": {
     "DODO_SEOFIXKIT_BRAND_ID": "brnd_0NfFwMVcHJSgp3RkhFpTi",
     "DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID": "pdt_0NfFwlntrooPljJUYoXK8",
     "DODO_SEOFIXKIT_ENVIRONMENT": "live",
-    "DODO_SEOFIXKIT_ADAPTIVE_CURRENCY_FEES_INCLUSIVE": "true",
-    "POSTMARK_MESSAGE_STREAM": "outbound"
+    "DODO_SEOFIXKIT_ADAPTIVE_CURRENCY_FEES_INCLUSIVE": "true"
   },
   "assets": {
     "directory": "./dist",

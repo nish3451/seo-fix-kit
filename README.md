@@ -142,7 +142,6 @@ Cloudflare secrets hold private credentials:
 
 - `DODO_SEOFIXKIT_API_KEY`
 - `DODO_SEOFIXKIT_WEBHOOK_SECRET`
-- `POSTMARK_SERVER_TOKEN`
 - `SEOFIXKIT_EMAIL_FROM`
 
 The Dodo webhook endpoint is:
@@ -157,14 +156,11 @@ Paid requests move through `checkout_created`, webhook-only `paid`, `in_progress
 
 The admin queue can assign an owner, keep private notes, set customer-visible notes, set due and next-update times, attach a delivery URL, and link a validated final rerun report. Delivery requires a customer note, delivery link, and final rerun report for the same owner, same host, and after payment.
 
-Payment-success, repair-started, delivery-ready, and daily ops digest emails use Postmark from the Worker. These Worker values must be set before email can send:
+Access-link, payment-success, repair-started, delivery-ready, and daily ops digest emails use Cloudflare Email Service from the Worker through the `EMAIL` `send_email` binding in `wrangler.jsonc`. No API key is needed, but `seofixkit.com` must be onboarded to Email Service in the Cloudflare dashboard, and these Worker values must be set before email can send:
 
-- `POSTMARK_SERVER_TOKEN`
-- `SEOFIXKIT_EMAIL_FROM` (for example `hello@seofixkit.com`, on a verified Postmark sender or domain)
+- `SEOFIXKIT_EMAIL_FROM` (for example `hello@seofixkit.com`, on the onboarded Email Service domain)
 - `SEOFIXKIT_ADMIN_EMAIL`
 - optional `SEOFIXKIT_REPLY_TO`
-- optional `POSTMARK_API_BASE_URL`
-- optional `POSTMARK_MESSAGE_STREAM` (defaults to `outbound`)
 
 ## Custom domain
 
