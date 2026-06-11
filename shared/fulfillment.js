@@ -65,6 +65,7 @@ export function buildPaymentNotificationEmail({ appOrigin, fixRequest, report, p
     payment?.paymentId ? `Payment ID: ${payment.paymentId}` : "",
     "",
     "Next status: repair in progress.",
+    "Your paid report stays available in your workspace and does not expire.",
     "No ranking promises are made; this covers the proven repair queue and one rerun after fixes."
   ]
     .filter((line) => line !== "")
@@ -83,6 +84,7 @@ export function buildPaymentNotificationEmail({ appOrigin, fixRequest, report, p
     payment?.paymentId ? `<li><strong>Payment ID:</strong> ${escapeHtml(payment.paymentId)}</li>` : "",
     "</ul>",
     "<p>Next status: repair in progress.</p>",
+    "<p>Your paid report stays available in your workspace and does not expire.</p>",
     "<p>No ranking promises are made; this covers the proven repair queue and one rerun after fixes.</p>"
   ]
     .filter(Boolean)
@@ -145,6 +147,7 @@ export function buildStatusNotificationEmail({
     ...timeline,
     ...proof,
     "",
+    "Your paid reports stay available in your workspace and do not expire.",
     "No ranking promises are made; this covers the proven repair queue and one rerun after fixes."
   ]
     .filter((line) => line !== "")
@@ -162,6 +165,7 @@ export function buildStatusNotificationEmail({
     fixRequest.next_update_at ? `<li><strong>Next update by:</strong> ${escapeHtml(fixRequest.next_update_at)}</li>` : "",
     ...proof.map((line) => `<li>${escapeHtml(line)}</li>`),
     "</ul>",
+    "<p>Your paid reports stay available in your workspace and do not expire.</p>",
     "<p>No ranking promises are made; this covers the proven repair queue and one rerun after fixes.</p>"
   ]
     .filter(Boolean)
