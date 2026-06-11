@@ -163,6 +163,11 @@ export default {
   async scheduled(_event, env, ctx) {
     if (env.WAITLIST_DB) {
       ctx.waitUntil(cleanupExpiredRows(env));
+      ctx.waitUntil(
+        failStaleRunningAuditJobs(env).then(() =>
+          resumeStaleQueuedAuditJobs(env, { appOrigin: "https://seofixkit.com" })
+        )
+      );
       ctx.waitUntil(runDueAuditSchedules(env));
       if (String(env.SEOFIXKIT_LARGE_CRAWL_WORKERS_ENABLED || "").toLowerCase() === "true") {
         ctx.waitUntil(runDueLargeRenderedCrawlWorkers(env));
@@ -1470,6 +1475,7 @@ async function runPrivateAudit(request, env, ctx) {
   );
   const maxPages = clampPageLimit(body.maxPages || 10);
 
+  await failStaleRunningAuditJobs(env, access.ownerEmail);
   const existingJob = await activeAuditJobForTarget(env, access, targetUrl, competitorUrls, backlinkRows, localSeo, keywordRows, renderedCrawlTarget, maxPages);
   if (existingJob) {
     return jsonNoStore(
@@ -2440,6 +2446,7 @@ async function apiCreateAudit(request, env, ctx) {
     body.rendered_crawl_target || body.renderedCrawlTarget || body.crawlScaleTarget || 0
   );
   const maxPages = clampPageLimit(body.max_pages || body.maxPages || 10);
+  await failStaleRunningAuditJobs(env, access.ownerEmail);
   const existingJob = await activeAuditJobForTarget(env, access, targetUrl, competitorUrls, backlinkRows, localSeo, keywordRows, renderedCrawlTarget, maxPages);
   if (existingJob) {
     return jsonNoStore(
@@ -3984,6 +3991,66 @@ async function runAuditSchedule(env, schedule) {
   }
 }
 
+const AUDIT_JOB_RUNNING_STALE_MINUTES = 20;
+const AUDIT_JOB_QUEUED_STALE_MINUTES = 10;
+const AUDIT_JOB_TIMEOUT_MESSAGE = "The audit timed out before finishing. Run it again.";
+
+async function failStaleRunningAuditJobs(env, ownerEmail = "") {
+  if (!env.WAITLIST_DB) return 0;
+  const cutoff = isoSecondsFromNow(-AUDIT_JOB_RUNNING_STALE_MINUTES * 60);
+  let where = `status = 'running' AND started_at IS NOT NULL AND started_at < ?`;
+  const params = [cutoff];
+  if (ownerEmail) {
+    where += " AND owner_email = ?";
+    params.push(ownerEmail);
+  }
+  const rows = await env.WAITLIST_DB.prepare(
+    `SELECT id, schedule_id FROM audit_jobs WHERE ${where} LIMIT 25`
+  )
+    .bind(...params)
+    .all();
+  let failedCount = 0;
+  for (const job of rows.results || []) {
+    const now = new Date().toISOString();
+    const updated = await env.WAITLIST_DB.prepare(
+      `UPDATE audit_jobs
+       SET status = 'failed', error = ?, completed_at = ?, updated_at = ?
+       WHERE id = ? AND status = 'running' AND started_at < ?`
+    )
+      .bind(AUDIT_JOB_TIMEOUT_MESSAGE, now, now, job.id, cutoff)
+      .run();
+    if (Number(updated?.meta?.changes || 0) !== 1) continue;
+    failedCount += 1;
+    if (job.schedule_id) {
+      await env.WAITLIST_DB.prepare(
+        `UPDATE audit_schedules SET last_error = ?, next_run_at = ?, updated_at = ? WHERE id = ?`
+      )
+        .bind(AUDIT_JOB_TIMEOUT_MESSAGE, isoDaysFromDate(now, 1), now, job.schedule_id)
+        .run();
+    }
+  }
+  return failedCount;
+}
+
+async function resumeStaleQueuedAuditJobs(env, context = {}) {
+  if (!env.WAITLIST_DB) return 0;
+  const cutoff = isoSecondsFromNow(-AUDIT_JOB_QUEUED_STALE_MINUTES * 60);
+  const rows = await env.WAITLIST_DB.prepare(
+    `SELECT id FROM audit_jobs
+     WHERE status = 'queued' AND created_at < ?
+     ORDER BY created_at ASC
+     LIMIT 3`
+  )
+    .bind(cutoff)
+    .all();
+  let resumed = 0;
+  for (const job of rows.results || []) {
+    await processAuditJob(env, job.id, context);
+    resumed += 1;
+  }
+  return resumed;
+}
+
 async function processAuditJob(env, jobId, context = {}) {
   if (!env.WAITLIST_DB || !isSafeUuid(jobId)) return;
 
@@ -4101,7 +4168,7 @@ async function getAuditJob(request, env) {
   const id = decodeURIComponent(url.pathname.slice("/api/audit/jobs/".length));
   if (!isSafeUuid(id)) return json({ error: "Audit job not found." }, 404);
 
-  const row = await env.WAITLIST_DB.prepare(
+  let row = await env.WAITLIST_DB.prepare(
     `SELECT *
      FROM audit_jobs
      WHERE id = ? AND owner_email = ?
@@ -4110,6 +4177,18 @@ async function getAuditJob(request, env) {
     .bind(id, access.ownerEmail)
     .first();
   if (!row?.id) return json({ error: "Audit job not found." }, 404);
+
+  if (
+    row.status === "running" &&
+    row.started_at &&
+    row.started_at < isoSecondsFromNow(-AUDIT_JOB_RUNNING_STALE_MINUTES * 60)
+  ) {
+    await failStaleRunningAuditJobs(env, access.ownerEmail);
+    row = await env.WAITLIST_DB.prepare(`SELECT * FROM audit_jobs WHERE id = ? AND owner_email = ? LIMIT 1`)
+      .bind(id, access.ownerEmail)
+      .first();
+    if (!row?.id) return json({ error: "Audit job not found." }, 404);
+  }
 
   return jsonNoStore({
     ok: true,
