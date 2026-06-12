@@ -1,11 +1,14 @@
 import http from "node:http";
-import { auditUrl } from "./analyzer.js";
+import { auditUrl } from "./engine.js";
 import {
   appendReportDeltaBrief,
   buildReportDelta
 } from "../../shared/report-delta.js";
 
-const target = process.env.TEST_URL || "https://aiconverter.app/";
+// The production engine has no static fallback when rendering fails, so the
+// live target must reach network idle. aiconverter.app keeps analytics/ad
+// connections open and never idles; the product site renders clean.
+const target = process.env.TEST_URL || "https://seofixkit.com/";
 
 const report = await auditUrl(target, { maxPages: 2, pageSpeed: false });
 
