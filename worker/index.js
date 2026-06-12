@@ -85,6 +85,54 @@ import {
   publicAuditUrlStatus,
   rootSitemap
 } from "../shared/audit-engine.js";
+import {
+  EMAIL_PROVIDER,
+  sendWorkerEmail
+} from "./lib/email.js";
+import {
+  cookieValue,
+  json,
+  jsonNoStore,
+  secureHeaders,
+  withPrivateHeaders,
+  withSecurityHeaders
+} from "./lib/http.js";
+import {
+  checkQuotaSet,
+  constantTimeEqual,
+  csvCell,
+  hmacSha256Hex,
+  randomToken,
+  requestIpHash,
+  sha256Hex,
+  workerLargeCrawlId
+} from "./lib/security.js";
+import {
+  claimHostFromInput,
+  clampScheduleInterval,
+  cleanAccessMode,
+  cleanAccessToken,
+  cleanInviteCode,
+  cleanIsoDateText,
+  cleanReportDomain,
+  cleanText,
+  cleanUrlText,
+  dayWindow,
+  hourWindow,
+  isSafeReportId,
+  isSafeUuid,
+  isoDaysFromDate,
+  isoDaysFromNow,
+  isoSecondsFromNow,
+  normalizeDnsHost,
+  normalizeDnsTxt,
+  normalizeEmail,
+  parseJson,
+  randomHex,
+  safeHostname,
+  scheduleCadenceLabel,
+  workerAppHost
+} from "./lib/text.js";
 
 const SESSION_COOKIE = "sfk_beta_session";
 const ADMIN_SESSION_COOKIE = "sfk_admin_session";
@@ -107,8 +155,6 @@ const FIX_PACK_NEXT_UPDATE_DAYS = 2;
 const PAID_LIKE_FIX_REQUEST_STATUSES = new Set(["paid", "in_progress", "delivered"]);
 const REBUY_BLOCKED_FIX_REQUEST_STATUSES = new Set(["refunded", "refund_failed", "disputed"]);
 const CHECKOUT_URL_TTL_HOURS = 24;
-const EMAIL_PROVIDER = "cloudflare_email";
-
 export default {
   async scheduled(_event, env, ctx) {
     if (env.WAITLIST_DB) {
@@ -782,31 +828,6 @@ async function sendAccessLinkEmail(env, { ownerEmail, accessUrl, expiresAt, toke
     html,
     tag: "access-link"
   });
-}
-
-function emailSender(env) {
-  return String(env.SEOFIXKIT_EMAIL_FROM || "").trim();
-}
-
-const SUPPORT_EMAIL = "support@seofixkit.com";
-const EMAIL_FOOTER_TEXT = `\n\n--\nSEO Fix Kit · https://seofixkit.com\nQuestions or issues? Email ${SUPPORT_EMAIL}.`;
-const EMAIL_FOOTER_HTML = `<hr style="border:none;border-top:1px solid #dddddd;margin:24px 0 12px" /><p style="color:#666666;font-size:13px">SEO Fix Kit · <a href="https://seofixkit.com">seofixkit.com</a> · Questions or issues? Email <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.</p>`;
-
-async function sendWorkerEmail(env, { to, subject, text, html, tag }) {
-  // Reply-To must use the binding's replyTo field; Email Service rejects it as
-  // a custom header (only whitelisted and X-* headers are accepted). The
-  // binding also takes string[] for multiple recipients directly.
-  const replyTo = normalizeEmail(env.SEOFIXKIT_REPLY_TO || env.POSTMARK_REPLY_TO || "");
-  const result = await env.EMAIL.send({
-    from: emailSender(env),
-    to,
-    subject,
-    html: `${html || ""}${EMAIL_FOOTER_HTML}`,
-    text: `${text || ""}${EMAIL_FOOTER_TEXT}`,
-    ...(replyTo ? { replyTo } : {}),
-    ...(tag ? { headers: { "X-SEOFIXKIT-Tag": tag } } : {})
-  });
-  return { messageId: result?.messageId || "" };
 }
 
 async function recordWaitlistLead(request, env, email, body = {}, sourceFallback = "locked-homepage", now = new Date().toISOString()) {
@@ -3702,10 +3723,6 @@ function stripUrlHash(value = "") {
   }
 }
 
-function workerLargeCrawlId(prefix = "lc") {
-  return `${prefix}_${crypto.randomUUID()}`;
-}
-
 async function largeCrawlFingerprint(targetUrl = "", frontierRows = []) {
   return sha256Hex([
     targetUrl,
@@ -5888,18 +5905,6 @@ async function readSmallText(response, maxBytes) {
   return new TextDecoder().decode(bytes);
 }
 
-function normalizeDnsTxt(value) {
-  return String(value || "")
-    .replace(/\\"/g, '"')
-    .replaceAll('" "', "")
-    .replaceAll('"', "")
-    .trim();
-}
-
-function normalizeDnsHost(value) {
-  return cleanReportDomain(String(value || "").replace(/\.$/, ""));
-}
-
 async function billingPricingState(request, env, access, config) {
   if (!config.checkoutReady) {
     return {
@@ -7442,82 +7447,6 @@ async function auditUrl(inputUrl, env, options = {}) {
   return engine.auditUrl(inputUrl, options);
 }
 
-function cleanReportDomain(input) {
-  let value = String(input || "").trim().toLowerCase();
-  if (!value) return "";
-  value = value.replace(/^https?:\/\//, "").split("/")[0].split("?")[0].split("#")[0].replace(/\.$/, "");
-  value = value.split(":")[0];
-  if (value.length < 4 || value.length > 253) return "";
-  if (!value.includes(".")) return "";
-  if (/[^a-z0-9.-]/.test(value)) return "";
-  if (value.includes("..") || value.startsWith(".") || value.endsWith(".")) return "";
-  if (value === "localhost" || value.endsWith(".localhost")) return "";
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(value)) return "";
-  if (value.endsWith(".internal") || value.endsWith(".invalid")) return "";
-  return value;
-}
-
-function workerAppHost(host = "", env = {}) {
-  const clean = cleanReportDomain(host);
-  if (!clean) return true;
-  const appHosts = new Set(
-    [
-      "seofixkit.com",
-      "www.seofixkit.com",
-      ...String(env.SEOFIXKIT_APP_HOSTS || "")
-        .split(",")
-        .map((value) => cleanReportDomain(value))
-        .filter(Boolean)
-    ]
-  );
-  return appHosts.has(clean) || clean.endsWith(".workers.dev");
-}
-
-function claimHostFromInput(input) {
-  try {
-    const url = new URL(normalizeUrl(String(input || "").trim()));
-    const check = publicAuditUrlStatus(url.href);
-    if (!check.ok) return "";
-    return url.hostname.toLowerCase().replace(/\.$/, "");
-  } catch {
-    return "";
-  }
-}
-
-function normalizeEmail(input) {
-  const email = String(input || "").trim().toLowerCase();
-  if (email.length > 254) return "";
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "";
-  return email;
-}
-
-function cleanInviteCode(input) {
-  const code = String(input || "").trim();
-  if (code.length < 8 || code.length > 120) return "";
-  if (!/^[A-Za-z0-9_-]+$/.test(code)) return "";
-  return code;
-}
-
-function cleanAccessToken(input) {
-  const token = String(input || "").trim();
-  if (token.length < 32 || token.length > 160) return "";
-  if (!/^[A-Za-z0-9_-]+$/.test(token)) return "";
-  return token;
-}
-
-function cleanAccessMode(input) {
-  const mode = String(input || "").trim().toLowerCase();
-  if (mode === "invite" || mode === "self-serve" || mode === "founder-override") return mode;
-  if (mode === "api") return "api";
-  return "invite";
-}
-
-function randomHex(length) {
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
 function randomApiTokenSecret() {
   return `sfk_live_${randomHex(24)}`;
 }
@@ -7526,60 +7455,6 @@ function randomInviteCode() {
   const bytes = new Uint8Array(12);
   crypto.getRandomValues(bytes);
   return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function clampScheduleInterval(value) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return 7;
-  if (parsed <= 7) return 7;
-  if (parsed <= 14) return 14;
-  return 30;
-}
-
-function scheduleCadenceLabel(value) {
-  const days = clampScheduleInterval(value);
-  if (days === 7) return "Weekly";
-  if (days === 14) return "Every 2 weeks";
-  return "Monthly";
-}
-
-function cleanText(input, maxLength) {
-  return String(input || "")
-    .replace(/[\u0000-\u001f\u007f]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, maxLength);
-}
-
-function cleanUrlText(input, maxLength) {
-  const value = cleanText(input, maxLength);
-  if (!value) return "";
-  try {
-    const url = new URL(value);
-    if (!["http:", "https:"].includes(url.protocol)) return "";
-    return url.href.slice(0, maxLength);
-  } catch {
-    return "";
-  }
-}
-
-function cleanIsoDateText(input) {
-  const value = cleanText(input, 80);
-  if (!value) return "";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
-}
-
-function safeHostname(value) {
-  try {
-    return new URL(value).hostname.toLowerCase();
-  } catch {
-    return "";
-  }
-}
-
-function isSafeUuid(input) {
-  return /^[a-f0-9-]{32,40}$/i.test(String(input || ""));
 }
 
 function isAdminAuthorized(request, env) {
@@ -7895,32 +7770,6 @@ async function inviteAccessStatus(request, env, ownerEmail, inviteCode, inviteCo
   return { ok: true, inviteId: row.id, accessMode: "invite" };
 }
 
-async function checkQuotaSet(env, checks) {
-  const updatedAt = new Date().toISOString();
-  for (const check of checks) {
-    const update = await env.WAITLIST_DB.prepare(
-      `INSERT INTO audit_usage (bucket, count, window_start, updated_at)
-       VALUES (?, 1, ?, ?)
-       ON CONFLICT(bucket) DO UPDATE SET
-        count = audit_usage.count + 1,
-        updated_at = excluded.updated_at
-       WHERE audit_usage.count < ?`
-    )
-      .bind(check.bucket, check.windowStart, updatedAt, check.limit)
-      .run();
-
-    if (Number(update?.meta?.changes || 0) !== 1) {
-      return {
-        ok: false,
-        error: check.error,
-        resetAt: check.resetAt.toISOString()
-      };
-    }
-  }
-
-  return { ok: true };
-}
-
 async function adminAccessStatus(request, env, action) {
   const session = await adminSessionStatus(request, env);
   if (session.ok) return { ok: true, actorEmail: session.actorEmail };
@@ -8184,14 +8033,6 @@ function summarizeIssuePatterns(rows) {
   return [...counts.values()].sort((a, b) => b.count - a.count).slice(0, 12);
 }
 
-function parseJson(value, fallback) {
-  try {
-    return JSON.parse(value || "");
-  } catch {
-    return fallback;
-  }
-}
-
 async function createBetaSession(request, env, access) {
   const token = randomToken();
   const tokenHash = await sha256Hex(token);
@@ -8248,89 +8089,6 @@ function adminSessionCookie(request, token, maxAge) {
 function clearAdminSessionCookie(request) {
   const secure = request && new URL(request.url).protocol === "https:" ? "; Secure" : "";
   return `${ADMIN_SESSION_COOKIE}=; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=0${secure}`;
-}
-
-function cookieValue(request, name) {
-  const cookie = request.headers.get("cookie") || "";
-  for (const part of cookie.split(";")) {
-    const [rawKey, ...rawValue] = part.trim().split("=");
-    if (rawKey === name) {
-      return decodeURIComponent(rawValue.join("=") || "");
-    }
-  }
-  return "";
-}
-
-function randomToken() {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-async function requestIpHash(request) {
-  const ip =
-    request.headers.get("cf-connecting-ip") ||
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    "unknown";
-  return (await sha256Hex(ip)).slice(0, 32);
-}
-
-async function sha256Hex(value) {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(String(value || ""))
-  );
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-async function hmacSha256Hex(secret, value) {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(String(secret || "")),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const digest = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(String(value || "")));
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function hourWindow(now) {
-  const resetAt = new Date(now);
-  resetAt.setUTCMinutes(0, 0, 0);
-  resetAt.setUTCHours(resetAt.getUTCHours() + 1);
-  return {
-    key: now.toISOString().slice(0, 13),
-    resetAt
-  };
-}
-
-function dayWindow(now) {
-  const resetAt = new Date(now);
-  resetAt.setUTCHours(0, 0, 0, 0);
-  resetAt.setUTCDate(resetAt.getUTCDate() + 1);
-  return {
-    key: now.toISOString().slice(0, 10),
-    resetAt
-  };
-}
-
-function isoSecondsFromNow(seconds) {
-  return new Date(Date.now() + seconds * 1000).toISOString();
-}
-
-function isoDaysFromNow(days) {
-  return isoSecondsFromNow(days * 24 * 60 * 60);
-}
-
-function isoDaysFromDate(value, days) {
-  const start = new Date(value);
-  const base = Number.isNaN(start.getTime()) ? Date.now() : start.getTime();
-  return new Date(base + Number(days || 0) * 24 * 60 * 60 * 1000).toISOString();
 }
 
 async function cleanupExpiredRows(env) {
@@ -8398,98 +8156,6 @@ function makePrivateReportId(url) {
     .slice(0, 42)
     .toLowerCase();
   return `${host || "report"}-${crypto.randomUUID()}`;
-}
-
-function isSafeReportId(value) {
-  return /^[a-z0-9][a-z0-9.-]{12,120}$/i.test(value);
-}
-
-function constantTimeEqual(left, right) {
-  const leftBytes = new TextEncoder().encode(String(left || ""));
-  const rightBytes = new TextEncoder().encode(String(right || ""));
-  const maxLength = Math.max(leftBytes.length, rightBytes.length);
-  let diff = leftBytes.length ^ rightBytes.length;
-
-  for (let index = 0; index < maxLength; index += 1) {
-    diff |= (leftBytes[index] || 0) ^ (rightBytes[index] || 0);
-  }
-
-  return maxLength > 0 && diff === 0;
-}
-
-function csvCell(value) {
-  let text = String(value ?? "");
-  // Neutralize spreadsheet formula triggers in attacker-supplied fields
-  if (/^[=+\-@\t\r]/.test(text)) {
-    text = `'${text}`;
-  }
-  if (/[",\n\r]/.test(text)) {
-    return `"${text.replaceAll('"', '""')}"`;
-  }
-  return text;
-}
-
-function json(value, status = 200) {
-  return new Response(JSON.stringify(value, null, 2), {
-    status,
-    headers: secureHeaders({ "content-type": "application/json; charset=utf-8" })
-  });
-}
-
-function jsonNoStore(value, status = 200) {
-  return new Response(JSON.stringify(value, null, 2), {
-    status,
-    headers: secureHeaders({
-      "cache-control": "no-store",
-      "content-type": "application/json; charset=utf-8",
-      "x-robots-tag": "noindex, nofollow"
-    })
-  });
-}
-
-function withPrivateHeaders(response) {
-  const headers = new Headers(response.headers);
-  headers.set("cache-control", "no-store");
-  headers.set("x-robots-tag", "noindex, nofollow");
-  return withSecurityHeaders(new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers
-  }));
-}
-
-function withSecurityHeaders(response) {
-  const headers = secureHeaders(response.headers);
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers
-  });
-}
-
-function secureHeaders(input = {}) {
-  const headers = new Headers(input);
-  headers.set("x-content-type-options", "nosniff");
-  headers.set("referrer-policy", "strict-origin-when-cross-origin");
-  headers.set("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=()");
-  headers.set("x-frame-options", "DENY");
-  headers.set("strict-transport-security", "max-age=31536000; includeSubDomains; preload");
-  if ((headers.get("content-type") || "").includes("text/html")) {
-    headers.set(
-      "content-security-policy",
-      [
-        "default-src 'self'",
-        "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
-        "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data: https:",
-        "connect-src 'self' https://cloudflareinsights.com",
-        "form-action 'self' https://live.dodopayments.com https://test.dodopayments.com",
-        "base-uri 'self'",
-        "frame-ancestors 'none'"
-      ].join("; ")
-    );
-  }
-  return headers;
 }
 
 function renderedFixture(origin) {
