@@ -40,6 +40,23 @@
       "bucket_name": "seofixkit-reports"
     }
   ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "AUDIT_QUEUE",
+        "queue": "seofixkit-audit-jobs"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "seofixkit-audit-jobs",
+        "max_batch_size": 1,
+        "max_concurrency": 2,
+        "max_retries": 2,
+        "dead_letter_queue": "seofixkit-audit-dlq"
+      }
+    ]
+  },
   "d1_databases": [
     {
       "binding": "WAITLIST_DB",
