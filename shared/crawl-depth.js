@@ -1,5 +1,11 @@
 export const CRAWL_DEPTH_TIERS = [
   {
+    id: "lite",
+    label: "Lite check",
+    pages: 1,
+    description: "Homepage-only proof. Runs without site verification."
+  },
+  {
     id: "quick",
     label: "Quick proof",
     pages: 10,

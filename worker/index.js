@@ -1442,18 +1442,6 @@ async function runPrivateAudit(request, env, ctx) {
     return json({ error: publicUrlCheck.error }, 400);
   }
 
-  const authorization = await auditAuthorizationStatus(env, access, targetUrl);
-  if (!authorization.ok) {
-    return jsonNoStore(
-      {
-        error: authorization.error,
-        code: authorization.code,
-        site: authorization.site
-      },
-      authorization.status || 403
-    );
-  }
-
   const competitorInput = parseAuditCompetitorUrls(body, targetUrl);
   if (!competitorInput.ok) {
     return jsonNoStore({ error: competitorInput.error }, 400);
@@ -1478,6 +1466,33 @@ async function runPrivateAudit(request, env, ctx) {
     body.renderedCrawlTarget || body.rendered_crawl_target || body.crawlScaleTarget || 0
   );
   const maxPages = clampPageLimit(body.maxPages || 10);
+
+  // A homepage-only Lite check (1 page, no imports or extras) may run before
+  // site verification so new users can see proof quality first.
+  const liteEligible =
+    maxPages <= 1 &&
+    !competitorUrls.length &&
+    !backlinkRows.length &&
+    !keywordRows.length &&
+    !localSeo?.enabled &&
+    !renderedCrawlTarget;
+  const authorization = await auditAuthorizationStatus(env, access, targetUrl, { allowLite: liteEligible });
+  if (!authorization.ok) {
+    return jsonNoStore(
+      {
+        error: authorization.error,
+        code: authorization.code,
+        site: authorization.site
+      },
+      authorization.status || 403
+    );
+  }
+  if (authorization.lite) {
+    const liteQuota = await liteAuditQuotaStatus(env, access);
+    if (!liteQuota.ok) {
+      return jsonNoStore({ error: liteQuota.error, resetAt: liteQuota.resetAt }, 429);
+    }
+  }
 
   await failStaleRunningAuditJobs(env, access.ownerEmail);
   const existingJob = await activeAuditJobForTarget(env, access, targetUrl, competitorUrls, backlinkRows, localSeo, keywordRows, renderedCrawlTarget, maxPages);
@@ -5620,27 +5635,31 @@ async function verifySiteClaim(request, env) {
   });
 }
 
-async function auditAuthorizationStatus(env, access, targetUrl) {
+async function auditAuthorizationStatus(env, access, targetUrl, options = {}) {
   if (access.accessMode === "founder-override") return { ok: true };
   const host = safeHostname(targetUrl);
   if (!host) return { ok: false, status: 400, error: "Enter a valid public website URL." };
+  // A claim on the apex domain also covers www and vice versa — customers
+  // rightly treat them as one site.
+  const siblingHost = host.startsWith("www.") ? host.slice(4) : `www.${host}`;
   const row = await env.WAITLIST_DB.prepare(
     `SELECT id, host, status, verified_at
      FROM site_claims
      WHERE owner_email = ?
-       AND host = ?
+       AND host IN (?, ?)
        AND status = 'verified'
        AND revoked_at IS NULL
      LIMIT 1`
   )
-    .bind(access.ownerEmail, host)
+    .bind(access.ownerEmail, host, siblingHost)
     .first();
   if (row?.id) return { ok: true, site: siteClaimResponse(row) };
+  if (options.allowLite) return { ok: true, lite: true };
   return {
     ok: false,
     status: 403,
     code: "SITE_VERIFICATION_REQUIRED",
-    error: `Verify ${host} before running a self-serve audit.`,
+    error: `Verify ${host} before running a self-serve audit. A homepage-only Lite check (1 page) runs without verification.`,
     site: siteClaimInstructions({ host, verification_token: "" })
   };
 }
@@ -10078,6 +10097,19 @@ async function auditQuotaStatus(request, env, access, targetUrl) {
       windowStart: hour.key,
       resetAt: hour.resetAt,
       error: "That site has been audited several times this hour. Try again later."
+    }
+  ]);
+}
+
+async function liteAuditQuotaStatus(env, access) {
+  const day = dayWindow(new Date());
+  return checkQuotaSet(env, [
+    {
+      bucket: `audit:lite-day:${day.key}:${normalizeEmail(access.ownerEmail)}`,
+      limit: 3,
+      windowStart: day.key,
+      resetAt: day.resetAt,
+      error: "Daily Lite check limit reached. Verify your site for full self-serve audits, or try again tomorrow."
     }
   ]);
 }
