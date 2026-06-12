@@ -36,6 +36,7 @@ import {
   normalizeBrandingInput,
   whiteLabelReportFilename
 } from "../shared/white-label-report.js";
+import { isPrivateHostname, resolvesToPrivateAddress } from "../shared/url-safety.js";
 import {
   buildCompetitorBenchmark,
   competitorBenchmarkBriefLines
@@ -4072,6 +4073,9 @@ async function processAuditJob(env, jobId, context = {}) {
   if (!row?.id) return;
 
   try {
+    if (await resolvesToPrivateAddress(new URL(row.target_url).hostname)) {
+      throw new Error("This URL points at a private or internal address and cannot be audited.");
+    }
     const report = await auditUrl(row.target_url, env, {
       maxPages: clampPageLimit(row.max_pages || 10),
       appOrigin: context.appOrigin || "https://seofixkit.com",
@@ -5717,6 +5721,11 @@ async function deliverApiWebhooks(env, ownerEmail, eventType, data = {}) {
       )
       .run();
     try {
+      const urlStatus = publicWebhookUrlStatus(webhook.url);
+      if (!urlStatus.ok) throw new Error(urlStatus.error);
+      if (await resolvesToPrivateAddress(new URL(urlStatus.url).hostname)) {
+        throw new Error("Webhook host resolves to a private or internal address.");
+      }
       const timestamp = String(Math.floor(Date.now() / 1000));
       const response = await fetch(webhook.url, {
         method: "POST",
@@ -10596,28 +10605,6 @@ function publicWebhookUrlStatus(value) {
   parsed.username = "";
   parsed.password = "";
   return { ok: true, url: parsed.href };
-}
-
-function isPrivateHostname(host) {
-  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (ipv4) {
-    const parts = ipv4.slice(1).map(Number);
-    if (parts.some((part) => part < 0 || part > 255)) return true;
-    const [a, b] = parts;
-    return (
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 198 && (b === 18 || b === 19)) ||
-      a >= 224
-    );
-  }
-
-  return host === "::1" || host.startsWith("[") || host.endsWith(".invalid");
 }
 
 function makePrivateReportId(url) {

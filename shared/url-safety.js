@@ -90,7 +90,7 @@ function absoluteUrl(value = "", baseUrl = "") {
   }
 }
 
-function isPrivateHostname(input = "") {
+export function isPrivateHostname(input = "") {
   const host = normalizeHostname(input);
   if (!host) return true;
   if (isPrivateName(host)) return true;
@@ -104,6 +104,37 @@ function isPrivateHostname(input = "") {
     return isPrivateIpv6(host);
   }
 
+  return false;
+}
+
+// Resolve a hostname over DNS-over-HTTPS and report whether any answer is a
+// private/internal address. Hostname-string checks alone miss DNS rebinding:
+// a public-looking name can point at 127.0.0.1 or 169.254.169.254. Call this
+// immediately before fetching/rendering a user-supplied URL. DoH failures
+// return false (fail-open) so a resolver hiccup cannot take the product down;
+// the literal-hostname checks above still apply regardless.
+export async function resolvesToPrivateAddress(hostname, fetcher = globalThis.fetch) {
+  const host = normalizeHostname(hostname);
+  if (!host) return true;
+  if (parseIpv4(host) || host.includes(":")) return isPrivateHostname(host);
+
+  for (const type of ["A", "AAAA"]) {
+    try {
+      const response = await fetcher(
+        `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(host)}&type=${type}`,
+        { headers: { accept: "application/dns-json" } }
+      );
+      if (!response?.ok) continue;
+      const payload = await response.json();
+      for (const answer of payload?.Answer || []) {
+        if (answer?.type !== 1 && answer?.type !== 28) continue;
+        if (isPrivateHostname(String(answer.data || ""))) return true;
+      }
+    } catch {
+      // fail-open: literal checks still ran, and the fetch itself will fail
+      // if the name does not resolve
+    }
+  }
   return false;
 }
 
@@ -131,13 +162,25 @@ function isPrivateName(host) {
 }
 
 function parseIpv4(host) {
+  // Whole-number forms: http://2130706433, http://0x7f000001, http://017700000001
+  if (/^(\d+|0x[0-9a-f]+)$/i.test(host)) {
+    const value = parseIpv4Part(host);
+    if (value === null || value > 0xffffffff) return null;
+    return [(value >>> 24) & 255, (value >>> 16) & 255, (value >>> 8) & 255, value & 255];
+  }
+
   const parts = host.split(".");
   if (parts.length !== 4) return null;
-  const octets = parts.map((part) => Number(part));
-  if (octets.some((part, index) => !/^\d+$/.test(parts[index]) || !Number.isInteger(part) || part < 0 || part > 255)) {
-    return null;
-  }
+  const octets = parts.map(parseIpv4Part);
+  if (octets.some((part) => part === null || part < 0 || part > 255)) return null;
   return octets;
+}
+
+function parseIpv4Part(part) {
+  if (/^0x[0-9a-f]+$/i.test(part)) return Number.parseInt(part.slice(2), 16);
+  if (/^0\d+$/.test(part)) return /^[0-7]+$/.test(part.slice(1)) ? Number.parseInt(part.slice(1), 8) : null;
+  if (/^\d+$/.test(part)) return Number.parseInt(part, 10);
+  return null;
 }
 
 function parseMappedIpv4(host) {
