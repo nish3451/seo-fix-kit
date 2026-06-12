@@ -1058,7 +1058,7 @@ async function getAdminSummary(request, env) {
       `SELECT report_json
        FROM audit_reports
        ORDER BY created_at DESC
-       LIMIT 50`
+       LIMIT 25`
     ).all(),
     env.WAITLIST_DB.prepare(
       `SELECT id, owner_email, label, status, max_uses, used_count, expires_at, created_at
@@ -1154,7 +1154,9 @@ async function getAdminSummary(request, env) {
         expiresAt: row.expires_at
       };
     }),
-    issuePatterns: summarizeIssuePatterns(issuePatterns.results || []),
+    issuePatterns: summarizeIssuePatterns(
+      await Promise.all((issuePatterns.results || []).map((row) => hydrateReportRow(env, row)))
+    ),
     invites: (recentInvites.results || []).map((invite) => ({
       id: invite.id,
       ownerEmail: invite.owner_email,
@@ -2277,7 +2279,7 @@ async function getClientReportPdf(request, env) {
   if (share.password_hash && !(await clientReportUnlocked(request, env, share))) {
     return clientReportLockedResponse(request, branding, shareToCamel(share), 401);
   }
-  const report = parseJson(reportRow.report_json, {});
+  const report = parseJson(await reportJsonForRow(env, reportRow), {});
   return renderWorkerWhiteLabelPdf(env, {
     report,
     branding,
@@ -2309,7 +2311,7 @@ async function getClientReport(request, env) {
   if (!reportRow?.report_json || (reportRow.expires_at && reportRow.expires_at <= new Date().toISOString())) {
     return clientReportLockedResponse(request, branding, shareToCamel(share), 404, "Report no longer exists.");
   }
-  const report = parseJson(reportRow.report_json, {});
+  const report = parseJson(await reportJsonForRow(env, reportRow), {});
 
   if (share.password_hash && !(await clientReportUnlocked(request, env, share))) {
     return clientReportLockedResponse(request, branding, shareToCamel(share), 401);
@@ -2372,7 +2374,7 @@ async function unlockClientReport(request, env) {
   )
     .bind(share.report_id, share.owner_email)
     .first();
-  const report = parseJson(reportRow?.report_json, {});
+  const report = parseJson(reportRow ? await reportJsonForRow(env, reportRow) : "", {});
   return clientReportLockedResponse(request, branding, shareToCamel(share), 401, "Password did not match.", report);
 }
 
@@ -2610,7 +2612,10 @@ async function apiDeleteAudit(request, env) {
   if (!row?.id) return jsonNoStore({ error: "Audit not found." }, 404);
   await env.WAITLIST_DB.prepare(`DELETE FROM audit_jobs WHERE id = ? AND owner_email = ?`).bind(id, access.ownerEmail).run();
   if (row.report_id) {
-    await env.WAITLIST_DB.prepare(`DELETE FROM audit_reports WHERE id = ? AND owner_email = ?`).bind(row.report_id, access.ownerEmail).run();
+    const reportRow = await env.WAITLIST_DB.prepare(
+      `SELECT id, report_json FROM audit_reports WHERE id = ? AND owner_email = ? LIMIT 1`
+    ).bind(row.report_id, access.ownerEmail).first();
+    if (reportRow?.id) await deleteReportRowsWithBlobs(env, [reportRow]);
   }
   return jsonNoStore({ ok: true, deleted: true, auditId: id });
 }
@@ -4793,7 +4798,7 @@ async function ownerReportRow(env, reportId, access) {
   ) {
     return null;
   }
-  return row;
+  return hydrateReportRow(env, row);
 }
 
 function reportShareResponse(row = {}, origin = "", customDomain = null, env = {}) {
@@ -5159,10 +5164,10 @@ async function resolveApiAuditReport(env, access, id) {
     return { ok: false, status: 404, error: "Report not found." };
   }
   if (row.expires_at && row.expires_at <= new Date().toISOString()) {
-    await env.WAITLIST_DB.prepare(`DELETE FROM audit_reports WHERE id = ?`).bind(reportId).run();
+    await deleteReportRowsWithBlobs(env, [{ id: reportId, report_json: row.report_json }]);
     return { ok: false, status: 404, error: "Report expired." };
   }
-  return { ok: true, job, report: parseJson(row.report_json, {}) };
+  return { ok: true, job, report: parseJson(await reportJsonForRow(env, row), {}) };
 }
 
 async function requestFixPack(request, env) {
@@ -7125,7 +7130,7 @@ async function reportForNotification(env, reportId) {
   const row = await env.WAITLIST_DB.prepare("SELECT report_json FROM audit_reports WHERE id = ? LIMIT 1")
     .bind(reportId)
     .first();
-  return parseJson(row?.report_json, {});
+  return parseJson(row ? await reportJsonForRow(env, row) : "", {});
 }
 
 async function runPrivateDemoAudit(request, env) {
@@ -7176,6 +7181,20 @@ async function saveAuditReportWithContext(report, env, access, origin) {
   const fitted = fitReportForStorage(compactAuditReportForStorage(saved));
   const storageReport = fitted.report;
 
+  // Prefer R2 for the blob; fall back to inline D1 storage (size-guarded)
+  // when the binding is missing or the put fails.
+  let storedReportJson = fitted.json;
+  if (env.REPORTS) {
+    try {
+      await env.REPORTS.put(reportR2Key(id), fitted.json, {
+        httpMetadata: { contentType: "application/json" }
+      });
+      storedReportJson = `${R2_REPORT_MARKER}${reportR2Key(id)}`;
+    } catch {
+      storedReportJson = fitted.json;
+    }
+  }
+
   await env.WAITLIST_DB.prepare(
     `INSERT INTO audit_reports
       (id, url, origin, score, summary_json, report_json, created_at, updated_at, owner_email, owner_session_hash, target_host, expires_at, owner_invite_id)
@@ -7187,7 +7206,7 @@ async function saveAuditReportWithContext(report, env, access, origin) {
       saved.origin,
       saved.score,
       JSON.stringify(saved.summary || {}),
-      fitted.json,
+      storedReportJson,
       now,
       now,
       access.ownerEmail,
@@ -7199,6 +7218,44 @@ async function saveAuditReportWithContext(report, env, access, origin) {
     .run();
 
   return storageReport;
+}
+
+// Report bodies live in R2; the D1 column keeps a marker pointing at the
+// object so old inline rows and dev environments without the binding keep
+// working unchanged.
+const R2_REPORT_MARKER = "r2:";
+
+function reportR2Key(reportId) {
+  return `reports/${reportId}.json`;
+}
+
+async function reportJsonForRow(env, row) {
+  const raw = String(row?.report_json || "");
+  if (!raw.startsWith(R2_REPORT_MARKER)) return raw;
+  if (!env.REPORTS) return "";
+  const object = await env.REPORTS.get(raw.slice(R2_REPORT_MARKER.length));
+  return object ? await object.text() : "";
+}
+
+async function hydrateReportRow(env, row) {
+  if (row && String(row.report_json || "").startsWith(R2_REPORT_MARKER)) {
+    row.report_json = await reportJsonForRow(env, row);
+  }
+  return row;
+}
+
+async function deleteReportRowsWithBlobs(env, rows = []) {
+  const ids = rows.map((row) => row.id).filter(Boolean);
+  if (!ids.length) return;
+  const keys = rows
+    .map((row) => String(row.report_json || ""))
+    .filter((value) => value.startsWith(R2_REPORT_MARKER))
+    .map((value) => value.slice(R2_REPORT_MARKER.length));
+  if (env.REPORTS && keys.length) {
+    await env.REPORTS.delete(keys).catch(() => {});
+  }
+  const placeholders = ids.map(() => "?").join(", ");
+  await env.WAITLIST_DB.prepare(`DELETE FROM audit_reports WHERE id IN (${placeholders})`).bind(...ids).run();
 }
 
 // D1 rejects rows near its ~2MB value limit, which would fail the save AFTER
@@ -7331,7 +7388,7 @@ async function latestSavedReportForDelta(env, access, targetHost, now) {
   )
     .bind(access.ownerEmail, targetHost, now)
     .first();
-  return parseJson(row?.report_json, null);
+  return parseJson(row ? await reportJsonForRow(env, row) : "", null);
 }
 
 async function getSavedReport(request, env) {
@@ -7358,7 +7415,7 @@ async function getSavedReport(request, env) {
     return json({ error: "Report not found." }, 404);
   }
   if (row.expires_at && row.expires_at <= new Date().toISOString()) {
-    await env.WAITLIST_DB.prepare(`DELETE FROM audit_reports WHERE id = ?`).bind(id).run();
+    await deleteReportRowsWithBlobs(env, [{ id, report_json: row.report_json }]);
     return json({ error: "Report expired." }, 404);
   }
   if (row.owner_email && row.owner_email !== access.ownerEmail) {
@@ -7372,7 +7429,11 @@ async function getSavedReport(request, env) {
     return json({ error: "Report not found." }, 404);
   }
 
-  const report = JSON.parse(row.report_json);
+  const reportJson = await reportJsonForRow(env, row);
+  if (!reportJson) {
+    return json({ error: "Report not found." }, 404);
+  }
+  const report = JSON.parse(reportJson);
   report.reportUrl = `${url.origin}${report.reportPath || `/beta/reports/${id}`}`;
   if (!row.expires_at && report.retention) {
     report.retention = { ...report.retention, expiresAt: "", preserved: true };
@@ -10751,20 +10812,24 @@ function isoDaysFromDate(value, days) {
 
 async function cleanupExpiredRows(env) {
   const now = new Date().toISOString();
+  const expiredReports = await env.WAITLIST_DB.prepare(
+    `SELECT id, report_json FROM audit_reports
+     WHERE expires_at IS NOT NULL AND expires_at < ?
+       AND id NOT IN (
+         SELECT report_id FROM fix_requests
+         WHERE report_id IS NOT NULL AND report_id != ''
+           AND status IN ('paid', 'in_progress', 'delivered', 'refunded', 'refund_failed', 'disputed')
+         UNION
+         SELECT final_report_id FROM fix_requests
+         WHERE final_report_id IS NOT NULL AND final_report_id != ''
+           AND status IN ('paid', 'in_progress', 'delivered', 'refunded', 'refund_failed', 'disputed')
+       )
+     LIMIT 200`
+  )
+    .bind(now)
+    .all();
+  await deleteReportRowsWithBlobs(env, expiredReports.results || []);
   await env.WAITLIST_DB.batch([
-    env.WAITLIST_DB.prepare(
-      `DELETE FROM audit_reports
-       WHERE expires_at IS NOT NULL AND expires_at < ?
-         AND id NOT IN (
-           SELECT report_id FROM fix_requests
-           WHERE report_id IS NOT NULL AND report_id != ''
-             AND status IN ('paid', 'in_progress', 'delivered', 'refunded', 'refund_failed', 'disputed')
-           UNION
-           SELECT final_report_id FROM fix_requests
-           WHERE final_report_id IS NOT NULL AND final_report_id != ''
-             AND status IN ('paid', 'in_progress', 'delivered', 'refunded', 'refund_failed', 'disputed')
-         )`
-    ).bind(now),
     env.WAITLIST_DB.prepare(`DELETE FROM audit_jobs WHERE expires_at IS NOT NULL AND expires_at < ?`).bind(now),
     env.WAITLIST_DB.prepare(`DELETE FROM access_tokens WHERE expires_at < ? OR (used_at IS NOT NULL AND used_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),
     env.WAITLIST_DB.prepare(`DELETE FROM beta_sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),
