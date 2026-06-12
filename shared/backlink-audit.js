@@ -338,17 +338,38 @@ function attr(attrs = "", name = "") {
   return "";
 }
 
+export function normalizeUrlForComparison(value = "") {
+  try {
+    const url = new URL(value);
+    url.protocol = "https:";
+    url.hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+    url.hash = "";
+    if (url.pathname !== "/" && url.pathname.endsWith("/")) {
+      url.pathname = url.pathname.replace(/\/+$/, "");
+    }
+    return url.href;
+  } catch {
+    return String(value || "");
+  }
+}
+
 function linkMatchesTarget(href, targetUrl, targetOrigin) {
-  const cleanHref = stripHash(href);
-  const cleanTarget = stripHash(targetUrl);
+  const cleanHref = normalizeUrlForComparison(href);
+  const cleanTarget = normalizeUrlForComparison(targetUrl);
   if (cleanHref === cleanTarget) return true;
-  return !targetUrl && targetOrigin && cleanHref.startsWith(targetOrigin);
+  return !targetUrl && targetOrigin && cleanHref.startsWith(normalizeUrlForComparison(targetOrigin));
 }
 
 function riskySourceSignals(sourceUrl = "") {
   const parsed = new URL(sourceUrl);
   const text = `${parsed.hostname} ${parsed.pathname}`.toLowerCase();
-  const signals = RISKY_SOURCE_PATTERNS.filter((pattern) => text.includes(pattern));
+  const tokenText = ` ${text.replace(/[^a-z0-9]+/g, " ").trim()} `;
+  const tokens = new Set(tokenText.split(" ").filter(Boolean));
+  const signals = RISKY_SOURCE_PATTERNS.filter((pattern) =>
+    /[^a-z0-9]/.test(pattern)
+      ? tokenText.includes(` ${pattern.replace(/[^a-z0-9]+/g, " ").trim()} `)
+      : tokens.has(pattern)
+  );
   const label = parsed.hostname.split(".").pop() || "";
   if (["xyz", "top", "click", "work", "zip"].includes(label)) signals.push(`high-risk tld .${label}`);
   return [...new Set(signals)].slice(0, 5);

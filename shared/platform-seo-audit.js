@@ -58,7 +58,7 @@ const PLATFORM_SIGNATURES = [
     id: "shopify",
     name: "Shopify",
     category: "ecommerce",
-    patterns: [/shopify/i, /cdn\.shopify\.com/i, /\.myshopify\.com/i, /\/collections\//i, /\/products\//i]
+    patterns: [/shopify/i, /cdn\.shopify\.com/i, /\.myshopify\.com/i]
   },
   {
     id: "magento",
@@ -118,7 +118,7 @@ export function buildPlatformSeoAudit(report = {}) {
     categoryContent: categoryContentCheck(categoryPages),
     outOfStock: outOfStockCheck(productPages),
     wordpressArchives: wordpressArchiveCheck(evidenceRows),
-    wordpressPlugins: wordpressPluginCheck(pluginResources, evidenceRows),
+    wordpressPlugins: wordpressPluginCheck(pluginResources),
     wordpressSeoPlugin: wordpressSeoPluginCheck(wordpressDetected, seoPlugins, evidenceRows)
   };
   const repairOpportunities = platformRepairOpportunities({ checks, wordpressDetected, ecommerceDetected });
@@ -220,6 +220,7 @@ function pageEvidence(page = {}) {
     schemaTypes: rendered.schemaTypes || staticFacts.schemaTypes || [],
     imageChecks,
     links: allLinks,
+    scripts,
     resources,
     signals
   };
@@ -275,8 +276,7 @@ function wordpressPluginResources(evidenceRows = []) {
         type: resource.type || "resource",
         sizeBytes: Number(resource.sizeBytes || 0),
         durationMs: Number(resource.durationMs || 0),
-        renderBlocking: ["script", "stylesheet"].includes(resource.type) &&
-          row.resources.some((candidate) => candidate.url === resource.url)
+        renderBlocking: isRenderBlockingResource(resource, row.scripts || [])
       };
       resources.push(item);
       const current = plugins.get(plugin) || { name: plugin, resources: 0, transferBytes: 0, slowResources: 0 };
@@ -295,6 +295,16 @@ function wordpressPluginResources(evidenceRows = []) {
 function wordpressPluginName(url = "") {
   const match = String(url || "").match(/\/wp-content\/plugins\/([^/?#]+)/i);
   return match ? decodeURIComponent(match[1]).replace(/[-_]+/g, " ") : "";
+}
+
+function isRenderBlockingResource(resource = {}, scripts = []) {
+  if (resource.renderBlockingStatus === "blocking") return true;
+  if (resource.renderBlockingStatus === "non-blocking") return false;
+  if (resource.type === "stylesheet") return true;
+  if (resource.type !== "script") return false;
+  const tag = scripts.find((script) => script && typeof script === "object" && script.src === resource.url);
+  if (!tag) return false;
+  return !tag.async && !tag.defer && String(tag.type || "").toLowerCase() !== "module";
 }
 
 function isProductLikePage(row = {}) {
@@ -387,10 +397,10 @@ function wordpressArchiveCheck(evidenceRows = []) {
   };
 }
 
-function wordpressPluginCheck(pluginResources, evidenceRows = []) {
+function wordpressPluginCheck(pluginResources) {
   const blockingUrls = new Set(
-    evidenceRows.flatMap((row) => row.resources || [])
-      .filter((resource) => ["script", "stylesheet"].includes(resource.type) && wordpressPluginName(resource.url || ""))
+    pluginResources.resources
+      .filter((resource) => resource.renderBlocking)
       .map((resource) => resource.url)
   );
   const pluginCount = pluginResources.plugins.length;

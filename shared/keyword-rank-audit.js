@@ -48,6 +48,7 @@ export function parseKeywordRows(input = {}, targetUrl = "", options = {}) {
     input.gsc_rows ??
     "";
   const rows = Array.isArray(raw) ? raw : parseKeywordText(raw);
+  const ctrLooksFractional = ctrValuesLookFractional(rows);
   const normalized = [];
   const seen = new Set();
   const targetHost = safeHost(targetUrl);
@@ -77,7 +78,7 @@ export function parseKeywordRows(input = {}, targetUrl = "", options = {}) {
 
     const clicks = parseMetric(row.clicks || row.currentClicks || row.current_clicks);
     const impressions = parseMetric(row.impressions || row.currentImpressions || row.current_impressions);
-    const ctr = parseCtr(row.ctr || row.currentCtr || row.current_ctr, clicks, impressions);
+    const ctr = parseCtr(row.ctr || row.currentCtr || row.current_ctr, clicks, impressions, ctrLooksFractional);
     const position = parseMetric(row.position || row.avgPosition || row.averagePosition || row.avg_position);
     const previousClicks = parseMetric(row.previousClicks || row.previous_clicks || row.clicksPrevious || row.clicks_previous);
     const previousImpressions = parseMetric(
@@ -86,7 +87,7 @@ export function parseKeywordRows(input = {}, targetUrl = "", options = {}) {
         row.impressionsPrevious ||
         row.impressions_previous
     );
-    const previousCtr = parseCtr(row.previousCtr || row.previous_ctr, previousClicks, previousImpressions);
+    const previousCtr = parseCtr(row.previousCtr || row.previous_ctr, previousClicks, previousImpressions, ctrLooksFractional);
     const previousPosition = parseMetric(
       row.previousPosition ||
         row.previous_position ||
@@ -572,14 +573,35 @@ function parseMetric(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function parseCtr(value, clicks, impressions) {
+// CTR parsing rule: values with a "%" sign are percentages, bare values above 1
+// are percentages, and bare values at or below 1 are fractions (0.05 -> 5%).
+// A bare "1" is ambiguous: it is treated as 100% only when other rows in the
+// import look fractional, otherwise it is treated as 1%.
+function parseCtr(value, clicks, impressions, looksFractional = false) {
   if (value !== null && value !== undefined && value !== "") {
     const text = String(value).trim();
     const parsed = parseMetric(text);
     if (text.includes("%") || parsed > 1) return parsed / 100;
+    if (parsed === 1) return looksFractional ? 1 : 0.01;
     return parsed;
   }
   return impressions > 0 ? clicks / impressions : 0;
+}
+
+function ctrValuesLookFractional(rows = []) {
+  return rows.some((row) => {
+    const values = [
+      row.ctr || row.currentCtr || row.current_ctr,
+      row.previousCtr || row.previous_ctr
+    ];
+    return values.some((value) => {
+      if (value === null || value === undefined || value === "") return false;
+      const text = String(value).trim();
+      if (text.includes("%")) return false;
+      const parsed = parseMetric(text);
+      return parsed > 0 && parsed < 1;
+    });
+  });
 }
 
 function positiveNumber(value) {
