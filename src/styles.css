@@ -186,6 +186,14 @@ h1 {
   max-width: 34em;
 }
 
+.hero-pricing {
+  color: var(--ink-soft);
+  font-size: clamp(15px, 1.7vw, 18px);
+  line-height: 1.5;
+  margin: 14px 0 0;
+  max-width: 34em;
+}
+
 .waitlist-form {
   margin-top: 34px;
   max-width: 660px;

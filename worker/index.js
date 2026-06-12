@@ -228,6 +228,10 @@ export default {
         return getFixPackPricingPreview(request, env);
       }
 
+      if (url.pathname === "/api/public-pricing" && request.method === "GET") {
+        return getPublicFixPackPricing(request, env, ctx);
+      }
+
       if (url.pathname === "/api/billing/summary" && request.method === "GET") {
         return getBillingSummary(request, env);
       }
@@ -5277,6 +5281,35 @@ async function requestFixPack(request, env) {
     },
     offer: FIX_PACK_OFFER
   });
+}
+
+// Public, unauthenticated Fix Pack price for the homepage. Returns only the
+// display price (no config internals), cached for an hour to keep Dodo calls
+// off the public request path.
+async function getPublicFixPackPricing(request, env, ctx) {
+  const config = dodoCheckoutConfigStatus(env);
+  if (!config.checkoutReady) return json({ ok: false }, 503);
+  const cache = caches.default;
+  const cacheKey = new Request(`${new URL(request.url).origin}/api/public-pricing`);
+  const cached = await cache.match(cacheKey);
+  if (cached) return cached;
+  try {
+    // Base price without country/customer so one cached price serves everyone.
+    const pricing = await previewDodoFixPackPricing({}, env, null);
+    const response = new Response(
+      JSON.stringify({ ok: true, pricing: { displayPrice: pricing.displayPrice || "" } }),
+      {
+        headers: secureHeaders({
+          "content-type": "application/json; charset=utf-8",
+          "cache-control": "public, max-age=3600"
+        })
+      }
+    );
+    ctx?.waitUntil?.(cache.put(cacheKey, response.clone()));
+    return response;
+  } catch {
+    return json({ ok: false }, 503);
+  }
 }
 
 async function getFixPackPricingPreview(request, env) {
