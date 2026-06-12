@@ -176,6 +176,7 @@ export default {
         ctx.waitUntil(runDueLargeRenderedCrawlWorkers(env));
       }
       ctx.waitUntil(sendDailyOpsDigest(env));
+      ctx.waitUntil(sendUrgentOpsAlerts(env));
     }
   },
 
@@ -4134,6 +4135,19 @@ async function processAuditJob(env, jobId, context = {}) {
       report: apiReportResponse(saved)
     });
   } catch (error) {
+    // Browser Run concurrency limits are transient: requeue instead of
+    // failing, and let the cron resume the job. Jobs older than 2 hours
+    // fail normally so a broken browser pool cannot loop forever.
+    if (error?.code === "BROWSER_BUSY" && row.created_at && row.created_at > isoSecondsFromNow(-2 * 60 * 60)) {
+      await env.WAITLIST_DB.prepare(
+        `UPDATE audit_jobs
+         SET status = 'queued', started_at = NULL, error = NULL, updated_at = ?
+         WHERE id = ? AND status = 'running'`
+      )
+        .bind(new Date().toISOString(), jobId)
+        .run();
+      return;
+    }
     const completedAt = new Date().toISOString();
     const message = cleanText(error?.message || "The audit failed. Try another URL.", 260);
     await env.WAITLIST_DB.prepare(
@@ -7344,7 +7358,15 @@ async function auditUrl(inputUrl, env, options = {}) {
     origin === options.appOrigin
       ? { ok: true, status: 200, url: `${origin}/sitemap.xml`, body: rootSitemap(origin) }
       : await fetchText(`${origin}/sitemap.xml`);
-  const browser = await puppeteer.launch(env.BROWSER);
+  let browser;
+  try {
+    browser = await puppeteer.launch(env.BROWSER);
+  } catch (error) {
+    const busyError = new Error("Audit capacity is busy right now. Your audit stays queued and retries automatically.");
+    busyError.code = "BROWSER_BUSY";
+    busyError.cause = error;
+    throw busyError;
+  }
   const pages = [];
   const queue = [startUrl];
   const visited = new Set();
@@ -10308,6 +10330,7 @@ async function buildOpsSnapshot(env, options = {}) {
   const today = now.slice(0, 10);
   const fixWhere = options.includeTest ? "" : "is_test = 0";
   const openWhere = `${fixWhere ? `${fixWhere} AND ` : ""}status IN ('paid', 'in_progress')`;
+  const dayAgo = isoSecondsFromNow(-24 * 60 * 60);
   const [
     openPaid,
     inProgress,
@@ -10316,7 +10339,11 @@ async function buildOpsSnapshot(env, options = {}) {
     webhookErrors,
     emailErrors,
     oldestOpen,
-    lastDigest
+    lastDigest,
+    runningJobs,
+    queuedJobs,
+    failedJobs24h,
+    overdueSchedules
   ] = await Promise.all([
     countRows(env, "fix_requests", openWhere),
     countRows(env, "fix_requests", `${fixWhere ? `${fixWhere} AND ` : ""}status = 'in_progress'`),
@@ -10325,7 +10352,11 @@ async function buildOpsSnapshot(env, options = {}) {
     countRows(env, "dodo_webhook_events", "status = 'error'"),
     countRows(env, "fix_request_notifications", "status = 'error'"),
     env.WAITLIST_DB.prepare(`SELECT created_at FROM fix_requests WHERE ${openWhere} ORDER BY created_at ASC LIMIT 1`).first(),
-    env.WAITLIST_DB.prepare(`SELECT digest_key, status, sent_at, error FROM ops_digest_runs ORDER BY created_at DESC LIMIT 1`).first()
+    env.WAITLIST_DB.prepare(`SELECT digest_key, status, sent_at, error FROM ops_digest_runs ORDER BY created_at DESC LIMIT 1`).first(),
+    countRows(env, "audit_jobs", "status = 'running'"),
+    countRows(env, "audit_jobs", "status = 'queued'"),
+    countRows(env, "audit_jobs", "status = 'failed' AND completed_at >= ?", [dayAgo]),
+    countRows(env, "audit_schedules", "status = 'active' AND next_run_at < ?", [isoSecondsFromNow(-60 * 60)])
   ]);
   return {
     openPaid,
@@ -10335,8 +10366,74 @@ async function buildOpsSnapshot(env, options = {}) {
     webhookErrors,
     emailErrors,
     oldestOpenCreatedAt: oldestOpen?.created_at || "",
-    lastDigest: lastDigest || null
+    lastDigest: lastDigest || null,
+    runningJobs,
+    queuedJobs,
+    failedJobs24h,
+    overdueSchedules
   };
+}
+
+// Same-day urgent alerts for conditions that should not wait for the daily
+// digest. Each condition alerts at most once per day via an INSERT OR IGNORE
+// marker row in ops_digest_runs.
+async function sendUrgentOpsAlerts(env) {
+  if (!env.WAITLIST_DB) return;
+  const adminEmail = adminNotificationEmail(env);
+  if (!adminEmail || !isEmailConfigured(env)) return;
+  const now = new Date().toISOString();
+  const today = now.slice(0, 10);
+  const [webhookErrors24h, notificationErrors, failedJobsHour, overduePaid] = await Promise.all([
+    countRows(env, "dodo_webhook_events", "status = 'error' AND last_received_at >= ?", [isoSecondsFromNow(-24 * 60 * 60)]),
+    countRows(env, "fix_requests", "is_test = 0 AND notification_error != ''"),
+    countRows(env, "audit_jobs", "status = 'failed' AND completed_at >= ?", [isoSecondsFromNow(-60 * 60)]),
+    countRows(env, "fix_requests", "is_test = 0 AND status IN ('paid', 'in_progress') AND due_at IS NOT NULL AND due_at < ?", [now])
+  ]);
+
+  const conditions = [];
+  if (webhookErrors24h > 0) {
+    conditions.push({ key: "webhook-errors", line: `${webhookErrors24h} Dodo webhook event(s) errored in the last 24 hours.` });
+  }
+  if (notificationErrors > 0) {
+    conditions.push({ key: "notification-errors", line: `${notificationErrors} paid request(s) have customer email notification errors.` });
+  }
+  if (failedJobsHour >= 5) {
+    conditions.push({ key: "audit-failures", line: `${failedJobsHour} audits failed in the last hour.` });
+  }
+  if (overduePaid > 0) {
+    conditions.push({ key: "overdue-paid", line: `${overduePaid} paid Fix Pack request(s) are past their due date.` });
+  }
+
+  for (const condition of conditions) {
+    const alertKey = `alert:${condition.key}:${today}`;
+    const inserted = await env.WAITLIST_DB.prepare(
+      `INSERT OR IGNORE INTO ops_digest_runs (digest_key, status, summary_json, sent_at, error, created_at, updated_at)
+       VALUES (?, 'running', '', '', '', ?, ?)`
+    )
+      .bind(alertKey, now, now)
+      .run();
+    if (inserted?.meta?.changes === 0) continue;
+    try {
+      await sendWorkerEmail(env, {
+        to: adminEmail,
+        subject: `SEO Fix Kit alert: ${condition.line}`,
+        text: `${condition.line}\n\nAdmin queue: https://seofixkit.com/beta/admin`,
+        html: `<p>${escapeHtml(condition.line)}</p><p><a href="https://seofixkit.com/beta/admin">Open admin queue</a></p>`,
+        tag: "ops-alert"
+      });
+      await env.WAITLIST_DB.prepare(
+        `UPDATE ops_digest_runs SET status = 'sent', sent_at = ?, updated_at = ? WHERE digest_key = ?`
+      )
+        .bind(new Date().toISOString(), new Date().toISOString(), alertKey)
+        .run();
+    } catch (error) {
+      await env.WAITLIST_DB.prepare(
+        `UPDATE ops_digest_runs SET status = 'error', error = ?, updated_at = ? WHERE digest_key = ?`
+      )
+        .bind(String(error?.message || "Alert failed.").slice(0, 1000), new Date().toISOString(), alertKey)
+        .run();
+    }
+  }
 }
 
 async function sendDailyOpsDigest(env) {
