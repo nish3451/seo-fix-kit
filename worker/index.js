@@ -11154,18 +11154,18 @@ function privacyHtml(origin) {
     <main>
       <a href="${origin}/">SEO Fix Kit</a>
       <h1>Privacy</h1>
-      <p>SEO Fix Kit collects the information needed to run self-serve access, create proof-backed SEO reports, process paid Fix Pack checkout, and deliver repair updates.</p>
+      <p>SEO Fix Kit ("we") collects the information needed to run self-serve access, create proof-backed SEO reports, process paid Fix Pack checkout, and deliver repair updates. We are the data controller for this information; reach us at <a href="mailto:support@seofixkit.com">support@seofixkit.com</a>.</p>
       <ul>
         <li>We store your email address, signup source, UTM fields, landing path, referrer, browser user agent, country code when Cloudflare provides it, signup timestamps, and short-lived access-link records.</li>
         <li>Private audits store the website URL, rendered-page audit findings, screenshots or extracted page facts when available, report owner, beta session reference, target host, and report expiry timestamp.</li>
-        <li>Fix Pack records store checkout status, Dodo payment identifiers, payment amount and currency, fulfillment notes, final rerun report links, delivery notifications, and admin audit events.</li>
-        <li>Cloudflare hosts the app and database. Dodo processes checkout and payment webhooks. Cloudflare Email Service sends access, payment, delivery, and ops emails.</li>
-        <li>Reports are retained for 30 days, except reports tied to a paid Fix Pack, which stay available while we operate the service. Admin logs, payment records, and notification logs are kept for operating, support, abuse prevention, and payment reconciliation.</li>
-        <li>We do not sell your email address.</li>
-        <li>We do not send unrelated promotions.</li>
-        <li>To request deletion of beta data, email <a href="mailto:support@seofixkit.com">support@seofixkit.com</a> or reply to any email we send.</li>
+        <li>Fix Pack records store checkout status, Dodo payment identifiers, payment amount and currency, fulfillment notes, final rerun report links, delivery notifications, and admin audit events. We never see or store your card details; Dodo Payments processes payment as merchant of record under its own privacy policy.</li>
+        <li>Cookies: we set only essential, HttpOnly session cookies (beta login, admin login, and report-unlock state). No advertising, analytics, or cross-site tracking cookies are set.</li>
+        <li>Processors: Cloudflare (hosting, database, email delivery, browser rendering — data may be processed on Cloudflare's global network) and Dodo Payments (checkout and payment webhooks).</li>
+        <li>Retention: reports expire after 30 days, except reports tied to a paid Fix Pack, which stay available while we operate the service. Admin logs, payment records, and notification logs are kept for operating, support, abuse prevention, and payment reconciliation. Rate-limit counters expire automatically.</li>
+        <li>We do not sell your personal data and do not send unrelated promotions.</li>
+        <li>Deletion and access: email <a href="mailto:support@seofixkit.com">support@seofixkit.com</a> (or reply to any email we send) to request a copy or deletion of your beta data. We honor verified requests within 30 days, except records we must keep for payment reconciliation or abuse prevention.</li>
       </ul>
-      <p>Last updated: June 11, 2026.</p>
+      <p>Last updated: June 12, 2026.</p>
     </main>
   </body>
 </html>`;
@@ -11181,10 +11181,11 @@ function supportHtml(origin) {
       <ul>
         <li>Fix Pack covers one proof-backed repair pass for one report plus one rerun after fixes.</li>
         <li>No ranking, traffic, or revenue promise is made.</li>
-        <li>If payment succeeds but the repair queue cannot start, ask for support from the payment confirmation email.</li>
-        <li>Refunds are reviewed against the Dodo payment record, report proof, and fulfillment state.</li>
+        <li>If payment succeeds but the repair queue cannot start, you are entitled to a full refund.</li>
+        <li>Refunds: full refund on request within 14 days of payment if the repair pass has not started. After work starts or delivery, requests are reviewed against the Dodo payment record, report proof, and fulfillment state.</li>
         <li>Security or abuse reports should include the affected URL, account email, and timestamp.</li>
       </ul>
+      <p>Last updated: June 12, 2026.</p>
       <p><a href="${origin}/privacy">Privacy</a> · <a href="${origin}/terms">Terms</a></p>
     `
   });
@@ -11194,17 +11195,47 @@ function termsHtml(origin) {
   return policyPageHtml({
     origin,
     title: "Terms",
-    description: "SEO Fix Kit product terms for audits, Fix Pack checkout, and fulfillment.",
+    description: "SEO Fix Kit product terms for audits, Fix Pack checkout, refunds, and fulfillment.",
     body: `
-      <p>SEO Fix Kit provides proof-backed SEO audits and a paid Fix Pack repair queue. Use the product only for sites you own or are authorized to audit.</p>
+      <p>These terms govern your use of SEO Fix Kit at seofixkit.com ("the service", "we", "us"). By requesting access, running an audit, or purchasing a Fix Pack you agree to them. Contact: <a href="mailto:support@seofixkit.com">support@seofixkit.com</a>.</p>
+
+      <h2>The service</h2>
       <ul>
-        <li>Self-serve audits are rate-limited and may be paused for abuse, excessive load, or unsupported sites.</li>
-        <li>Reports are diagnostic and may miss issues outside the crawl/render scope.</li>
-        <li>The paid Fix Pack is a repair service for proven findings in one report plus one rerun after fixes.</li>
-        <li>Checkout, payment status, refunds, and disputes are processed through Dodo.</li>
-        <li>No ranking, indexing, traffic, revenue, or search-engine outcome is guaranteed.</li>
+        <li>SEO Fix Kit provides proof-backed SEO audits and a paid Fix Pack repair service for proven findings in one report plus one rerun after fixes.</li>
+        <li>Reports are diagnostic. They reflect what the crawl and browser render could observe at scan time and may miss issues outside that scope.</li>
+        <li>No ranking, indexing, traffic, revenue, or search-engine outcome is promised or implied, before or after repairs.</li>
+        <li>The service is in active development; features may change, and beta access may be adjusted or revoked for abuse.</li>
+      </ul>
+
+      <h2>Acceptable use</h2>
+      <ul>
+        <li>Audit only sites you own or are explicitly authorized to audit. Site verification exists to enforce this.</li>
+        <li>Self-serve audits are rate-limited and may be paused for abuse, excessive load, security concerns, or unsupported sites.</li>
+        <li>Do not use the service to probe, attack, or overload third-party sites or infrastructure.</li>
+      </ul>
+
+      <h2>Payments and refunds</h2>
+      <ul>
+        <li>Checkout, payment processing, currency handling, refunds, and disputes are processed by Dodo Payments as merchant of record. The price shown at checkout is the price charged.</li>
+        <li>If your Fix Pack repair pass has not started, you may request a full refund within 14 days of payment by emailing <a href="mailto:support@seofixkit.com">support@seofixkit.com</a>.</li>
+        <li>After repair work has started or been delivered, refund requests are reviewed against the payment record, the report proof, and the fulfillment state, and may be granted in full, in part, or declined.</li>
+        <li>If payment succeeds but the repair queue cannot start, you are entitled to a full refund.</li>
+      </ul>
+
+      <h2>Liability</h2>
+      <ul>
+        <li>The service is provided "as is" without warranties of any kind to the extent permitted by law.</li>
+        <li>You remain responsible for changes you (or your developers) make to your site, including changes based on our reports and briefs.</li>
+        <li>To the extent permitted by law, our total liability for any claim related to the service is limited to the amount you paid us in the three months before the claim, and we are not liable for indirect, incidental, or consequential damages, including lost profits or lost rankings.</li>
+      </ul>
+
+      <h2>General</h2>
+      <ul>
+        <li>We may update these terms; material changes will be reflected on this page with a new date. Continued use after a change means acceptance.</li>
+        <li>These terms are governed by the laws of India, without regard to conflict-of-law rules.</li>
         <li>Questions about these terms or your account: <a href="mailto:support@seofixkit.com">support@seofixkit.com</a>.</li>
       </ul>
+      <p>Last updated: June 12, 2026.</p>
       <p><a href="${origin}/privacy">Privacy</a> · <a href="${origin}/support">Support</a></p>
     `
   });
@@ -11224,6 +11255,7 @@ function policyPageHtml({ origin, title, description, body }) {
       main { margin: 0 auto; max-width: 760px; padding: 48px 22px; }
       a { color: #98f0cc; font-weight: 760; text-decoration: none; }
       h1 { font-size: clamp(42px, 8vw, 76px); letter-spacing: 0; line-height: .92; margin: 0 0 24px; }
+      h2 { font-size: clamp(22px, 3vw, 28px); margin: 32px 0 8px; }
       p, li { color: rgba(251,248,239,.76); font-size: 18px; line-height: 1.62; }
       ul { padding-left: 22px; }
     </style>
@@ -11233,7 +11265,6 @@ function policyPageHtml({ origin, title, description, body }) {
       <a href="${origin}/">SEO Fix Kit</a>
       <h1>${escapeHtml(title)}</h1>
       ${body}
-      <p>Last updated: May 21, 2026.</p>
     </main>
   </body>
 </html>`;
