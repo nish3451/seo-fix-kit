@@ -133,13 +133,57 @@ import {
   scheduleCadenceLabel,
   workerAppHost
 } from "./lib/text.js";
+import {
+  adminAccessStatus,
+  adminDeniedJson,
+  apiAccessResponse,
+  apiAccessStatus,
+  auditAuthorizationStatus,
+  betaAccessResponse,
+  betaAccessStatus,
+  betaSessionTokenFromRequest,
+  clearSessionCookie,
+  createAdminSession,
+  createBetaSession,
+  logAdminAction,
+  revokeAdminSession
+} from "./lib/auth.js";
+import {
+  cleanupExpiredRows,
+  countRows,
+  runD1BatchChunks
+} from "./lib/db.js";
+import {
+  PRESERVED_FIX_REQUEST_STATUSES,
+  REPORT_RETENTION_DAYS,
+  deleteReportRowsWithBlobs,
+  hydrateReportRow,
+  ownerReportRow,
+  preserveFixRequestReports,
+  reportJsonForRow,
+  saveAuditReport,
+  saveAuditReportWithContext
+} from "./lib/report-data.js";
+import {
+  apiAuditResponse,
+  apiIssueResponse,
+  apiProjectResponse,
+  apiReportResponse,
+  auditJobResponse,
+  auditScheduleResponse,
+  billingFixRequestResponse,
+  fixRequestResponse,
+  siteClaimResponse,
+  siteVerificationText
+} from "./lib/serializers.js";
+import {
+  apiWebhookSigningSecret,
+  cleanWebhookEvents,
+  deliverApiWebhooks,
+  publicWebhookUrlStatus
+} from "./lib/webhooks.js";
 
-const SESSION_COOKIE = "sfk_beta_session";
-const ADMIN_SESSION_COOKIE = "sfk_admin_session";
-const BETA_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
-const ADMIN_SESSION_TTL_SECONDS = 60 * 60 * 2;
 const ACCESS_LINK_TTL_SECONDS = 60 * 15;
-const REPORT_RETENTION_DAYS = 30;
 const REPORT_SHARE_PASSWORD_MIN_LENGTH = 10;
 const REPORT_SHARE_PASSWORD_PBKDF2_ITERATIONS = 120_000;
 const LARGE_RENDERED_CRAWL_LEASE_MS = 15 * 60 * 1000;
@@ -933,63 +977,6 @@ async function exportLeadsCsv(request, env) {
       "content-type": "text/csv; charset=utf-8"
     }
   });
-}
-
-async function createAdminSession(request, env) {
-  if (!env.WAITLIST_DB) return jsonNoStore({ error: "Admin storage is not configured." }, 503);
-  const body = await request.json().catch(() => ({}));
-  const expected = String(env.ADMIN_EXPORT_TOKEN || "");
-  const provided = String(body.token || "").trim();
-  const actorEmail =
-    normalizeEmail(body.email || "") ||
-    cleanText(request.headers.get("cf-access-authenticated-user-email") || "", 254) ||
-    "bearer-admin";
-  if (!expected || !constantTimeEqual(provided, expected)) {
-    const quota = await adminFailureQuotaStatus(request, env);
-    await logAdminAction(request, env, "create-admin-session", false, actorEmail);
-    return jsonNoStore(
-      { error: quota.ok ? "Unauthorized" : quota.error, ...(quota.resetAt ? { resetAt: quota.resetAt } : {}) },
-      quota.ok ? 401 : 429
-    );
-  }
-
-  const token = randomToken();
-  const tokenHash = await sha256Hex(token);
-  const now = new Date().toISOString();
-  const expiresAt = isoSecondsFromNow(ADMIN_SESSION_TTL_SECONDS);
-  await env.WAITLIST_DB.prepare(
-    `INSERT INTO admin_sessions
-      (token_hash, actor_email, created_at, expires_at, last_seen_at, revoked_at, ip_hash, user_agent)
-     VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`
-  )
-    .bind(
-      tokenHash,
-      actorEmail,
-      now,
-      expiresAt,
-      now,
-      await requestIpHash(request),
-      cleanText(request.headers.get("user-agent") || "", 500)
-    )
-    .run();
-  await logAdminAction(request, env, "create-admin-session", true, actorEmail);
-  const response = jsonNoStore({ ok: true, actorEmail, expiresAt });
-  response.headers.append("set-cookie", adminSessionCookie(request, token, ADMIN_SESSION_TTL_SECONDS));
-  return response;
-}
-
-async function revokeAdminSession(request, env) {
-  const token = cookieValue(request, ADMIN_SESSION_COOKIE);
-  if (token && env.WAITLIST_DB) {
-    await env.WAITLIST_DB.prepare(
-      `UPDATE admin_sessions SET revoked_at = ?, last_seen_at = ? WHERE token_hash = ?`
-    )
-      .bind(new Date().toISOString(), new Date().toISOString(), await sha256Hex(token))
-      .run();
-  }
-  const response = jsonNoStore({ ok: true });
-  response.headers.append("set-cookie", clearAdminSessionCookie(request));
-  return response;
 }
 
 async function getAdminSummary(request, env) {
@@ -3730,13 +3717,6 @@ async function largeCrawlFingerprint(targetUrl = "", frontierRows = []) {
   ].join("\n"));
 }
 
-async function runD1BatchChunks(env, statements = [], chunkSize = 100) {
-  for (let index = 0; index < statements.length; index += chunkSize) {
-    const chunk = statements.slice(index, index + chunkSize);
-    if (chunk.length) await env.WAITLIST_DB.batch(chunk);
-  }
-}
-
 async function activeAuditJobForTarget(env, access, targetUrl, competitorUrls = [], backlinkRows = [], localSeo = {}, keywordRows = [], renderedCrawlTarget = 0, maxPages = 10) {
   const competitorKey = competitorUrlsKey(competitorUrls);
   const backlinkKey = backlinkRowsKey(backlinkRows);
@@ -4234,54 +4214,6 @@ async function getAuditJob(request, env) {
   });
 }
 
-function auditJobResponse(row = {}) {
-  const reportId = row.report_id || "";
-  return {
-    id: row.id || "",
-    status: row.status || "queued",
-    targetUrl: row.target_url || "",
-    targetHost: row.target_host || safeHostname(row.target_url || ""),
-    competitorUrls: parseJson(row.competitor_urls_json, []),
-    backlinkRowsCount: parseJson(row.backlink_rows_json, []).length,
-    localSeoInput: localSeoInputSummary(parseJson(row.local_seo_input_json, { enabled: false })),
-    keywordRowsInput: keywordRowsSummary(parseJson(row.keyword_rows_json, [])),
-    renderedCrawlTarget: renderedCrawlTargetSummary(row.rendered_crawl_target || 0),
-    maxPages: Number(row.max_pages || 10),
-    crawlDepth: crawlDepthSummary(row.max_pages || 10),
-    reportId,
-    scheduleId: row.schedule_id || "",
-    reportPath: reportId ? `/beta/reports/${reportId}` : "",
-    error: row.error || "",
-    createdAt: row.created_at || "",
-    updatedAt: row.updated_at || "",
-    startedAt: row.started_at || "",
-    completedAt: row.completed_at || "",
-    expiresAt: row.expires_at || ""
-  };
-}
-
-function auditScheduleResponse(row = {}) {
-  const reportId = row.last_report_id || "";
-  return {
-    id: row.id || "",
-    status: row.status || "active",
-    targetUrl: row.target_url || "",
-    targetHost: row.target_host || safeHostname(row.target_url || ""),
-    maxPages: Number(row.max_pages || 10),
-    intervalDays: Number(row.interval_days || 7),
-    cadenceLabel: scheduleCadenceLabel(row.interval_days || 7),
-    nextRunAt: row.next_run_at || "",
-    lastRunAt: row.last_run_at || "",
-    lastJobId: row.last_job_id || "",
-    lastReportId: reportId,
-    lastReportPath: reportId ? `/beta/reports/${reportId}` : "",
-    lastError: row.last_error || "",
-    createdAt: row.created_at || "",
-    updatedAt: row.updated_at || "",
-    pausedAt: row.paused_at || ""
-  };
-}
-
 function apiTokenResponse(row = {}) {
   return {
     id: row.id || "",
@@ -4759,29 +4691,6 @@ function reportBrandingFromRow(row = {}) {
   };
 }
 
-async function ownerReportRow(env, reportId, access) {
-  if (!isSafeReportId(reportId)) return null;
-  const row = await env.WAITLIST_DB.prepare(
-    `SELECT report_json, owner_email, owner_invite_id, expires_at, url
-     FROM audit_reports
-     WHERE id = ?
-     LIMIT 1`
-  )
-    .bind(reportId)
-    .first();
-  if (!row?.report_json) return null;
-  if (row.expires_at && row.expires_at <= new Date().toISOString()) return null;
-  if (row.owner_email && row.owner_email !== access.ownerEmail) return null;
-  if (
-    row.owner_invite_id &&
-    access.accessMode !== "founder-override" &&
-    row.owner_invite_id !== access.inviteId
-  ) {
-    return null;
-  }
-  return hydrateReportRow(env, row);
-}
-
 function reportShareResponse(row = {}, origin = "", customDomain = null, env = {}) {
   const shareOrigin = customDomain?.domain ? `https://${customDomain.domain}` : origin;
   return {
@@ -5012,94 +4921,6 @@ function hexToBytes(hex = "") {
 
 function bytesToHex(bytes = new Uint8Array()) {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function apiProjectResponse(row = {}) {
-  return {
-    id: row.id || "",
-    host: row.host || "",
-    status: row.status || "pending",
-    verification_method: row.verification_method || "",
-    verified_at: row.verified_at || "",
-    created_at: row.created_at || "",
-    updated_at: row.updated_at || "",
-    verification: siteClaimInstructions(row)
-  };
-}
-
-function apiAuditResponse(row = {}) {
-  const reportId = row.report_id || "";
-  return {
-    audit_id: row.id || "",
-    status: apiAuditStatus(row.status),
-    url: row.target_url || "",
-    target_host: row.target_host || safeHostname(row.target_url || ""),
-    competitor_urls: parseJson(row.competitor_urls_json, []),
-    backlink_rows_count: parseJson(row.backlink_rows_json, []).length,
-    local_seo_input: localSeoInputSummary(parseJson(row.local_seo_input_json, { enabled: false })),
-    keyword_rows_input: keywordRowsSummary(parseJson(row.keyword_rows_json, [])),
-    rendered_crawl_target: renderedCrawlTargetSummary(row.rendered_crawl_target || 0),
-    max_pages: Number(row.max_pages || 10),
-    crawl_depth: crawlDepthSummary(row.max_pages || 10),
-    report_id: reportId,
-    report_url: reportId ? `/v1/audits/${row.id}/report` : "",
-    issues_url: reportId ? `/v1/audits/${row.id}/issues` : "",
-    error: row.error || "",
-    created_at: row.created_at || "",
-    updated_at: row.updated_at || "",
-    started_at: row.started_at || "",
-    completed_at: row.completed_at || ""
-  };
-}
-
-function apiAuditStatus(status = "") {
-  if (status === "completed") return "complete";
-  return status || "queued";
-}
-
-function apiIssueResponse(finding = {}) {
-  return {
-    id: finding.id || "",
-    severity: finding.severity || "notice",
-    title: finding.title || "",
-    page_url: finding.pageUrl || "",
-    page_label: finding.pageLabel || "",
-    evidence: finding.evidence || "",
-    why: finding.why || "",
-    fix: finding.fix || "",
-    acceptance: finding.acceptance || "",
-    confidence: finding.confidence || "verified",
-    source: finding.source || ""
-  };
-}
-
-function apiReportResponse(report = {}) {
-  return {
-    id: report.id || "",
-    url: report.url || "",
-    score: report.score || 0,
-    summary: report.summary || {},
-    crawl_depth: report.crawlDepth || crawlDepthSummary(report.summary?.maxPages || 10),
-    crawl_inventory: report.crawlInventory || null,
-    rendered_crawl_scale: report.renderedCrawlScale || null,
-    crawl_intelligence: report.crawlIntelligence || null,
-    report_delta: report.reportDelta || null,
-    performance: report.performance || null,
-    resource_waterfall: report.resourceWaterfall || report.pages?.[0]?.resourceWaterfall || null,
-    competitor_benchmark: report.competitorBenchmark || null,
-    backlink_audit: report.backlinkAudit || null,
-    local_seo_audit: report.localSeoAudit || null,
-    keyword_rank_audit: report.keywordRankAudit || null,
-    platform_seo_audit: report.platformSeoAudit || null,
-    findings: (report.findings || []).map(apiIssueResponse),
-    repair_plan: report.repairPlan || [],
-    repair_brief: report.repairBrief || "",
-    pages: report.pages || [],
-    report_path: report.reportPath || "",
-    report_url: report.reportUrl || "",
-    created_at: report.scannedAt || report.createdAt || "",
-    expires_at: report.retention?.expiresAt || ""
-  };
 }
 
 function apiAuditIdFromPath(rawUrl, prefix, suffix = "") {
@@ -5667,187 +5488,6 @@ async function verifySiteClaim(request, env) {
   });
 }
 
-async function auditAuthorizationStatus(env, access, targetUrl, options = {}) {
-  if (access.accessMode === "founder-override") return { ok: true };
-  const host = safeHostname(targetUrl);
-  if (!host) return { ok: false, status: 400, error: "Enter a valid public website URL." };
-  // A claim on the apex domain also covers www and vice versa — customers
-  // rightly treat them as one site.
-  const siblingHost = host.startsWith("www.") ? host.slice(4) : `www.${host}`;
-  const row = await env.WAITLIST_DB.prepare(
-    `SELECT id, host, status, verified_at
-     FROM site_claims
-     WHERE owner_email = ?
-       AND host IN (?, ?)
-       AND status = 'verified'
-       AND revoked_at IS NULL
-     LIMIT 1`
-  )
-    .bind(access.ownerEmail, host, siblingHost)
-    .first();
-  if (row?.id) return { ok: true, site: siteClaimResponse(row) };
-  if (options.allowLite) return { ok: true, lite: true };
-  return {
-    ok: false,
-    status: 403,
-    code: "SITE_VERIFICATION_REQUIRED",
-    error: `Verify ${host} before running a self-serve audit. A homepage-only Lite check (1 page) runs without verification.`,
-    site: siteClaimInstructions({ host, verification_token: "" })
-  };
-}
-
-function siteClaimResponse(row = {}) {
-  const instructions = siteClaimInstructions(row);
-  return {
-    id: row.id || "",
-    host: row.host || "",
-    status: row.status || "pending",
-    verificationMethod: row.verification_method || "",
-    createdAt: row.created_at || "",
-    updatedAt: row.updated_at || "",
-    verifiedAt: row.verified_at || "",
-    lastCheckedAt: row.last_checked_at || "",
-    ...instructions
-  };
-}
-
-function siteClaimInstructions(row = {}) {
-  const host = row.host || "";
-  const token = row.verification_token || "";
-  const proof = token ? siteVerificationText(token) : "";
-  return {
-    dnsName: host ? `_seofixkit.${host}` : "",
-    dnsType: "TXT",
-    dnsValue: proof,
-    filePath: "/.well-known/seofixkit.txt",
-    fileUrl: host ? `https://${host}/.well-known/seofixkit.txt` : "",
-    fileContents: proof
-  };
-}
-
-function siteVerificationText(token) {
-  return `seofixkit-site-verification=${token}`;
-}
-
-function cleanWebhookEvents(events = []) {
-  const allowed = new Set(["audit.completed", "audit.failed", "large_crawl.created", "large_crawl.ready_to_merge"]);
-  const values = Array.isArray(events) ? events : [];
-  const cleaned = values.filter((event) => allowed.has(String(event)));
-  return cleaned.length ? [...new Set(cleaned)] : ["audit.completed", "audit.failed"];
-}
-
-async function apiWebhookSigningSecret(env, webhookId) {
-  // Fail closed: without a dedicated secret, webhook signatures would be
-  // forgeable, so refuse to sign rather than fall back to a known seed.
-  const seed = String(env.SEOFIXKIT_API_WEBHOOK_SECRET || "");
-  if (!seed) {
-    throw new Error("Webhook signing is not configured. Set the SEOFIXKIT_API_WEBHOOK_SECRET secret.");
-  }
-  const digest = await hmacSha256Hex(seed, webhookId);
-  return `whsec_${digest.slice(0, 32)}`;
-}
-
-async function apiWebhookSignature(env, webhookId, timestamp, body) {
-  const secret = await apiWebhookSigningSecret(env, webhookId);
-  return hmacSha256Hex(secret, `${timestamp}.${body}`);
-}
-
-async function deliverApiWebhooks(env, ownerEmail, eventType, data = {}) {
-  if (!env.WAITLIST_DB) return;
-  const rows = await env.WAITLIST_DB.prepare(
-    `SELECT *
-     FROM api_webhooks
-     WHERE owner_email = ?
-       AND status = 'active'
-       AND revoked_at IS NULL
-     ORDER BY created_at ASC
-     LIMIT 20`
-  )
-    .bind(ownerEmail)
-    .all();
-  const webhooks = (rows.results || []).filter((row) => parseJson(row.events_json, []).includes(eventType));
-  for (const webhook of webhooks) {
-    const now = new Date().toISOString();
-    const payload = {
-      id: crypto.randomUUID(),
-      event: eventType,
-      created_at: now,
-      data
-    };
-    const body = JSON.stringify(payload);
-    const eventId = payload.id;
-    await env.WAITLIST_DB.prepare(
-      `INSERT INTO api_webhook_events
-        (id, webhook_id, owner_email, event_type, audit_job_id, report_id, status, http_status, error, payload_json, created_at, delivered_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-      .bind(
-        eventId,
-        webhook.id,
-        ownerEmail,
-        eventType,
-        data.audit?.audit_id || null,
-        data.audit?.report_id || data.report?.id || null,
-        "pending",
-        null,
-        null,
-        body,
-        now,
-        null
-      )
-      .run();
-    try {
-      const urlStatus = publicWebhookUrlStatus(webhook.url);
-      if (!urlStatus.ok) throw new Error(urlStatus.error);
-      if (await resolvesToPrivateAddress(new URL(urlStatus.url).hostname)) {
-        throw new Error("Webhook host resolves to a private or internal address.");
-      }
-      const timestamp = String(Math.floor(Date.now() / 1000));
-      const response = await fetch(webhook.url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "user-agent": "SEO Fix Kit Webhooks",
-          "x-seofixkit-event": eventType,
-          "x-seofixkit-signature": `t=${timestamp},v1=${await apiWebhookSignature(env, webhook.id, timestamp, body)}`
-        },
-        body,
-        redirect: "manual"
-      });
-      const deliveredAt = new Date().toISOString();
-      const status = response.ok ? "delivered" : "failed";
-      const error = response.ok ? "" : `HTTP ${response.status}`;
-      await env.WAITLIST_DB.batch([
-        env.WAITLIST_DB.prepare(
-          `UPDATE api_webhook_events
-           SET status = ?, http_status = ?, error = ?, delivered_at = ?
-           WHERE id = ?`
-        ).bind(status, response.status, error || null, deliveredAt, eventId),
-        env.WAITLIST_DB.prepare(
-          `UPDATE api_webhooks
-           SET last_delivery_at = ?, last_delivery_status = ?, last_error = ?, updated_at = ?
-           WHERE id = ?`
-        ).bind(deliveredAt, status, error || null, deliveredAt, webhook.id)
-      ]);
-    } catch (error) {
-      const deliveredAt = new Date().toISOString();
-      const message = cleanText(error?.message || "Webhook delivery failed.", 500);
-      await env.WAITLIST_DB.batch([
-        env.WAITLIST_DB.prepare(
-          `UPDATE api_webhook_events
-           SET status = 'failed', error = ?, delivered_at = ?
-           WHERE id = ?`
-        ).bind(message, deliveredAt, eventId),
-        env.WAITLIST_DB.prepare(
-          `UPDATE api_webhooks
-           SET last_delivery_at = ?, last_delivery_status = 'failed', last_error = ?, updated_at = ?
-           WHERE id = ?`
-        ).bind(deliveredAt, message, deliveredAt, webhook.id)
-      ]);
-    }
-  }
-}
-
 async function verifySiteClaimDns(host, token) {
   const expected = siteVerificationText(token);
   const dnsName = `_seofixkit.${host}`;
@@ -6002,42 +5642,6 @@ async function getOrCreateFixRequest(env, reportRow, access, summary, note, now,
   };
 }
 
-function fixRequestResponse(row, now = new Date().toISOString()) {
-  return {
-    id: row.id,
-    status: row.status || "new",
-    statusLabel: fixRequestStatusLabel(row.status || "new"),
-    targetUrl: row.target_url,
-    targetHost: row.target_host,
-    score: row.score,
-    issueCount: row.issue_count,
-    checkoutSessionId: row.checkout_session_id || "",
-    customerNote: row.customer_note || "",
-    deliveryUrl: row.delivery_url || "",
-    finalReportId: row.final_report_id || "",
-    inProgressAt: row.in_progress_at || "",
-    deliveredAt: row.delivered_at || "",
-    paidAt: row.paid_at || "",
-    dueAt: row.due_at || "",
-    nextUpdateAt: row.next_update_at || "",
-    statusReason: row.status_reason || "",
-    isTest: Boolean(row.is_test),
-    refundedAt: row.refunded_at || "",
-    beforeAfterSummary: parseJson(row.before_after_summary_json, null),
-    createdAt: row.created_at || now,
-    updatedAt: row.updated_at || now
-  };
-}
-
-function billingFixRequestResponse(row, now = new Date().toISOString()) {
-  return {
-    ...fixRequestResponse(row, now),
-    reportId: row.report_id,
-    reportPath: `/beta/reports/${row.report_id}`,
-    briefPath: `/api/reports/${row.report_id}/brief.md`
-  };
-}
-
 function billingPaymentResponse(row) {
   const currency = normalizeCurrencyCode(row.payment_currency || row.refund_currency || "");
   const amountMinor = numberOrNull(row.payment_amount);
@@ -6150,21 +5754,6 @@ function isAllowedAdminStatusTransition(currentStatus, requestedStatus) {
     disputed: new Set([])
   };
   return Boolean(allowed[current]?.has(requested));
-}
-
-const PRESERVED_FIX_REQUEST_STATUSES = ["paid", "in_progress", "delivered", "refunded", "refund_failed", "disputed"];
-
-async function preserveFixRequestReports(env, fixRequest) {
-  const ids = [fixRequest?.report_id, fixRequest?.final_report_id]
-    .map((value) => String(value || ""))
-    .filter((value) => isSafeReportId(value));
-  if (!ids.length) return;
-  const placeholders = ids.map(() => "?").join(", ");
-  await env.WAITLIST_DB.prepare(
-    `UPDATE audit_reports SET expires_at = NULL, updated_at = ? WHERE id IN (${placeholders})`
-  )
-    .bind(new Date().toISOString(), ...ids)
-    .run();
 }
 
 async function validateFinalReportForFixRequest(env, fixRequest, finalReportId) {
@@ -7118,248 +6707,6 @@ async function runPrivateDemoAudit(request, env) {
   return jsonNoStore(saved);
 }
 
-async function saveAuditReport(report, request, env, access) {
-  const origin = new URL(request.url).origin;
-  return saveAuditReportWithContext(report, env, access, origin);
-}
-
-async function saveAuditReportWithContext(report, env, access, origin) {
-  const id = makePrivateReportId(report.url);
-  const now = new Date().toISOString();
-  const expiresAt = isoDaysFromNow(REPORT_RETENTION_DAYS);
-  const targetHost = new URL(report.url).hostname.toLowerCase();
-  const previousReport = await latestSavedReportForDelta(env, access, targetHost, now);
-  const reportDelta = buildReportDelta(report, previousReport);
-  const saved = {
-    ...report,
-    id,
-    reportPath: `/beta/reports/${id}`,
-    reportUrl: `${origin}/beta/reports/${id}`,
-    reportDelta,
-    repairBrief: appendReportDeltaBrief(report.repairBrief || "", reportDelta),
-    owner: {
-      email: access.ownerEmail,
-      inviteId: access.inviteId || null,
-      accessMode: access.accessMode || "invite"
-    },
-    retention: {
-      expiresAt,
-      days: REPORT_RETENTION_DAYS
-    }
-  };
-  const fitted = fitReportForStorage(compactAuditReportForStorage(saved));
-  const storageReport = fitted.report;
-
-  // Prefer R2 for the blob; fall back to inline D1 storage (size-guarded)
-  // when the binding is missing or the put fails.
-  let storedReportJson = fitted.json;
-  if (env.REPORTS) {
-    try {
-      await env.REPORTS.put(reportR2Key(id), fitted.json, {
-        httpMetadata: { contentType: "application/json" }
-      });
-      storedReportJson = `${R2_REPORT_MARKER}${reportR2Key(id)}`;
-    } catch {
-      storedReportJson = fitted.json;
-    }
-  }
-
-  await env.WAITLIST_DB.prepare(
-    `INSERT INTO audit_reports
-      (id, url, origin, score, summary_json, report_json, created_at, updated_at, owner_email, owner_session_hash, target_host, expires_at, owner_invite_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      id,
-      saved.url,
-      saved.origin,
-      saved.score,
-      JSON.stringify(saved.summary || {}),
-      storedReportJson,
-      now,
-      now,
-      access.ownerEmail,
-      access.sessionHash,
-      targetHost,
-      expiresAt,
-      access.inviteId || null
-    )
-    .run();
-
-  return storageReport;
-}
-
-// Report bodies live in R2; the D1 column keeps a marker pointing at the
-// object so old inline rows and dev environments without the binding keep
-// working unchanged.
-const R2_REPORT_MARKER = "r2:";
-
-function reportR2Key(reportId) {
-  return `reports/${reportId}.json`;
-}
-
-async function reportJsonForRow(env, row) {
-  const raw = String(row?.report_json || "");
-  if (!raw.startsWith(R2_REPORT_MARKER)) return raw;
-  if (!env.REPORTS) return "";
-  const object = await env.REPORTS.get(raw.slice(R2_REPORT_MARKER.length));
-  return object ? await object.text() : "";
-}
-
-async function hydrateReportRow(env, row) {
-  if (row && String(row.report_json || "").startsWith(R2_REPORT_MARKER)) {
-    row.report_json = await reportJsonForRow(env, row);
-  }
-  return row;
-}
-
-async function deleteReportRowsWithBlobs(env, rows = []) {
-  const ids = rows.map((row) => row.id).filter(Boolean);
-  if (!ids.length) return;
-  const keys = rows
-    .map((row) => String(row.report_json || ""))
-    .filter((value) => value.startsWith(R2_REPORT_MARKER))
-    .map((value) => value.slice(R2_REPORT_MARKER.length));
-  if (env.REPORTS && keys.length) {
-    await env.REPORTS.delete(keys).catch(() => {});
-  }
-  const placeholders = ids.map(() => "?").join(", ");
-  await env.WAITLIST_DB.prepare(`DELETE FROM audit_reports WHERE id IN (${placeholders})`).bind(...ids).run();
-}
-
-// D1 rejects rows near its ~2MB value limit, which would fail the save AFTER
-// a long crawl completed. Trim stored page proof until the blob fits; scores,
-// findings, and the repair brief always cover the full crawl.
-const REPORT_STORAGE_MAX_BYTES = 1_500_000;
-
-function fitReportForStorage(storageReport) {
-  const encoder = new TextEncoder();
-  let report = storageReport;
-  let json = JSON.stringify(report);
-  if (encoder.encode(json).length <= REPORT_STORAGE_MAX_BYTES) {
-    return { report, json, trimmed: false };
-  }
-
-  let pageLimit = Array.isArray(report.pages) ? report.pages.length : 0;
-  while (encoder.encode(json).length > REPORT_STORAGE_MAX_BYTES && pageLimit > 1) {
-    pageLimit = Math.max(1, Math.floor(pageLimit / 2));
-    report = {
-      ...report,
-      pages: report.pages.slice(0, pageLimit),
-      storageNote: `Stored page-by-page proof was trimmed to ${pageLimit} pages to fit report storage. Scores, findings, and the repair brief still cover the full crawl.`
-    };
-    json = JSON.stringify(report);
-  }
-
-  let summaryLimit = Array.isArray(report.pageSummaries) ? report.pageSummaries.length : 0;
-  while (encoder.encode(json).length > REPORT_STORAGE_MAX_BYTES && summaryLimit > 1) {
-    summaryLimit = Math.max(1, Math.floor(summaryLimit / 2));
-    report = { ...report, pageSummaries: report.pageSummaries.slice(0, summaryLimit) };
-    json = JSON.stringify(report);
-  }
-
-  return { report, json, trimmed: true };
-}
-
-function compactAuditReportForStorage(report = {}) {
-  return {
-    ...report,
-    pages: Array.isArray(report.pages) ? report.pages.slice(0, 1000).map(compactAuditPageForStorage) : [],
-    pageSummaries: Array.isArray(report.pageSummaries) ? report.pageSummaries.slice(0, 1000) : [],
-    resourceWaterfall: compactResourceWaterfallForStorage(report.resourceWaterfall)
-  };
-}
-
-function compactAuditPageForStorage(page = {}) {
-  return {
-    ...page,
-    static: compactRenderedFactsForStorage(page.static),
-    rendered: compactRenderedFactsForStorage(page.rendered),
-    linkChecks: compactResourceChecksForStorage(page.linkChecks, 60),
-    imageChecks: compactResourceChecksForStorage(page.imageChecks, 60),
-    resourceWaterfall: compactResourceWaterfallForStorage(page.resourceWaterfall)
-  };
-}
-
-function compactRenderedFactsForStorage(facts = {}) {
-  if (!facts || typeof facts !== "object") return facts;
-  const compact = { ...facts };
-  if (compact.bodyText && !compact.bodySample) compact.bodySample = cleanText(compact.bodyText, 280);
-  delete compact.bodyText;
-  delete compact.resourceTimings;
-  if (compact.bodySample) compact.bodySample = cleanText(compact.bodySample, 280);
-  compact.links = compactListForStorage(compact.links, 80);
-  compact.images = compactListForStorage(compact.images, 80);
-  compact.internalLinks = compactListForStorage(compact.internalLinks, 120);
-  compact.externalLinks = compactListForStorage(compact.externalLinks, 60);
-  compact.headings = compactListForStorage(compact.headings, 80);
-  compact.h1s = compactListForStorage(compact.h1s, 20);
-  compact.hreflangs = compactListForStorage(compact.hreflangs, 80);
-  compact.schemaTypes = compactListForStorage(compact.schemaTypes, 40);
-  compact.schemaErrors = compactListForStorage(compact.schemaErrors, 20);
-  return compact;
-}
-
-function compactResourceChecksForStorage(checks = [], limit = 60) {
-  if (!Array.isArray(checks)) return [];
-  return checks.slice(0, limit).map((check) => ({
-    url: check.url || "",
-    finalUrl: check.finalUrl || "",
-    label: cleanText(check.label || "", 220),
-    kind: check.kind || "",
-    ok: Boolean(check.ok),
-    status: Number(check.status || 0),
-    redirected: Boolean(check.redirected),
-    error: cleanText(check.error || "", 300),
-    evidence: cleanText(check.evidence || "", 400)
-  }));
-}
-
-function compactResourceWaterfallForStorage(waterfall = null) {
-  if (!waterfall || typeof waterfall !== "object") return waterfall || null;
-  return {
-    ...waterfall,
-    resources: compactListForStorage(waterfall.resources, 25),
-    slowResources: compactListForStorage(waterfall.slowResources, 10),
-    heavyResources: compactListForStorage(waterfall.heavyResources, 10),
-    renderBlockingCandidates: compactListForStorage(waterfall.renderBlockingCandidates, 10),
-    thirdPartyHosts: compactListForStorage(waterfall.thirdPartyHosts, 10),
-    repairOpportunities: compactListForStorage(waterfall.repairOpportunities, 10)
-  };
-}
-
-function compactListForStorage(items = [], limit = 50) {
-  if (!Array.isArray(items)) return [];
-  return items.slice(0, limit).map(compactValueForStorage);
-}
-
-function compactValueForStorage(value) {
-  if (typeof value === "string") return cleanText(value, 500);
-  if (!value || typeof value !== "object") return value;
-  const compact = {};
-  for (const [key, item] of Object.entries(value)) {
-    if (key === "bodyText" || key === "resourceTimings") continue;
-    compact[key] = typeof item === "string" ? cleanText(item, 500) : item;
-  }
-  return compact;
-}
-
-async function latestSavedReportForDelta(env, access, targetHost, now) {
-  if (!env.WAITLIST_DB || !access.ownerEmail || !targetHost) return null;
-  const row = await env.WAITLIST_DB.prepare(
-    `SELECT report_json
-     FROM audit_reports
-     WHERE owner_email = ?
-       AND target_host = ?
-       AND (expires_at IS NULL OR expires_at > ?)
-     ORDER BY created_at DESC
-     LIMIT 1`
-  )
-    .bind(access.ownerEmail, targetHost, now)
-    .first();
-  return parseJson(row ? await reportJsonForRow(env, row) : "", null);
-}
-
 async function getSavedReport(request, env) {
   const access = await betaAccessStatus(request, env);
   if (!access.ok) return betaAccessResponse(access);
@@ -7455,117 +6802,6 @@ function randomInviteCode() {
   const bytes = new Uint8Array(12);
   crypto.getRandomValues(bytes);
   return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function isAdminAuthorized(request, env) {
-  const expected = String(env.ADMIN_EXPORT_TOKEN || "");
-  if (!expected) return false;
-
-  const auth = request.headers.get("authorization") || "";
-  const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
-  const token = bearer;
-  return constantTimeEqual(token, expected);
-}
-
-async function betaAccessStatus(request, env) {
-  if (!env.WAITLIST_DB) {
-    return {
-      ok: false,
-      status: 503,
-      error: "Private beta sessions are not configured."
-    };
-  }
-
-  const token = betaSessionTokenFromRequest(request);
-  if (!token) {
-    return {
-      ok: false,
-      status: 401,
-      error: "Private beta session required."
-    };
-  }
-
-  const tokenHash = await sha256Hex(token);
-  const now = new Date().toISOString();
-  const row = await env.WAITLIST_DB.prepare(
-    `SELECT token_hash, owner_email, invite_id, access_mode, expires_at, revoked_at
-     FROM beta_sessions
-     WHERE token_hash = ?
-     LIMIT 1`
-  )
-    .bind(tokenHash)
-    .first();
-
-  if (!row?.token_hash || row.revoked_at || row.expires_at <= now) {
-    return {
-      ok: false,
-      status: 401,
-      error: "Private beta session expired."
-    };
-  }
-
-  await env.WAITLIST_DB.prepare(
-    `UPDATE beta_sessions SET last_seen_at = ? WHERE token_hash = ?`
-  )
-    .bind(now, tokenHash)
-    .run();
-
-  return {
-    ok: true,
-    ownerEmail: row.owner_email,
-    inviteId: row.invite_id || null,
-    accessMode: cleanAccessMode(row.access_mode || (row.invite_id ? "invite" : "founder-override")),
-    sessionHash: row.token_hash,
-    expiresAt: row.expires_at
-  };
-}
-
-function betaAccessResponse(access) {
-  const response = jsonNoStore({ error: access.error }, access.status);
-  if (access.status === 401) {
-    response.headers.append("set-cookie", clearSessionCookie());
-  }
-  return response;
-}
-
-async function apiAccessStatus(request, env) {
-  if (!env.WAITLIST_DB) {
-    return { ok: false, status: 503, error: "Developer API storage is not configured." };
-  }
-  const auth = request.headers.get("authorization") || "";
-  const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
-  if (!bearer) return { ok: false, status: 401, error: "API key required." };
-  const tokenHash = await sha256Hex(bearer);
-  const now = new Date().toISOString();
-  const row = await env.WAITLIST_DB.prepare(
-    `SELECT id, owner_email, token_hash, status
-     FROM api_tokens
-     WHERE token_hash = ?
-       AND status = 'active'
-       AND revoked_at IS NULL
-     LIMIT 1`
-  )
-    .bind(tokenHash)
-    .first();
-  if (!row?.id) return { ok: false, status: 401, error: "API key is invalid or revoked." };
-  await env.WAITLIST_DB.prepare(
-    `UPDATE api_tokens
-     SET last_used_at = ?, updated_at = ?
-     WHERE id = ?`
-  )
-    .bind(now, now, row.id)
-    .run();
-  return {
-    ok: true,
-    ownerEmail: row.owner_email,
-    accessMode: "api",
-    sessionHash: row.token_hash,
-    apiTokenId: row.id
-  };
-}
-
-function apiAccessResponse(access) {
-  return jsonNoStore({ error: access.error || "API key required." }, access.status || 401);
 }
 
 async function auditQuotaStatus(request, env, access, targetUrl) {
@@ -7697,20 +6933,6 @@ async function accessLinkQuotaStatus(request, env, ownerEmail = "") {
   return checkQuotaSet(env, checks);
 }
 
-async function adminFailureQuotaStatus(request, env) {
-  const hour = hourWindow(new Date());
-  const ipHash = await requestIpHash(request);
-  return checkQuotaSet(env, [
-    {
-      bucket: `admin-fail:ip:${hour.key}:${ipHash}`,
-      limit: 20,
-      windowStart: hour.key,
-      resetAt: hour.resetAt,
-      error: "Too many admin attempts from this network. Try again later."
-    }
-  ]);
-}
-
 async function inviteAccessStatus(request, env, ownerEmail, inviteCode, inviteCodeHash) {
   if (!inviteCode) {
     return {
@@ -7768,79 +6990,6 @@ async function inviteAccessStatus(request, env, ownerEmail, inviteCode, inviteCo
   }
 
   return { ok: true, inviteId: row.id, accessMode: "invite" };
-}
-
-async function adminAccessStatus(request, env, action) {
-  const session = await adminSessionStatus(request, env);
-  if (session.ok) return { ok: true, actorEmail: session.actorEmail };
-  const ok = isAdminAuthorized(request, env);
-  const actorEmail =
-    cleanText(request.headers.get("cf-access-authenticated-user-email") || "", 254) ||
-    "bearer-admin";
-  if (!ok) {
-    const quota = env.WAITLIST_DB ? await adminFailureQuotaStatus(request, env) : { ok: true };
-    await logAdminAction(request, env, action, false, actorEmail);
-    if (!quota.ok) {
-      return { ok: false, status: 429, error: quota.error, resetAt: quota.resetAt, actorEmail };
-    }
-    return { ok: false, status: 401, error: "Unauthorized", actorEmail };
-  }
-  return { ok: true, actorEmail };
-}
-
-async function adminSessionStatus(request, env) {
-  if (!env.WAITLIST_DB) return { ok: false };
-  const token = cookieValue(request, ADMIN_SESSION_COOKIE);
-  if (!token) return { ok: false };
-  const tokenHash = await sha256Hex(token);
-  const now = new Date().toISOString();
-  const row = await env.WAITLIST_DB.prepare(
-    `SELECT actor_email, expires_at, revoked_at
-     FROM admin_sessions
-     WHERE token_hash = ?
-     LIMIT 1`
-  )
-    .bind(tokenHash)
-    .first();
-  if (!row?.actor_email || row.revoked_at || row.expires_at <= now) return { ok: false };
-  await env.WAITLIST_DB.prepare(`UPDATE admin_sessions SET last_seen_at = ? WHERE token_hash = ?`)
-    .bind(now, tokenHash)
-    .run();
-  return { ok: true, actorEmail: row.actor_email };
-}
-
-function adminDeniedJson(admin) {
-  return jsonNoStore(
-    {
-      error: admin.error || "Unauthorized",
-      ...(admin.resetAt ? { resetAt: admin.resetAt } : {})
-    },
-    admin.status || 401
-  );
-}
-
-async function logAdminAction(request, env, action, success, actorEmail = "", detail = "") {
-  if (!env.WAITLIST_DB) return;
-  try {
-    await env.WAITLIST_DB.prepare(
-      `INSERT INTO admin_audit_log
-        (id, action, success, actor_email, ip_hash, user_agent, detail, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-      .bind(
-        crypto.randomUUID(),
-        cleanText(action, 80),
-        success ? 1 : 0,
-        cleanText(actorEmail, 254),
-        await requestIpHash(request),
-        cleanText(request.headers.get("user-agent") || "", 500),
-        cleanText(detail, 500),
-        new Date().toISOString()
-      )
-      .run();
-  } catch {
-    // Admin logging must not break the protected action itself.
-  }
 }
 
 async function buildOpsSnapshot(env, options = {}) {
@@ -8002,13 +7151,6 @@ async function sendDailyOpsDigest(env) {
   }
 }
 
-async function countRows(env, table, where = "", bindings = []) {
-  const sql = `SELECT COUNT(*) AS count FROM ${table}${where ? ` WHERE ${where}` : ""}`;
-  const statement = env.WAITLIST_DB.prepare(sql);
-  const row = bindings.length ? await statement.bind(...bindings).first() : await statement.first();
-  return Number(row?.count || 0);
-}
-
 function summarizeIssuePatterns(rows) {
   const counts = new Map();
   for (const row of rows) {
@@ -8031,131 +7173,6 @@ function summarizeIssuePatterns(rows) {
     }
   }
   return [...counts.values()].sort((a, b) => b.count - a.count).slice(0, 12);
-}
-
-async function createBetaSession(request, env, access) {
-  const token = randomToken();
-  const tokenHash = await sha256Hex(token);
-  const now = new Date().toISOString();
-  const expiresAt = isoSecondsFromNow(BETA_SESSION_TTL_SECONDS);
-  const ipHash = await requestIpHash(request);
-  const userAgent = cleanText(request.headers.get("user-agent") || "", 500);
-
-  await env.WAITLIST_DB.prepare(
-    `INSERT INTO beta_sessions
-      (token_hash, owner_email, created_at, expires_at, last_seen_at, ip_hash, user_agent, invite_id, access_mode)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      tokenHash,
-      access.ownerEmail,
-      now,
-      expiresAt,
-      now,
-      ipHash,
-      userAgent,
-      access.inviteId || null,
-      cleanAccessMode(access.accessMode)
-    )
-    .run();
-
-  return {
-    expiresAt,
-    cookie: sessionCookie(request, token, BETA_SESSION_TTL_SECONDS)
-  };
-}
-
-function betaSessionTokenFromRequest(request) {
-  const headerToken = request.headers.get("x-beta-session") || "";
-  if (headerToken) return headerToken.trim();
-  return cookieValue(request, SESSION_COOKIE);
-}
-
-function sessionCookie(request, token, maxAge) {
-  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
-  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
-}
-
-function clearSessionCookie(request) {
-  const secure = request && new URL(request.url).protocol === "https:" ? "; Secure" : "";
-  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure}`;
-}
-
-function adminSessionCookie(request, token, maxAge) {
-  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
-  return `${ADMIN_SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secure}`;
-}
-
-function clearAdminSessionCookie(request) {
-  const secure = request && new URL(request.url).protocol === "https:" ? "; Secure" : "";
-  return `${ADMIN_SESSION_COOKIE}=; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=0${secure}`;
-}
-
-async function cleanupExpiredRows(env) {
-  const now = new Date().toISOString();
-  const expiredReports = await env.WAITLIST_DB.prepare(
-    `SELECT id, report_json FROM audit_reports
-     WHERE expires_at IS NOT NULL AND expires_at < ?
-       AND id NOT IN (
-         SELECT report_id FROM fix_requests
-         WHERE report_id IS NOT NULL AND report_id != ''
-           AND status IN ('paid', 'in_progress', 'delivered', 'refunded', 'refund_failed', 'disputed')
-         UNION
-         SELECT final_report_id FROM fix_requests
-         WHERE final_report_id IS NOT NULL AND final_report_id != ''
-           AND status IN ('paid', 'in_progress', 'delivered', 'refunded', 'refund_failed', 'disputed')
-       )
-     LIMIT 200`
-  )
-    .bind(now)
-    .all();
-  await deleteReportRowsWithBlobs(env, expiredReports.results || []);
-  await env.WAITLIST_DB.batch([
-    env.WAITLIST_DB.prepare(`DELETE FROM audit_jobs WHERE expires_at IS NOT NULL AND expires_at < ?`).bind(now),
-    env.WAITLIST_DB.prepare(`DELETE FROM access_tokens WHERE expires_at < ? OR (used_at IS NOT NULL AND used_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),
-    env.WAITLIST_DB.prepare(`DELETE FROM beta_sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),
-    env.WAITLIST_DB.prepare(`DELETE FROM admin_sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),
-    env.WAITLIST_DB.prepare(`DELETE FROM audit_usage WHERE updated_at < ?`).bind(isoSecondsFromNow(-7 * 24 * 60 * 60))
-  ]);
-}
-
-function publicWebhookUrlStatus(value) {
-  let parsed = null;
-  try {
-    parsed = new URL(String(value || ""));
-  } catch {
-    return { ok: false, error: "Enter a valid HTTPS webhook URL." };
-  }
-
-  if (parsed.protocol !== "https:") {
-    return { ok: false, error: "Webhook URLs must use HTTPS." };
-  }
-
-  const host = parsed.hostname.toLowerCase();
-  if (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host.endsWith(".local") ||
-    host.endsWith(".internal") ||
-    isPrivateHostname(host)
-  ) {
-    return { ok: false, error: "Use a public HTTPS webhook URL, not a private or local address." };
-  }
-
-  parsed.hash = "";
-  parsed.username = "";
-  parsed.password = "";
-  return { ok: true, url: parsed.href };
-}
-
-function makePrivateReportId(url) {
-  const host = new URL(url).hostname
-    .replace(/^www\./, "")
-    .replace(/[^a-z0-9]+/gi, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 42)
-    .toLowerCase();
-  return `${host || "report"}-${crypto.randomUUID()}`;
 }
 
 function renderedFixture(origin) {
