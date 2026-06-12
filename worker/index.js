@@ -182,10 +182,6 @@ export default {
     const url = new URL(request.url);
 
     try {
-      if (env.WAITLIST_DB && (url.pathname.startsWith("/api/") || url.pathname.startsWith("/admin/"))) {
-        ctx?.waitUntil?.(cleanupExpiredRows(env));
-      }
-
       if (url.pathname === "/api/health") {
         return json({
           ok: true,
