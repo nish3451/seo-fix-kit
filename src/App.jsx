@@ -677,7 +677,7 @@ function BetaApp() {
               </option>
             ))}
           </select>
-          <p className="field-note">Large targets create a staged batch plan. They do not claim full rendered coverage until every batch completes.</p>
+          <p className="field-note">Early access: large targets create a staged batch plan that renders gradually in the background over days to weeks. No full-coverage claim is made until every batch completes.</p>
           <label htmlFor="competitor-urls">Competitors</label>
           <textarea
             id="competitor-urls"
