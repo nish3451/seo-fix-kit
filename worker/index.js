@@ -816,6 +816,10 @@ function emailSender(env) {
   return String(env.SEOFIXKIT_EMAIL_FROM || "").trim();
 }
 
+const SUPPORT_EMAIL = "support@seofixkit.com";
+const EMAIL_FOOTER_TEXT = `\n\n--\nSEO Fix Kit · https://seofixkit.com\nQuestions or issues? Email ${SUPPORT_EMAIL}.`;
+const EMAIL_FOOTER_HTML = `<hr style="border:none;border-top:1px solid #dddddd;margin:24px 0 12px" /><p style="color:#666666;font-size:13px">SEO Fix Kit · <a href="https://seofixkit.com">seofixkit.com</a> · Questions or issues? Email <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.</p>`;
+
 async function sendWorkerEmail(env, { to, subject, text, html, tag }) {
   // Reply-To must use the binding's replyTo field; Email Service rejects it as
   // a custom header (only whitelisted and X-* headers are accepted). The
@@ -825,8 +829,8 @@ async function sendWorkerEmail(env, { to, subject, text, html, tag }) {
     from: emailSender(env),
     to,
     subject,
-    html,
-    text,
+    html: `${html || ""}${EMAIL_FOOTER_HTML}`,
+    text: `${text || ""}${EMAIL_FOOTER_TEXT}`,
     ...(replyTo ? { replyTo } : {}),
     ...(tag ? { headers: { "X-SEOFIXKIT-Tag": tag } } : {})
   });
@@ -10961,10 +10965,10 @@ function privacyHtml(origin) {
         <li>Private audits store the website URL, rendered-page audit findings, screenshots or extracted page facts when available, report owner, beta session reference, target host, and report expiry timestamp.</li>
         <li>Fix Pack records store checkout status, Dodo payment identifiers, payment amount and currency, fulfillment notes, final rerun report links, delivery notifications, and admin audit events.</li>
         <li>Cloudflare hosts the app and database. Dodo processes checkout and payment webhooks. Cloudflare Email Service sends access, payment, delivery, and ops emails.</li>
-        <li>Reports are retained for 30 days unless removed earlier. Admin logs, payment records, and notification logs are kept for operating, support, abuse prevention, and payment reconciliation.</li>
+        <li>Reports are retained for 30 days, except reports tied to a paid Fix Pack, which stay available while we operate the service. Admin logs, payment records, and notification logs are kept for operating, support, abuse prevention, and payment reconciliation.</li>
         <li>We do not sell your email address.</li>
         <li>We do not send unrelated promotions.</li>
-        <li>To request deletion of beta data, reply to any email we send or use the support path.</li>
+        <li>To request deletion of beta data, email <a href="mailto:support@seofixkit.com">support@seofixkit.com</a> or reply to any email we send.</li>
       </ul>
       <p>Last updated: June 11, 2026.</p>
     </main>
@@ -10978,7 +10982,7 @@ function supportHtml(origin) {
     title: "Support",
     description: "SEO Fix Kit support, refunds, and repair delivery notes.",
     body: `
-      <p>For support, reply to any SEO Fix Kit email or email the sender shown in your access, payment, or delivery message. We use that thread to verify account ownership.</p>
+      <p>Email <a href="mailto:support@seofixkit.com">support@seofixkit.com</a> for any question, billing issue, or problem — including when an expected email never arrived. You can also reply to any SEO Fix Kit email; we use that thread to verify account ownership.</p>
       <ul>
         <li>Fix Pack covers one proof-backed repair pass for one report plus one rerun after fixes.</li>
         <li>No ranking, traffic, or revenue promise is made.</li>
@@ -11004,6 +11008,7 @@ function termsHtml(origin) {
         <li>The paid Fix Pack is a repair service for proven findings in one report plus one rerun after fixes.</li>
         <li>Checkout, payment status, refunds, and disputes are processed through Dodo.</li>
         <li>No ranking, indexing, traffic, revenue, or search-engine outcome is guaranteed.</li>
+        <li>Questions about these terms or your account: <a href="mailto:support@seofixkit.com">support@seofixkit.com</a>.</li>
       </ul>
       <p><a href="${origin}/privacy">Privacy</a> · <a href="${origin}/support">Support</a></p>
     `

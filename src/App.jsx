@@ -142,6 +142,7 @@ function WaitlistPage() {
         <a href="/support">Support</a>
         <a href="/terms">Terms</a>
         <a href="/privacy">Privacy</a>
+        <a href="mailto:support@seofixkit.com">support@seofixkit.com</a>
       </footer>
     </main>
   );
