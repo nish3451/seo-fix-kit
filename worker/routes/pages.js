@@ -196,7 +196,7 @@ function supportHtml(origin) {
     origin,
     title: "Support",
     path: "/support",
-    description: "Get help with SEO Fix Kit: contact support, Fix Pack delivery questions, billing and refund requests, and security or abuse reports. We reply from support@seofixkit.com.",
+    description: "Get help with SEO Fix Kit: contact support for Fix Pack delivery, billing, and refund questions, or security reports. We reply from support@seofixkit.com.",
     body: `
       <p>Email <a href="mailto:support@seofixkit.com">support@seofixkit.com</a> for any question, billing issue, or problem — including when an expected email never arrived. You can also reply to any SEO Fix Kit email; we use that thread to verify account ownership.</p>
       <ul>
