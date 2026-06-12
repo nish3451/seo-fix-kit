@@ -339,10 +339,18 @@ function BetaApp() {
       const payload = await postAccessRequest({
         email: loginEmail,
         source: "beta-gate-access",
-        formStartedAt: accessFormStartedAt
+        formStartedAt: accessFormStartedAt,
+        returnTo: window.location.pathname.startsWith("/beta") ? window.location.pathname : ""
       });
       setLoginStatus("success");
-      setLoginMessage(payload.accessUrl ? "Local access link created." : payload.message || "Check your email for a secure access link.");
+      setLoginMessage(
+        payload.accessUrl
+          ? "Local access link created."
+          : payload.message ||
+            (reportId
+              ? "Check your email — the link will bring you straight back to this report."
+              : "Check your email for a secure access link.")
+      );
       if (payload.accessUrl) window.location.assign(payload.accessUrl);
     } catch (error) {
       setLoginStatus("error");
@@ -3954,7 +3962,7 @@ async function refreshSession(setIsAuthed, setOwnerEmail) {
   }
 }
 
-async function postAccessRequest({ email, company = "", source, formStartedAt }) {
+async function postAccessRequest({ email, company = "", source, formStartedAt, returnTo = "" }) {
   const response = await fetch("/api/access/request", {
     method: "POST",
     credentials: "same-origin",
@@ -3963,6 +3971,7 @@ async function postAccessRequest({ email, company = "", source, formStartedAt })
       email,
       company,
       source,
+      ...(returnTo ? { returnTo } : {}),
       ...trackingPayload(formStartedAt)
     })
   });

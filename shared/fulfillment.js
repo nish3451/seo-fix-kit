@@ -132,8 +132,8 @@ export function buildStatusNotificationEmail({
         ? "A SEO Fix Pack repair was marked in progress."
         : "Your SEO Fix Pack repair is in progress.";
   const timeline = [
-    fixRequest.due_at ? `Expected by: ${fixRequest.due_at}` : "",
-    fixRequest.next_update_at ? `Next update by: ${fixRequest.next_update_at}` : ""
+    fixRequest.due_at ? `Expected by: ${formatEmailDate(fixRequest.due_at)}` : "",
+    fixRequest.next_update_at ? `Next update by: ${formatEmailDate(fixRequest.next_update_at)}` : ""
   ].filter(Boolean);
   const proof = beforeAfterSummaryLines(beforeAfter);
   const text = [
@@ -161,8 +161,8 @@ export function buildStatusNotificationEmail({
     deliveryUrl ? `<li><strong>Delivery:</strong> <a href="${escapeHtml(deliveryUrl)}">${escapeHtml(deliveryUrl)}</a></li>` : "",
     finalReportUrl ? `<li><strong>Final rerun:</strong> <a href="${escapeHtml(finalReportUrl)}">${escapeHtml(finalReportUrl)}</a></li>` : "",
     customerNote ? `<li><strong>Note:</strong> ${escapeHtml(customerNote)}</li>` : "",
-    fixRequest.due_at ? `<li><strong>Expected by:</strong> ${escapeHtml(fixRequest.due_at)}</li>` : "",
-    fixRequest.next_update_at ? `<li><strong>Next update by:</strong> ${escapeHtml(fixRequest.next_update_at)}</li>` : "",
+    fixRequest.due_at ? `<li><strong>Expected by:</strong> ${escapeHtml(formatEmailDate(fixRequest.due_at))}</li>` : "",
+    fixRequest.next_update_at ? `<li><strong>Next update by:</strong> ${escapeHtml(formatEmailDate(fixRequest.next_update_at))}</li>` : "",
     ...proof.map((line) => `<li>${escapeHtml(line)}</li>`),
     "</ul>",
     "<p>Your paid reports stay available in your workspace and do not expire.</p>",
@@ -232,6 +232,12 @@ function senderEmail(value) {
   const raw = String(value || "").trim();
   const match = raw.match(/<([^>]+)>/);
   return match ? match[1] : raw;
+}
+
+export function formatEmailDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value || "");
+  return `${date.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })} (UTC)`;
 }
 
 function cleanEmailLine(value) {

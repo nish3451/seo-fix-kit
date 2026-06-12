@@ -715,7 +715,8 @@ async function requestAccessLink(request, env) {
     .run();
 
   const origin = new URL(request.url).origin;
-  const accessUrl = `${origin}/beta?access=${encodeURIComponent(token)}&email=${encodeURIComponent(ownerEmail)}`;
+  const returnTo = safeBetaReturnPath(body.returnTo || body.return_to || "");
+  const accessUrl = `${origin}${returnTo}?access=${encodeURIComponent(token)}&email=${encodeURIComponent(ownerEmail)}`;
   try {
     await sendAccessLinkEmail(env, {
       ownerEmail,
@@ -788,20 +789,32 @@ async function verifyAccessLink(request, env) {
   return response;
 }
 
+// Only allow return paths inside the beta app so an emailed access link can
+// never bounce someone to an arbitrary location.
+function safeBetaReturnPath(value) {
+  const path = String(value || "").trim();
+  if (path.length > 200) return "/beta";
+  if (!/^\/beta(\/[A-Za-z0-9._\/-]*)?$/.test(path) || path.includes("..") || path.includes("//")) {
+    return "/beta";
+  }
+  return path;
+}
+
 async function sendAccessLinkEmail(env, { ownerEmail, accessUrl, expiresAt, tokenHash }) {
   const subject = "Your SEO Fix Kit access link";
+  const expiresMinutes = Math.max(1, Math.round(ACCESS_LINK_TTL_SECONDS / 60));
   const text = [
     "Use this secure link to open SEO Fix Kit:",
     "",
     accessUrl,
     "",
-    `This link expires at ${expiresAt} and can be used once.`,
+    `This link expires in ${expiresMinutes} minutes and can be used once. If it expires, just request a new one.`,
     "SEO Fix Kit audits produce proof-backed repair briefs. No ranking promises are made."
   ].join("\n");
   const html = [
     "<p>Use this secure link to open SEO Fix Kit:</p>",
     `<p><a href="${escapeHtml(accessUrl)}">Open SEO Fix Kit</a></p>`,
-    `<p>This link expires at ${escapeHtml(expiresAt)} and can be used once.</p>`,
+    `<p>This link expires in ${expiresMinutes} minutes and can be used once. If it expires, just request a new one.</p>`,
     "<p>SEO Fix Kit audits produce proof-backed repair briefs. No ranking promises are made.</p>"
   ].join("");
 
