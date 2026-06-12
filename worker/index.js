@@ -180,6 +180,16 @@ export default {
     }
   },
 
+  async queue(batch, env) {
+    for (const message of batch.messages) {
+      const body = message.body || {};
+      if (body.kind === "audit-job" && isSafeUuid(String(body.jobId || ""))) {
+        await processAuditJob(env, body.jobId, { appOrigin: body.appOrigin || "https://seofixkit.com" });
+      }
+      message.ack();
+    }
+  },
+
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
@@ -1552,13 +1562,7 @@ async function runPrivateAudit(request, env, ctx) {
     keywordRows,
     renderedCrawlTarget
   });
-  const appOrigin = new URL(request.url).origin;
-  const processing = processAuditJob(env, job.id, { appOrigin });
-  if (ctx?.waitUntil) {
-    ctx.waitUntil(processing);
-  } else {
-    await processing;
-  }
+  await enqueueAuditJob(env, ctx, job.id, new URL(request.url).origin);
 
   return jsonNoStore(
     {
@@ -2521,9 +2525,7 @@ async function apiCreateAudit(request, env, ctx) {
     keywordRows,
     renderedCrawlTarget
   });
-  const processing = processAuditJob(env, job.id, { appOrigin: new URL(request.url).origin });
-  if (ctx?.waitUntil) ctx.waitUntil(processing);
-  else await processing;
+  await enqueueAuditJob(env, ctx, job.id, new URL(request.url).origin);
   return jsonNoStore(
     {
       ok: true,
@@ -4017,9 +4019,7 @@ async function runAuditSchedule(env, schedule) {
     )
       .bind(now, job.id, now, schedule.id)
       .run();
-    await processAuditJob(env, job.id, {
-      appOrigin: String(env.SEOFIXKIT_APP_ORIGIN || "https://seofixkit.com")
-    });
+    await enqueueAuditJob(env, null, job.id, String(env.SEOFIXKIT_APP_ORIGIN || "https://seofixkit.com"));
   } catch (error) {
     const retryAt = isoDaysFromDate(now, 1);
     await env.WAITLIST_DB.prepare(
@@ -4086,10 +4086,27 @@ async function resumeStaleQueuedAuditJobs(env, context = {}) {
     .all();
   let resumed = 0;
   for (const job of rows.results || []) {
-    await processAuditJob(env, job.id, context);
+    await enqueueAuditJob(env, null, job.id, context.appOrigin || "https://seofixkit.com");
     resumed += 1;
   }
   return resumed;
+}
+
+// Queue-first job dispatch: survives Worker eviction and deploys, retries
+// twice, then dead-letters. Falls back to in-invocation processing when the
+// queue binding is missing (local dev) or the send fails.
+async function enqueueAuditJob(env, ctx, jobId, appOrigin) {
+  if (env.AUDIT_QUEUE) {
+    try {
+      await env.AUDIT_QUEUE.send({ kind: "audit-job", jobId, appOrigin });
+      return;
+    } catch {
+      // fall through to inline processing
+    }
+  }
+  const processing = processAuditJob(env, jobId, { appOrigin });
+  if (ctx?.waitUntil) ctx.waitUntil(processing);
+  else await processing;
 }
 
 async function processAuditJob(env, jobId, context = {}) {
