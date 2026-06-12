@@ -2241,7 +2241,7 @@ async function getClientReportPdf(request, env) {
   if (!reportRow?.report_json || (reportRow.expires_at && reportRow.expires_at <= new Date().toISOString())) {
     return json({ error: "Report no longer exists." }, 404);
   }
-  if (share.password_hash && !(await clientReportUnlocked(request, share))) {
+  if (share.password_hash && !(await clientReportUnlocked(request, env, share))) {
     return clientReportLockedResponse(request, branding, shareToCamel(share), 401);
   }
   const report = parseJson(reportRow.report_json, {});
@@ -2278,7 +2278,7 @@ async function getClientReport(request, env) {
   }
   const report = parseJson(reportRow.report_json, {});
 
-  if (share.password_hash && !(await clientReportUnlocked(request, share))) {
+  if (share.password_hash && !(await clientReportUnlocked(request, env, share))) {
     return clientReportLockedResponse(request, branding, shareToCamel(share), 401);
   }
 
@@ -2326,7 +2326,7 @@ async function unlockClientReport(request, env) {
       headers: secureHeaders({
         "cache-control": "no-store",
         "location": `/r/${encodeURIComponent(share.id)}`,
-        "set-cookie": await clientReportCookie(request, share)
+        "set-cookie": await clientReportCookie(request, env, share)
       })
     });
   }
@@ -4873,18 +4873,24 @@ function clientReportCookieName(share) {
   return `sfk_report_${String(share.id || "").replace(/[^a-z0-9]/gi, "").slice(0, 36)}`;
 }
 
-async function clientReportCookieValue(share) {
-  return sha256Hex(`${share.id}:${share.password_hash || ""}:client-report`);
+async function clientReportCookieValue(env, share) {
+  // HMAC with a server secret so the unlock cookie cannot be minted offline
+  // from share id + stored password hash alone.
+  const secret = String(env.SEOFIXKIT_COOKIE_SECRET || "");
+  if (!secret) {
+    throw new Error("Report cookie signing is not configured. Set the SEOFIXKIT_COOKIE_SECRET secret.");
+  }
+  return hmacSha256Hex(secret, `${share.id}:${share.password_hash || ""}:client-report`);
 }
 
-async function clientReportCookie(request, share) {
+async function clientReportCookie(request, env, share) {
   const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
-  return `${clientReportCookieName(share)}=${encodeURIComponent(await clientReportCookieValue(share))}; Path=/r; HttpOnly; SameSite=Strict; Max-Age=${60 * 60 * 24 * 30}${secure}`;
+  return `${clientReportCookieName(share)}=${encodeURIComponent(await clientReportCookieValue(env, share))}; Path=/r; HttpOnly; SameSite=Strict; Max-Age=${60 * 60 * 24 * 30}${secure}`;
 }
 
-async function clientReportUnlocked(request, share) {
+async function clientReportUnlocked(request, env, share) {
   const value = cookieValue(request, clientReportCookieName(share));
-  return Boolean(value) && constantTimeEqual(value, await clientReportCookieValue(share));
+  return Boolean(value) && constantTimeEqual(value, await clientReportCookieValue(env, share));
 }
 
 async function passwordFromRequest(request) {
@@ -5666,7 +5672,12 @@ function cleanWebhookEvents(events = []) {
 }
 
 async function apiWebhookSigningSecret(env, webhookId) {
-  const seed = String(env.SEOFIXKIT_API_WEBHOOK_SECRET || env.ADMIN_EXPORT_TOKEN || "local-seofixkit-webhooks");
+  // Fail closed: without a dedicated secret, webhook signatures would be
+  // forgeable, so refuse to sign rather than fall back to a known seed.
+  const seed = String(env.SEOFIXKIT_API_WEBHOOK_SECRET || "");
+  if (!seed) {
+    throw new Error("Webhook signing is not configured. Set the SEOFIXKIT_API_WEBHOOK_SECRET secret.");
+  }
   const digest = await hmacSha256Hex(seed, webhookId);
   return `whsec_${digest.slice(0, 32)}`;
 }
@@ -10635,7 +10646,11 @@ function constantTimeEqual(left, right) {
 }
 
 function csvCell(value) {
-  const text = String(value ?? "");
+  let text = String(value ?? "");
+  // Neutralize spreadsheet formula triggers in attacker-supplied fields
+  if (/^[=+\-@\t\r]/.test(text)) {
+    text = `'${text}`;
+  }
   if (/[",\n\r]/.test(text)) {
     return `"${text.replaceAll('"', '""')}"`;
   }
