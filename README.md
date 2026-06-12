@@ -143,6 +143,8 @@ Cloudflare secrets hold private credentials:
 - `DODO_SEOFIXKIT_API_KEY`
 - `DODO_SEOFIXKIT_WEBHOOK_SECRET`
 - `SEOFIXKIT_EMAIL_FROM`
+- `SEOFIXKIT_API_WEBHOOK_SECRET` (seeds customer webhook signing; webhook delivery fails closed without it)
+- `SEOFIXKIT_COOKIE_SECRET` (signs client-report unlock cookies; password unlock fails closed without it)
 
 The Dodo webhook endpoint is:
 
