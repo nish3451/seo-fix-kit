@@ -10820,7 +10820,7 @@ Live product claims:
 - Verified sessions can run rate-limited private audits and save owner-only reports.
 - Verified sessions can choose self-serve crawl depth up to 1,000 pages per queued audit.
 - Reports include robots.txt and sitemap crawl inventory up to 50,000 discovered URLs.
-- Verified sessions can create separate 50,000-page large rendered crawl jobs with 1,000-page batches, stored frontier, retry state, proof ingest, dead letters, incremental-crawl metadata, and merge-readiness gates.
+- Large rendered crawl jobs (staged 50,000-page plans) are early access: they store frontier, batch, retry, proof, and merge-readiness state, and batches render gradually in the background over days to weeks.
 - Reports include rendered crawl intelligence for internal link depth, low-inbound pages, sitemap-sample orphan candidates, duplicate metadata/content, parameterized URLs, and keyword-cannibalization heuristics.
 - Saved reruns include audit-history deltas for fixed, new, and still-open proven issues.
 - Reports include rendered browser resource-waterfall proof with slow, heavy, and render-blocking repair actions.
@@ -10832,7 +10832,7 @@ Live product claims:
 - Paid Fix Pack fulfillment includes status, delivery notes, and one rerun after fixes.
 
 Current product boundary:
-- Does not claim CrawlRaven-style completed 50,000-page rendered validation until every large-crawl batch has page-level proof and merge readiness is clear.
+- Does not sell or claim completed 50,000-page rendered validation; large crawls are early-access staged plans until every batch has page-level proof and merge readiness is clear.
 - 100,000+ enterprise rendered crawls and browser-container fleet autoscaling are not live yet.
 - Does not provide full-site rank, index, or orphan discovery beyond rendered crawl proof and sitemap inventory samples.
 - Does not provide proprietary backlink discovery beyond supplied/imported link-edge history.
