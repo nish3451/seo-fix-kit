@@ -4,7 +4,7 @@ import path from "node:path";
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { auditUrl } from "./audit/analyzer.js";
+import { auditUrl } from "./audit/engine.js";
 import {
   buildWhiteLabelReportHtml,
   defaultBranding,
