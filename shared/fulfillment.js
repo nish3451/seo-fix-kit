@@ -185,6 +185,8 @@ export function buildOpsDigestEmail({ appOrigin, snapshot }) {
     `Overdue: ${snapshot.overdue}`,
     `Webhook errors: ${snapshot.webhookErrors}`,
     `Email errors: ${snapshot.emailErrors}`,
+    `Audits: ${snapshot.runningJobs ?? 0} running, ${snapshot.queuedJobs ?? 0} queued, ${snapshot.failedJobs24h ?? 0} failed in 24h`,
+    `Monitors overdue: ${snapshot.overdueSchedules ?? 0}`,
     snapshot.oldestOpenCreatedAt ? `Oldest open request: ${snapshot.oldestOpenCreatedAt}` : "",
     "",
     `Admin: ${appOrigin}/beta/admin`
@@ -200,6 +202,8 @@ export function buildOpsDigestEmail({ appOrigin, snapshot }) {
     `<li><strong>Overdue:</strong> ${snapshot.overdue}</li>`,
     `<li><strong>Webhook errors:</strong> ${snapshot.webhookErrors}</li>`,
     `<li><strong>Email errors:</strong> ${snapshot.emailErrors}</li>`,
+    `<li><strong>Audits:</strong> ${snapshot.runningJobs ?? 0} running, ${snapshot.queuedJobs ?? 0} queued, ${snapshot.failedJobs24h ?? 0} failed in 24h</li>`,
+    `<li><strong>Monitors overdue:</strong> ${snapshot.overdueSchedules ?? 0}</li>`,
     snapshot.oldestOpenCreatedAt ? `<li><strong>Oldest open request:</strong> ${escapeHtml(snapshot.oldestOpenCreatedAt)}</li>` : "",
     "</ul>",
     `<p><a href="${escapeHtml(`${appOrigin}/beta/admin`)}">Open admin queue</a></p>`
