@@ -55,6 +55,34 @@ Start at ${origin}/.
 `;
 }
 
+function pageSocialHead({ origin, title, description, path = "/" }) {
+  const url = `${origin}${path}`;
+  const image = `${origin}/og-image.svg`;
+  const jsonLd = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: title,
+    description,
+    url,
+    isPartOf: { "@type": "WebSite", name: "SEO Fix Kit", url: origin },
+    publisher: { "@type": "Organization", name: "SEO Fix Kit", url: origin }
+  }).replace(/</g, "\\u003c");
+  return `
+    <link rel="canonical" href="${url}" />
+    <link rel="apple-touch-icon" href="${origin}/apple-touch-icon.svg" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="SEO Fix Kit" />
+    <meta property="og:title" content="${escapeHtml(title)}" />
+    <meta property="og:description" content="${escapeHtml(description)}" />
+    <meta property="og:url" content="${url}" />
+    <meta property="og:image" content="${image}" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${escapeHtml(title)}" />
+    <meta name="twitter:description" content="${escapeHtml(description)}" />
+    <meta name="twitter:image" content="${image}" />
+    <script type="application/ld+json">${jsonLd}</script>`;
+}
+
 function demoHtml(origin) {
   return `<!doctype html>
 <html lang="en">
@@ -63,7 +91,7 @@ function demoHtml(origin) {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>SEO Fix Kit Demo - Proof-Backed SEO Repair</title>
     <meta name="description" content="A public sample showing how SEO Fix Kit refuses static crawler false positives and turns verified issues into repair briefs." />
-    <link rel="canonical" href="${origin}/demo" />
+${pageSocialHead({ origin, title: "SEO Fix Kit Demo - Proof-Backed SEO Repair", description: "A public sample showing how SEO Fix Kit refuses static crawler false positives and turns verified issues into repair briefs.", path: "/demo" })}
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
       body { margin: 0; min-width: 320px; }
@@ -131,6 +159,7 @@ function privacyHtml(origin) {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Privacy - SEO Fix Kit</title>
     <meta name="description" content="SEO Fix Kit privacy note for waitlist, private beta audits, payments, and fulfillment." />
+${pageSocialHead({ origin, title: "Privacy - SEO Fix Kit", description: "SEO Fix Kit privacy note for waitlist, private beta audits, payments, and fulfillment.", path: "/privacy" })}
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
       body { margin: 0; min-width: 320px; }
@@ -166,7 +195,8 @@ function supportHtml(origin) {
   return policyPageHtml({
     origin,
     title: "Support",
-    description: "SEO Fix Kit support, refunds, and repair delivery notes.",
+    path: "/support",
+    description: "Get help with SEO Fix Kit: contact support, Fix Pack delivery questions, billing and refund requests, and security or abuse reports. We reply from support@seofixkit.com.",
     body: `
       <p>Email <a href="mailto:support@seofixkit.com">support@seofixkit.com</a> for any question, billing issue, or problem — including when an expected email never arrived. You can also reply to any SEO Fix Kit email; we use that thread to verify account ownership.</p>
       <ul>
@@ -186,6 +216,7 @@ function termsHtml(origin) {
   return policyPageHtml({
     origin,
     title: "Terms",
+    path: "/terms",
     description: "SEO Fix Kit product terms for audits, Fix Pack checkout, refunds, and fulfillment.",
     body: `
       <p>These terms govern your use of SEO Fix Kit at seofixkit.com ("the service", "we", "us"). By requesting access, running an audit, or purchasing a Fix Pack you agree to them. Contact: <a href="mailto:support@seofixkit.com">support@seofixkit.com</a>.</p>
@@ -232,7 +263,7 @@ function termsHtml(origin) {
   });
 }
 
-function policyPageHtml({ origin, title, description, body }) {
+function policyPageHtml({ origin, title, description, body, path = "/" }) {
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -240,6 +271,7 @@ function policyPageHtml({ origin, title, description, body }) {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${escapeHtml(title)} - SEO Fix Kit</title>
     <meta name="description" content="${escapeHtml(description)}" />
+${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })}
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
       body { margin: 0; min-width: 320px; }
