@@ -157,6 +157,8 @@ const FIX_PACK_OFFER = {
 const FIX_PACK_DUE_DAYS = 5;
 const FIX_PACK_NEXT_UPDATE_DAYS = 2;
 const PAID_LIKE_FIX_REQUEST_STATUSES = new Set(["paid", "in_progress", "delivered"]);
+const REBUY_BLOCKED_FIX_REQUEST_STATUSES = new Set(["refunded", "refund_failed", "disputed"]);
+const CHECKOUT_URL_TTL_HOURS = 24;
 const EMAIL_PROVIDER = "cloudflare_email";
 
 export default {
@@ -5149,7 +5151,25 @@ async function requestFixPack(request, env) {
     });
   }
 
-  if (fixRequest.checkout_url && fixRequest.checkout_session_id) {
+  if (REBUY_BLOCKED_FIX_REQUEST_STATUSES.has(fixRequest.status)) {
+    return jsonNoStore({
+      ok: true,
+      mode: fixRequest.status,
+      checkoutAvailable: false,
+      message:
+        "This Fix Pack was refunded or disputed, so checkout is closed for this report. Email support@seofixkit.com to restart a repair.",
+      request: fixRequestResponse(fixRequest, now),
+      offer: FIX_PACK_OFFER
+    });
+  }
+
+  const cachedCheckoutFresh =
+    fixRequest.status === "checkout_created" &&
+    fixRequest.checkout_url &&
+    fixRequest.checkout_session_id &&
+    fixRequest.checkout_created_at &&
+    fixRequest.checkout_created_at > isoSecondsFromNow(-CHECKOUT_URL_TTL_HOURS * 60 * 60);
+  if (cachedCheckoutFresh) {
     return jsonNoStore({
       ok: true,
       mode: "checkout",
@@ -6640,7 +6660,12 @@ function dodoPaymentIdentityStatus(env, eventType, payment, fixRequest) {
   if (payment.metadataReportId && payment.metadataReportId !== fixRequest.report_id) {
     return { ok: false, reason: "report_id_mismatch" };
   }
-  if (fixRequest.checkout_session_id && payment.checkoutSessionId && payment.checkoutSessionId !== fixRequest.checkout_session_id) {
+  if (
+    fixRequest.checkout_session_id &&
+    payment.checkoutSessionId &&
+    payment.checkoutSessionId !== fixRequest.checkout_session_id &&
+    payment.metadataFixRequestId !== fixRequest.id
+  ) {
     return { ok: false, reason: "checkout_session_mismatch" };
   }
   if (payment.customerEmail && normalizeEmail(payment.customerEmail) !== fixRequest.owner_email) {
