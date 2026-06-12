@@ -1281,6 +1281,7 @@ function ReportView({ report }) {
             <span>{report.summary?.crawlLimitHit ? "Crawl limit reached" : "Crawl completed"}</span>
             {report.owner?.email && <span>Owner: {report.owner.email}</span>}
             {expiresAt && <span>Expires: {expiresAt}</span>}
+            {report.storageNote && <span>{report.storageNote}</span>}
           </div>
         </div>
         <div

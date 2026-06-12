@@ -7094,7 +7094,8 @@ async function saveAuditReportWithContext(report, env, access, origin) {
       days: REPORT_RETENTION_DAYS
     }
   };
-  const storageReport = compactAuditReportForStorage(saved);
+  const fitted = fitReportForStorage(compactAuditReportForStorage(saved));
+  const storageReport = fitted.report;
 
   await env.WAITLIST_DB.prepare(
     `INSERT INTO audit_reports
@@ -7107,7 +7108,7 @@ async function saveAuditReportWithContext(report, env, access, origin) {
       saved.origin,
       saved.score,
       JSON.stringify(saved.summary || {}),
-      JSON.stringify(storageReport),
+      fitted.json,
       now,
       now,
       access.ownerEmail,
@@ -7119,6 +7120,40 @@ async function saveAuditReportWithContext(report, env, access, origin) {
     .run();
 
   return storageReport;
+}
+
+// D1 rejects rows near its ~2MB value limit, which would fail the save AFTER
+// a long crawl completed. Trim stored page proof until the blob fits; scores,
+// findings, and the repair brief always cover the full crawl.
+const REPORT_STORAGE_MAX_BYTES = 1_500_000;
+
+function fitReportForStorage(storageReport) {
+  const encoder = new TextEncoder();
+  let report = storageReport;
+  let json = JSON.stringify(report);
+  if (encoder.encode(json).length <= REPORT_STORAGE_MAX_BYTES) {
+    return { report, json, trimmed: false };
+  }
+
+  let pageLimit = Array.isArray(report.pages) ? report.pages.length : 0;
+  while (encoder.encode(json).length > REPORT_STORAGE_MAX_BYTES && pageLimit > 1) {
+    pageLimit = Math.max(1, Math.floor(pageLimit / 2));
+    report = {
+      ...report,
+      pages: report.pages.slice(0, pageLimit),
+      storageNote: `Stored page-by-page proof was trimmed to ${pageLimit} pages to fit report storage. Scores, findings, and the repair brief still cover the full crawl.`
+    };
+    json = JSON.stringify(report);
+  }
+
+  let summaryLimit = Array.isArray(report.pageSummaries) ? report.pageSummaries.length : 0;
+  while (encoder.encode(json).length > REPORT_STORAGE_MAX_BYTES && summaryLimit > 1) {
+    summaryLimit = Math.max(1, Math.floor(summaryLimit / 2));
+    report = { ...report, pageSummaries: report.pageSummaries.slice(0, summaryLimit) };
+    json = JSON.stringify(report);
+  }
+
+  return { report, json, trimmed: true };
 }
 
 function compactAuditReportForStorage(report = {}) {
