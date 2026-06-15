@@ -20,25 +20,9 @@ function WaitlistPage() {
   const [message, setMessage] = useState("");
   const [accessUrl, setAccessUrl] = useState("");
   const [formStartedAt] = useState(() => Date.now());
-  const [publicPrice, setPublicPrice] = useState("");
 
   useEffect(() => {
     document.title = "SEO Fix Kit - Proof-Backed SEO Repair Beta";
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/public-pricing", { headers: { accept: "application/json" } })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((payload) => {
-        if (!cancelled && payload?.pricing?.displayPrice) {
-          setPublicPrice(payload.pricing.displayPrice);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   async function joinWaitlist(event) {
@@ -92,13 +76,11 @@ function WaitlistPage() {
           private beta, run a proof audit, and only pay when the report finds
           repairs worth doing.
         </p>
-        {publicPrice && (
-          <p className="hero-pricing">
-            Audits are free in the beta. The paid SEO Fix Pack is {publicPrice} per
-            site — one proof-backed repair pass plus one rerun, only offered when
-            real fixes exist.
-          </p>
-        )}
+        <p className="hero-pricing">
+          Audits are free in the beta. The paid SEO Fix Pack shows the Dodo checkout
+          price before payment — one proof-backed repair pass plus one rerun, only
+          offered when real fixes exist.
+        </p>
 
         <form className="waitlist-form" onSubmit={joinWaitlist}>
           <label htmlFor="email">Email address</label>
@@ -148,7 +130,7 @@ function WaitlistPage() {
           </div>
           <div>
             <strong>Proof</strong>
-            <span>Rendered DOM shows “AI Converter for private file conversion.”</span>
+            <span>Rendered DOM shows the SEO Fix Kit H1 and private-beta access copy.</span>
           </div>
           <div>
             <strong>Fix</strong>

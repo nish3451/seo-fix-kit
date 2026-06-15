@@ -16,7 +16,7 @@ async function sendWorkerEmail(env, { to, subject, text, html, tag }) {
   // Reply-To must use the binding's replyTo field; Email Service rejects it as
   // a custom header (only whitelisted and X-* headers are accepted). The
   // binding also takes string[] for multiple recipients directly.
-  const replyTo = normalizeEmail(env.SEOFIXKIT_REPLY_TO || env.POSTMARK_REPLY_TO || "");
+  const replyTo = normalizeEmail(env.SEOFIXKIT_REPLY_TO || "");
   const result = await env.EMAIL.send({
     from: emailSender(env),
     to,

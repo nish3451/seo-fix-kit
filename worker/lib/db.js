@@ -35,7 +35,17 @@ async function cleanupExpiredRows(env) {
     .all();
   await deleteReportRowsWithBlobs(env, expiredReports.results || []);
   await env.WAITLIST_DB.batch([
-    env.WAITLIST_DB.prepare(`DELETE FROM audit_jobs WHERE expires_at IS NOT NULL AND expires_at < ?`).bind(now),
+    env.WAITLIST_DB.prepare(
+      `DELETE FROM audit_jobs
+       WHERE expires_at IS NOT NULL
+         AND expires_at < ?
+         AND NOT EXISTS (
+           SELECT 1
+           FROM fix_requests
+           WHERE status IN ('paid', 'in_progress', 'delivered', 'refunded', 'refund_failed', 'disputed')
+             AND (report_id = audit_jobs.report_id OR final_report_id = audit_jobs.report_id)
+         )`
+    ).bind(now),
     env.WAITLIST_DB.prepare(`DELETE FROM access_tokens WHERE expires_at < ? OR (used_at IS NOT NULL AND used_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),
     env.WAITLIST_DB.prepare(`DELETE FROM beta_sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),
     env.WAITLIST_DB.prepare(`DELETE FROM admin_sessions WHERE expires_at < ? OR (revoked_at IS NOT NULL AND revoked_at < ?)`).bind(now, isoSecondsFromNow(-24 * 60 * 60)),

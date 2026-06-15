@@ -14,7 +14,11 @@ async function ownerReportRow(env, reportId, access) {
     .bind(reportId)
     .first();
   if (!row?.report_json) return null;
-  if (row.expires_at && row.expires_at <= new Date().toISOString()) return null;
+  if (row.expires_at && row.expires_at <= new Date().toISOString()) {
+    const preserved = await preserveProtectedFixRequestReport(env, reportId);
+    if (!preserved) return null;
+    row.expires_at = null;
+  }
   if (row.owner_email && row.owner_email !== access.ownerEmail) return null;
   if (
     row.owner_invite_id &&
@@ -34,11 +38,60 @@ async function preserveFixRequestReports(env, fixRequest) {
     .filter((value) => isSafeReportId(value));
   if (!ids.length) return;
   const placeholders = ids.map(() => "?").join(", ");
+  const now = new Date().toISOString();
   await env.WAITLIST_DB.prepare(
     `UPDATE audit_reports SET expires_at = NULL, updated_at = ? WHERE id IN (${placeholders})`
   )
-    .bind(new Date().toISOString(), ...ids)
+    .bind(now, ...ids)
     .run();
+  await env.WAITLIST_DB.prepare(
+    `UPDATE audit_jobs SET expires_at = NULL, updated_at = ? WHERE report_id IN (${placeholders})`
+  )
+    .bind(now, ...ids)
+    .run();
+}
+
+async function protectedFixRequestForReport(env, reportId) {
+  if (!env.WAITLIST_DB || !isSafeReportId(reportId)) return null;
+  const placeholders = PRESERVED_FIX_REQUEST_STATUSES.map(() => "?").join(", ");
+  return env.WAITLIST_DB.prepare(
+    `SELECT id, status
+     FROM fix_requests
+     WHERE status IN (${placeholders})
+       AND (report_id = ? OR final_report_id = ?)
+     LIMIT 1`
+  )
+    .bind(...PRESERVED_FIX_REQUEST_STATUSES, reportId, reportId)
+    .first();
+}
+
+async function preserveProtectedFixRequestReport(env, reportId) {
+  if (!env.WAITLIST_DB || !isSafeReportId(reportId)) return false;
+  const placeholders = PRESERVED_FIX_REQUEST_STATUSES.map(() => "?").join(", ");
+  const now = new Date().toISOString();
+  const updated = await env.WAITLIST_DB.prepare(
+    `UPDATE audit_reports
+     SET expires_at = NULL, updated_at = ?
+     WHERE id = ?
+       AND EXISTS (
+         SELECT 1
+         FROM fix_requests
+         WHERE status IN (${placeholders})
+           AND (report_id = ? OR final_report_id = ?)
+       )`
+  )
+    .bind(now, reportId, ...PRESERVED_FIX_REQUEST_STATUSES, reportId, reportId)
+    .run();
+  if (Number(updated?.meta?.changes || 0) === 1) {
+    await env.WAITLIST_DB.prepare(
+      `UPDATE audit_jobs
+       SET expires_at = NULL, updated_at = ?
+       WHERE report_id = ?`
+    )
+      .bind(now, reportId)
+      .run();
+  }
+  return Number(updated?.meta?.changes || 0) === 1;
 }
 
 async function saveAuditReport(report, request, env, access) {
@@ -137,17 +190,79 @@ async function hydrateReportRow(env, row) {
 }
 
 async function deleteReportRowsWithBlobs(env, rows = []) {
-  const ids = rows.map((row) => row.id).filter(Boolean);
-  if (!ids.length) return;
-  const keys = rows
-    .map((row) => String(row.report_json || ""))
-    .filter((value) => value.startsWith(R2_REPORT_MARKER))
-    .map((value) => value.slice(R2_REPORT_MARKER.length));
-  if (env.REPORTS && keys.length) {
-    await env.REPORTS.delete(keys).catch(() => {});
+  const candidateRows = rows.filter((row) => isSafeReportId(row.id));
+  if (!candidateRows.length) return { deletedIds: [], protectedIds: [], preservedIds: [], failedBlobDeletes: [] };
+  const deletedRows = [];
+  const protectedIds = [];
+  const placeholders = PRESERVED_FIX_REQUEST_STATUSES.map(() => "?").join(", ");
+  for (const row of candidateRows) {
+    const deleted = await env.WAITLIST_DB.prepare(
+      `DELETE FROM audit_reports
+       WHERE id = ?
+         AND NOT EXISTS (
+           SELECT 1
+           FROM fix_requests
+           WHERE status IN (${placeholders})
+             AND (report_id = ? OR final_report_id = ?)
+         )`
+    )
+      .bind(row.id, ...PRESERVED_FIX_REQUEST_STATUSES, row.id, row.id)
+      .run();
+    if (Number(deleted?.meta?.changes || 0) === 1) {
+      deletedRows.push(row);
+      continue;
+    }
+    if (await preserveProtectedFixRequestReport(env, row.id)) {
+      protectedIds.push(row.id);
+    }
   }
-  const placeholders = ids.map(() => "?").join(", ");
-  await env.WAITLIST_DB.prepare(`DELETE FROM audit_reports WHERE id IN (${placeholders})`).bind(...ids).run();
+  const blobRows = deletedRows
+    .map((row) => ({
+      id: row.id,
+      key: String(row.report_json || "").startsWith(R2_REPORT_MARKER)
+        ? String(row.report_json || "").slice(R2_REPORT_MARKER.length)
+        : ""
+    }))
+    .filter((row) => row.key);
+  const failedBlobDeletes = [];
+  if (env.REPORTS && blobRows.length) {
+    try {
+      await env.REPORTS.delete(blobRows.map((row) => row.key));
+    } catch (error) {
+      for (const row of blobRows) {
+        const failure = {
+          reportId: row.id,
+          key: row.key,
+          error: cleanText(error?.message || "Report blob deletion failed.", 500)
+        };
+        failedBlobDeletes.push(failure);
+        await recordReportBlobDeletionFailure(env, failure);
+      }
+    }
+  }
+  return { deletedIds: deletedRows.map((row) => row.id), protectedIds, preservedIds: protectedIds, failedBlobDeletes };
+}
+
+async function recordReportBlobDeletionFailure(env, failure = {}) {
+  if (!env.WAITLIST_DB || !failure.key) return;
+  const now = new Date().toISOString();
+  try {
+    await env.WAITLIST_DB.prepare(
+      `INSERT INTO audit_report_blob_deletion_failures
+        (blob_key, report_id, error, retry_count, status, created_at, updated_at)
+       VALUES (?, ?, ?, 0, 'pending', ?, ?)
+       ON CONFLICT(blob_key) DO UPDATE SET
+         report_id = excluded.report_id,
+         error = excluded.error,
+         retry_count = retry_count + 1,
+         status = 'pending',
+         updated_at = excluded.updated_at`
+    )
+      .bind(failure.key, failure.reportId || "", failure.error || "Report blob deletion failed.", now, now)
+      .run();
+  } catch {
+    // Older local databases may not have the retry table until migrations run.
+  }
 }
 
 // D1 rejects rows near its ~2MB value limit, which would fail the save AFTER
@@ -311,7 +426,9 @@ export {
   latestSavedReportForDelta,
   makePrivateReportId,
   ownerReportRow,
+  preserveProtectedFixRequestReport,
   preserveFixRequestReports,
+  protectedFixRequestForReport,
   reportJsonForRow,
   reportR2Key,
   saveAuditReport,

@@ -145,7 +145,7 @@ ${pageSocialHead({ origin, title: "SEO Fix Kit Demo - Proof-Backed SEO Repair", 
 - Action: Do not add another H1.
 - Acceptance: Re-run audit; finding stays guarded, not queued as a fix.</code>
       </section>
-      <p><a class="cta" href="${origin}/">Join waitlist</a></p>
+      <p><a class="cta" href="${origin}/">Request access</a></p>
     </main>
   </body>
 </html>`;
@@ -158,8 +158,8 @@ function privacyHtml(origin) {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Privacy - SEO Fix Kit</title>
-    <meta name="description" content="SEO Fix Kit privacy note for waitlist, private beta audits, payments, and fulfillment." />
-${pageSocialHead({ origin, title: "Privacy - SEO Fix Kit", description: "SEO Fix Kit privacy note for waitlist, private beta audits, payments, and fulfillment.", path: "/privacy" })}
+    <meta name="description" content="SEO Fix Kit privacy note for access requests, private beta audits, payments, and fulfillment." />
+${pageSocialHead({ origin, title: "Privacy - SEO Fix Kit", description: "SEO Fix Kit privacy note for access requests, private beta audits, payments, and fulfillment.", path: "/privacy" })}
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
       body { margin: 0; min-width: 320px; }
@@ -179,13 +179,13 @@ ${pageSocialHead({ origin, title: "Privacy - SEO Fix Kit", description: "SEO Fix
         <li>We store your email address, signup source, UTM fields, landing path, referrer, browser user agent, country code when Cloudflare provides it, signup timestamps, and short-lived access-link records.</li>
         <li>Private audits store the website URL, rendered-page audit findings, screenshots or extracted page facts when available, report owner, beta session reference, target host, and report expiry timestamp.</li>
         <li>Fix Pack records store checkout status, Dodo payment identifiers, payment amount and currency, fulfillment notes, final rerun report links, delivery notifications, and admin audit events. We never see or store your card details; Dodo Payments processes payment as merchant of record under its own privacy policy.</li>
-        <li>Cookies: we set only essential, HttpOnly session cookies (beta login, admin login, and report-unlock state). No advertising, analytics, or cross-site tracking cookies are set.</li>
+        <li>Cookies and local browser storage: we set only essential, HttpOnly session cookies (beta login, admin login, and report-unlock state), and the beta dashboard may keep your access email and dashboard state in sessionStorage on your device. No advertising, analytics, or cross-site tracking cookies are set.</li>
         <li>Processors: Cloudflare (hosting, database, email delivery, browser rendering — data may be processed on Cloudflare's global network) and Dodo Payments (checkout and payment webhooks).</li>
         <li>Retention: reports expire after 30 days, except reports tied to a paid Fix Pack, which stay available while we operate the service. Admin logs, payment records, and notification logs are kept for operating, support, abuse prevention, and payment reconciliation. Rate-limit counters expire automatically.</li>
         <li>We do not sell your personal data and do not send unrelated promotions.</li>
         <li>Deletion and access: email <a href="mailto:support@seofixkit.com">support@seofixkit.com</a> (or reply to any email we send) to request a copy or deletion of your beta data. We honor verified requests within 30 days, except records we must keep for payment reconciliation or abuse prevention.</li>
       </ul>
-      <p>Last updated: June 12, 2026.</p>
+      <p>Last updated: June 15, 2026.</p>
     </main>
   </body>
 </html>`;

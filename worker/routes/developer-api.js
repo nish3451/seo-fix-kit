@@ -16,7 +16,11 @@ import {
   betaAccessStatus
 } from "../lib/auth.js";
 import { json, jsonNoStore } from "../lib/http.js";
-import { deleteReportRowsWithBlobs, reportJsonForRow } from "../lib/report-data.js";
+import {
+  deleteReportRowsWithBlobs,
+  protectedFixRequestForReport,
+  reportJsonForRow
+} from "../lib/report-data.js";
 import { sha256Hex } from "../lib/security.js";
 import {
   apiAuditResponse,
@@ -88,9 +92,14 @@ async function getDeveloperApiSummary(request, env) {
       getReport: "GET /v1/audits/{audit_id}/report",
       startLargeCrawl: "POST /v1/large-crawls",
       getLargeCrawl: "GET /v1/large-crawls/{large_crawl_id}",
+      projects: "GET /v1/projects"
+    },
+    workerOnlyDocs: {
+      authHeader: "x-seofixkit-worker-token: WORKER_TOKEN",
+      proofToken: "Send claim response proof_token/proofToken back with proof saves.",
       claimLargeCrawlBatch: "POST /v1/large-crawls/{large_crawl_id}/batches/claim",
       processLargeCrawlBatch: "POST /v1/large-crawls/{large_crawl_id}/batches/process",
-      projects: "GET /v1/projects"
+      saveLargeCrawlProof: "POST /v1/large-crawls/{large_crawl_id}/batches/{batch_id}/proof"
     }
   });
 }
@@ -490,6 +499,19 @@ async function apiDeleteAudit(request, env) {
     .bind(id, access.ownerEmail)
     .first();
   if (!row?.id) return jsonNoStore({ error: "Audit not found." }, 404);
+  if (row.report_id) {
+    const protectedFixRequest = await protectedFixRequestForReport(env, row.report_id);
+    if (protectedFixRequest?.id) {
+      return jsonNoStore(
+        {
+          error: "This audit report is locked because it is attached to a paid Fix Pack record.",
+          code: "FIX_PACK_REPORT_LOCKED",
+          fixRequestId: protectedFixRequest.id
+        },
+        409
+      );
+    }
+  }
   await env.WAITLIST_DB.prepare(`DELETE FROM audit_jobs WHERE id = ? AND owner_email = ?`).bind(id, access.ownerEmail).run();
   if (row.report_id) {
     const reportRow = await env.WAITLIST_DB.prepare(
@@ -571,7 +593,11 @@ async function resolveApiAuditReport(env, access, id) {
     return { ok: false, status: 404, error: "Report not found." };
   }
   if (row.expires_at && row.expires_at <= new Date().toISOString()) {
-    await deleteReportRowsWithBlobs(env, [{ id: reportId, report_json: row.report_json }]);
+    const deleted = await deleteReportRowsWithBlobs(env, [{ id: reportId, report_json: row.report_json }]);
+    if (deleted.protectedIds.includes(reportId)) {
+      row.expires_at = null;
+      return { ok: true, job, report: parseJson(await reportJsonForRow(env, row), {}) };
+    }
     return { ok: false, status: 404, error: "Report expired." };
   }
   return { ok: true, job, report: parseJson(await reportJsonForRow(env, row), {}) };

@@ -306,8 +306,12 @@ async function getSavedReport(request, env) {
     return json({ error: "Report not found." }, 404);
   }
   if (row.expires_at && row.expires_at <= new Date().toISOString()) {
-    await deleteReportRowsWithBlobs(env, [{ id, report_json: row.report_json }]);
-    return json({ error: "Report expired." }, 404);
+    const deleted = await deleteReportRowsWithBlobs(env, [{ id, report_json: row.report_json }]);
+    if (deleted.protectedIds.includes(id)) {
+      row.expires_at = null;
+    } else {
+      return json({ error: "Report expired." }, 404);
+    }
   }
   if (row.owner_email && row.owner_email !== access.ownerEmail) {
     return json({ error: "Report not found." }, 404);

@@ -1,5 +1,6 @@
 import { publicAuditUrlStatus } from "../../shared/audit-engine.js";
 import { buildCrawlInventory } from "../../shared/crawl-inventory.js";
+import { largeCrawlProofWriteStatus } from "../../shared/large-crawl-proof-writer.js";
 import {
   LARGE_RENDERED_CRAWL_MAX_RETRIES,
   claimNextLargeRenderedCrawlBatch,
@@ -142,16 +143,14 @@ async function createLargeRenderedCrawlForAccess(request, env, access, body = {}
           ok: true,
           large_crawl: apiLargeRenderedCrawlResponse(response),
           large_crawl_id: created.job.id,
-          status_url: `/v1/large-crawls/${created.job.id}`,
-          claim_url: `/v1/large-crawls/${created.job.id}/batches/claim`
+          status_url: `/v1/large-crawls/${created.job.id}`
         }
       : {
           ok: true,
           mode: "queued",
           largeCrawl: response,
           largeCrawlId: created.job.id,
-          statusUrl: `/api/large-crawls/${created.job.id}`,
-          claimUrl: `/api/large-crawls/${created.job.id}/batches/claim`
+          statusUrl: `/api/large-crawls/${created.job.id}`
         },
     202
   );
@@ -259,6 +258,14 @@ async function apiClaimLargeRenderedCrawlBatch(request, env) {
 
 async function claimLargeRenderedCrawlBatchForAccess(request, env, access, prefix, options = {}) {
   const id = pathId(request.url, prefix, "/batches/claim");
+  const proofWriter = largeCrawlProofWriteStatus({
+    headers: request.headers,
+    env,
+    trustedRenderer: options.trustedRenderer
+  });
+  if (!proofWriter.ok) {
+    return jsonNoStore({ error: proofWriter.error, code: proofWriter.code }, proofWriter.status);
+  }
   await expireStaleLargeCrawlLeases(env, id);
   const loaded = await loadLargeRenderedCrawl(env, access, id);
   if (!loaded.ok) return jsonNoStore({ error: loaded.error }, loaded.status || 404);
@@ -279,27 +286,35 @@ async function claimLargeRenderedCrawlBatchForAccess(request, env, access, prefi
   await env.WAITLIST_DB.prepare(
     `UPDATE large_crawl_frontier SET status = 'rendering', updated_at = ? WHERE batch_id = ? AND status IN ('queued', 'failed')`
   ).bind(now, claimed.batch.id).run();
+  const responseBatch = { ...claimed.batch, status: "running", leasedAt: now, startedAt: claimed.batch.startedAt || now, updatedAt: now };
+  const proofToken = await largeCrawlProofLeaseToken(env, id, claimed.batch.id, now);
   const urls = await env.WAITLIST_DB.prepare(
     `SELECT * FROM large_crawl_frontier WHERE batch_id = ? AND status = 'rendering' ORDER BY priority ASC LIMIT 1000`
   ).bind(claimed.batch.id).all();
   const row = await env.WAITLIST_DB.prepare(`SELECT * FROM large_crawl_jobs WHERE id = ? LIMIT 1`).bind(id).first();
   const response = await largeRenderedCrawlResponseForRow(env, row);
+  const apiClaimBody = {
+    ok: true,
+    large_crawl: apiLargeRenderedCrawlResponse(response),
+    batch: apiLargeCrawlBatchResponse(responseBatch),
+    urls: (urls.results || []).map((item) => apiLargeCrawlFrontierResponse(largeCrawlFrontierFromRow(item)))
+  };
+  const betaClaimBody = {
+    ok: true,
+    largeCrawl: response,
+    batch: largeCrawlBatchResponse(responseBatch),
+    urls: (urls.results || []).map(largeCrawlFrontierFromRow)
+  };
+  apiClaimBody.proof_url = `/v1/large-crawls/${id}/batches/${claimed.batch.id}/proof`;
+  betaClaimBody.proofUrl = `/api/large-crawls/${id}/batches/${claimed.batch.id}/proof`;
+  if (proofToken) {
+    apiClaimBody.proof_token = proofToken;
+    betaClaimBody.proofToken = proofToken;
+  }
   return jsonNoStore(
     options.api
-      ? {
-          ok: true,
-          large_crawl: apiLargeRenderedCrawlResponse(response),
-          batch: apiLargeCrawlBatchResponse(claimed.batch),
-          urls: (urls.results || []).map((item) => apiLargeCrawlFrontierResponse(largeCrawlFrontierFromRow(item))),
-          proof_url: `/v1/large-crawls/${id}/batches/${claimed.batch.id}/proof`
-        }
-      : {
-          ok: true,
-          largeCrawl: response,
-          batch: largeCrawlBatchResponse(claimed.batch),
-          urls: (urls.results || []).map(largeCrawlFrontierFromRow),
-          proofUrl: `/api/large-crawls/${id}/batches/${claimed.batch.id}/proof`
-        }
+      ? apiClaimBody
+      : betaClaimBody
   );
 }
 
@@ -340,6 +355,7 @@ async function apiProcessLargeRenderedCrawlBatch(request, env) {
 
 async function processLargeRenderedCrawlBatchForAccess(request, env, access, prefix, options = {}) {
   const body = await request.json().catch(() => ({}));
+  const jobId = pathId(request.url, prefix, "/batches/process");
   const claimRequest = new Request(request.url.replace("/batches/process", "/batches/claim"), {
     method: "POST",
     headers: request.headers
@@ -348,6 +364,7 @@ async function processLargeRenderedCrawlBatchForAccess(request, env, access, pre
   const claimedBody = await claimedResponse.clone().json().catch(() => ({}));
   if (!claimedResponse.ok) return claimedResponse;
   const batchId = claimedBody.batch?.batch_id || claimedBody.batch?.id || "";
+  await refreshLargeRenderedCrawlBatchLease(env, jobId, batchId);
   const claimedUrls = Array.isArray(claimedBody.urls) ? claimedBody.urls : [];
   const urls = claimedUrls.slice(0, Math.min(Math.max(Number(body.limit || 10), 1), 50));
   await deferUnprocessedLargeCrawlUrls(env, batchId, urls);
@@ -373,15 +390,20 @@ async function processLargeRenderedCrawlBatchForAccess(request, env, access, pre
         error: cleanText(error?.message || "Rendered proof failed.", 500)
       });
     }
+    await refreshLargeRenderedCrawlBatchLease(env, jobId, batchId);
   }
+  await refreshLargeRenderedCrawlBatchLease(env, jobId, batchId);
   const proofUrl = new URL(request.url);
-  proofUrl.pathname = `${prefix}${pathId(request.url, prefix, "/batches/process")}/batches/${batchId}/proof`;
+  proofUrl.pathname = `${prefix}${jobId}/batches/${batchId}/proof`;
   const proofRequest = new Request(proofUrl.href, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ pages, failures })
   });
-  const savedResponse = await saveLargeRenderedCrawlBatchProofForAccess(proofRequest, env, access, prefix, options);
+  const savedResponse = await saveLargeRenderedCrawlBatchProofForAccess(proofRequest, env, access, prefix, {
+    ...options,
+    trustedRenderer: true
+  });
   const savedBody = await savedResponse.clone().json().catch(() => ({}));
   return jsonNoStore(
     options.api
@@ -389,6 +411,18 @@ async function processLargeRenderedCrawlBatchForAccess(request, env, access, pre
       : { ...savedBody, processedUrlCount: pages.length + failures.length, renderedCount: pages.length, failedCount: failures.length },
     savedResponse.status
   );
+}
+
+async function refreshLargeRenderedCrawlBatchLease(env, jobId, batchId) {
+  if (!env.WAITLIST_DB || !jobId || !batchId) return;
+  const now = new Date().toISOString();
+  await env.WAITLIST_DB.prepare(
+    `UPDATE large_crawl_batches
+     SET leased_at = ?, updated_at = ?
+     WHERE id = ?
+       AND crawl_job_id = ?
+       AND status = 'running'`
+  ).bind(now, now, batchId, jobId).run();
 }
 
 async function runDueLargeRenderedCrawlWorkers(env) {
@@ -429,7 +463,7 @@ async function runDueLargeRenderedCrawlWorkers(env) {
           inviteId: row.owner_invite_id || ""
         },
         "/api/large-crawls/",
-        { api: false }
+        { api: false, trustedRenderer: true }
       );
       await env.WAITLIST_DB.prepare(
         `UPDATE large_crawl_worker_heartbeats SET status = 'idle', last_seen_at = ? WHERE id = ?`
@@ -476,11 +510,23 @@ async function apiSaveLargeRenderedCrawlBatchProof(request, env) {
 
 async function saveLargeRenderedCrawlBatchProofForAccess(request, env, access, prefix, options = {}) {
   const { jobId, batchId } = largeCrawlBatchProofPath(request.url, prefix);
+  const proofWriter = largeCrawlProofWriteStatus({
+    headers: request.headers,
+    env,
+    trustedRenderer: options.trustedRenderer
+  });
+  if (!proofWriter.ok) {
+    return jsonNoStore({ error: proofWriter.error, code: proofWriter.code }, proofWriter.status);
+  }
   const loaded = await loadLargeRenderedCrawl(env, access, jobId);
   if (!loaded.ok) return jsonNoStore({ error: loaded.error }, loaded.status || 404);
   const batchRow = loaded.batches.find((batch) => batch.id === batchId);
   if (!batchRow?.id) return jsonNoStore({ error: "Large crawl batch not found." }, 404);
+  const batch = largeCrawlBatchFromRow(batchRow);
   const body = await request.json().catch(() => ({}));
+  if (!largeCrawlBatchLeaseIsActive(batch) && !(await largeCrawlProofLeaseTokenIsValid(request, body, env, jobId, batch))) {
+    return jsonNoStore({ error: "Large crawl batch does not have an active renderer lease.", code: "ACTIVE_RENDERER_LEASE_REQUIRED" }, 409);
+  }
   const pages = Array.isArray(body.pages) ? body.pages : [];
   const failures = Array.isArray(body.failures) ? body.failures : [];
   const now = new Date().toISOString();
@@ -491,8 +537,8 @@ async function saveLargeRenderedCrawlBatchProofForAccess(request, env, access, p
   const statements = [];
   for (const page of pages) {
     const frontierRow = findLargeCrawlFrontierRow(frontierRows, batchId, page);
-    if (!frontierRow) continue;
-    const proof = largeRenderedCrawlProofFromPage(largeCrawlJobFromRow(loaded.row), largeCrawlBatchFromRow(batchRow), frontierRow, page, now);
+    if (!frontierRow || frontierRow.status !== "rendering") continue;
+    const proof = largeRenderedCrawlProofFromPage(largeCrawlJobFromRow(loaded.row), batch, frontierRow, page, now);
     statements.push(largeCrawlProofInsertStatement(env, proof));
     statements.push(
       env.WAITLIST_DB.prepare(
@@ -502,7 +548,7 @@ async function saveLargeRenderedCrawlBatchProofForAccess(request, env, access, p
   }
   for (const failure of failures) {
     const frontierRow = findLargeCrawlFrontierRow(frontierRows, batchId, failure);
-    if (!frontierRow) continue;
+    if (!frontierRow || frontierRow.status !== "rendering") continue;
     const retryCount = Number(frontierRow.retryCount || 0) + 1;
     const lastError = cleanText(failure.error || failure.message || "Rendered proof failed.", 500);
     statements.push(
@@ -529,11 +575,11 @@ async function saveLargeRenderedCrawlBatchProofForAccess(request, env, access, p
       large_crawl: apiLargeRenderedCrawlResponse(response)
     }).catch(() => {});
   }
-  const batch = await env.WAITLIST_DB.prepare(`SELECT * FROM large_crawl_batches WHERE id = ? LIMIT 1`).bind(batchId).first();
+  const updatedBatchRow = await env.WAITLIST_DB.prepare(`SELECT * FROM large_crawl_batches WHERE id = ? LIMIT 1`).bind(batchId).first();
   return jsonNoStore(
     options.api
-      ? { ok: true, large_crawl: apiLargeRenderedCrawlResponse(response), batch: apiLargeCrawlBatchResponse(largeCrawlBatchFromRow(batch)) }
-      : { ok: true, largeCrawl: response, batch: largeCrawlBatchResponse(largeCrawlBatchFromRow(batch)) }
+      ? { ok: true, large_crawl: apiLargeRenderedCrawlResponse(response), batch: apiLargeCrawlBatchResponse(largeCrawlBatchFromRow(updatedBatchRow)) }
+      : { ok: true, largeCrawl: response, batch: largeCrawlBatchResponse(largeCrawlBatchFromRow(updatedBatchRow)) }
   );
 }
 
@@ -1126,10 +1172,50 @@ function apiLargeCrawlFrontierResponse(row = {}) {
 
 function findLargeCrawlFrontierRow(frontierRows = [], batchId = "", input = {}) {
   const wantedId = input.frontierId || input.frontier_id || "";
-  const wantedUrl = stripUrlHash(input.url || input.targetUrl || input.target_url || "");
-  return frontierRows.find((row) => row.batchId === batchId && row.id === wantedId) ||
-    frontierRows.find((row) => row.batchId === batchId && stripUrlHash(row.url) === wantedUrl) ||
-    null;
+  const wantedUrl = canonicalLargeCrawlProofUrl(input.url || input.targetUrl || input.target_url || "");
+  if (!wantedId && !wantedUrl) return null;
+  return frontierRows.find((row) => {
+    if (row.batchId !== batchId) return false;
+    if (wantedId && row.id !== wantedId) return false;
+    if (wantedUrl && canonicalLargeCrawlProofUrl(row.url) !== wantedUrl) return false;
+    return true;
+  }) || null;
+}
+
+function largeCrawlBatchLeaseIsActive(batch = {}, nowMs = Date.now()) {
+  if (batch.status !== "running" || !batch.leasedAt) return false;
+  const leasedAt = Date.parse(batch.leasedAt);
+  return Number.isFinite(leasedAt) && leasedAt >= nowMs - LARGE_RENDERED_CRAWL_LEASE_MS;
+}
+
+async function largeCrawlProofLeaseToken(env, jobId, batchId, leasedAt) {
+  const secret = String(env.SEOFIXKIT_LARGE_CRAWL_WORKER_TOKEN || "").trim();
+  if (!secret || !jobId || !batchId || !leasedAt) return "";
+  return sha256Hex(`${secret}:${jobId}:${batchId}:${leasedAt}`);
+}
+
+async function largeCrawlProofLeaseTokenIsValid(request, body, env, jobId, batch = {}) {
+  if (batch.status !== "running") return false;
+  const supplied = String(
+    request.headers.get("x-seofixkit-proof-token") ||
+    body.proofToken ||
+    body.proof_token ||
+    ""
+  ).trim();
+  if (!supplied) return false;
+  const expected = await largeCrawlProofLeaseToken(env, jobId, batch.id, batch.leasedAt);
+  return constantTimeEqual(supplied, expected);
+}
+
+function constantTimeEqual(left, right) {
+  const leftText = String(left || "");
+  const rightText = String(right || "");
+  const maxLength = Math.max(leftText.length, rightText.length);
+  let diff = leftText.length ^ rightText.length;
+  for (let index = 0; index < maxLength; index += 1) {
+    diff |= (leftText.charCodeAt(index) || 0) ^ (rightText.charCodeAt(index) || 0);
+  }
+  return maxLength > 0 && diff === 0;
 }
 
 function largeCrawlBatchProofPath(rawUrl, prefix) {
@@ -1158,6 +1244,21 @@ function stripUrlHash(value = "") {
     return url.href;
   } catch {
     return String(value || "").split("#")[0];
+  }
+}
+
+function canonicalLargeCrawlProofUrl(value = "") {
+  const stripped = stripUrlHash(value);
+  try {
+    const url = new URL(stripped);
+    url.protocol = url.protocol.toLowerCase();
+    url.hostname = url.hostname.toLowerCase();
+    if (url.pathname.length > 1) {
+      url.pathname = url.pathname.replace(/\/+$/g, "") || "/";
+    }
+    return url.href;
+  } catch {
+    return String(stripped || "").replace(/\/+$/g, "");
   }
 }
 
@@ -1198,6 +1299,7 @@ export {
   largeCrawlBatchInsertStatement,
   largeCrawlBatchProofPath,
   largeCrawlBatchResponse,
+  largeCrawlBatchLeaseIsActive,
   largeCrawlBillingStatus,
   largeCrawlFingerprint,
   largeCrawlFrontierFromRow,

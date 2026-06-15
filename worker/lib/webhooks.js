@@ -2,6 +2,11 @@ import { isPrivateHostname, resolvesToPrivateAddress } from "../../shared/url-sa
 import { hmacSha256Hex } from "./security.js";
 import { cleanText, parseJson } from "./text.js";
 
+const WEBHOOK_DELIVERY_TIMEOUT_MS = 5000;
+const WEBHOOK_DELIVERY_MAX_ATTEMPTS = 2;
+const WEBHOOK_DELIVERY_EVENT_BUDGET_MS = 12000;
+const WEBHOOK_DELIVERY_RETRY_BASE_MS = 250;
+
 function cleanWebhookEvents(events = []) {
   const allowed = new Set(["audit.completed", "audit.failed", "large_crawl.created", "large_crawl.ready_to_merge"]);
   const values = Array.isArray(events) ? events : [];
@@ -25,7 +30,7 @@ async function apiWebhookSignature(env, webhookId, timestamp, body) {
   return hmacSha256Hex(secret, `${timestamp}.${body}`);
 }
 
-async function deliverApiWebhooks(env, ownerEmail, eventType, data = {}) {
+async function deliverApiWebhooks(env, ownerEmail, eventType, data = {}, options = {}) {
   if (!env.WAITLIST_DB) return;
   const rows = await env.WAITLIST_DB.prepare(
     `SELECT *
@@ -70,37 +75,26 @@ async function deliverApiWebhooks(env, ownerEmail, eventType, data = {}) {
       )
       .run();
     try {
-      const urlStatus = publicWebhookUrlStatus(webhook.url);
-      if (!urlStatus.ok) throw new Error(urlStatus.error);
-      if (await resolvesToPrivateAddress(new URL(urlStatus.url).hostname)) {
-        throw new Error("Webhook host resolves to a private or internal address.");
-      }
-      const timestamp = String(Math.floor(Date.now() / 1000));
-      const response = await fetch(webhook.url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "user-agent": "SEO Fix Kit Webhooks",
-          "x-seofixkit-event": eventType,
-          "x-seofixkit-signature": `t=${timestamp},v1=${await apiWebhookSignature(env, webhook.id, timestamp, body)}`
-        },
-        body,
-        redirect: "manual"
+      const delivery = await deliverApiWebhook(env, webhook, eventType, body, {
+        fetcher: options.fetcher || fetch,
+        resolvesToPrivateAddress: options.resolvesToPrivateAddress || resolvesToPrivateAddress,
+        sleep: options.sleep || sleep,
+        maxAttempts: webhookDeliveryMaxAttempts(env),
+        timeoutMs: webhookDeliveryTimeoutMs(env),
+        eventBudgetMs: webhookDeliveryEventBudgetMs(env)
       });
       const deliveredAt = new Date().toISOString();
-      const status = response.ok ? "delivered" : "failed";
-      const error = response.ok ? "" : `HTTP ${response.status}`;
       await env.WAITLIST_DB.batch([
         env.WAITLIST_DB.prepare(
           `UPDATE api_webhook_events
            SET status = ?, http_status = ?, error = ?, delivered_at = ?
            WHERE id = ?`
-        ).bind(status, response.status, error || null, deliveredAt, eventId),
+        ).bind(delivery.status, delivery.httpStatus || null, delivery.error || null, deliveredAt, eventId),
         env.WAITLIST_DB.prepare(
           `UPDATE api_webhooks
            SET last_delivery_at = ?, last_delivery_status = ?, last_error = ?, updated_at = ?
            WHERE id = ?`
-        ).bind(deliveredAt, status, error || null, deliveredAt, webhook.id)
+        ).bind(deliveredAt, delivery.status, delivery.error || null, deliveredAt, webhook.id)
       ]);
     } catch (error) {
       const deliveredAt = new Date().toISOString();
@@ -119,6 +113,104 @@ async function deliverApiWebhooks(env, ownerEmail, eventType, data = {}) {
       ]);
     }
   }
+}
+
+async function deliverApiWebhook(env, webhook, eventType, body, options = {}) {
+  const maxAttempts = Math.max(Number(options.maxAttempts || WEBHOOK_DELIVERY_MAX_ATTEMPTS), 1);
+  const timeoutMs = Math.max(Number(options.timeoutMs || WEBHOOK_DELIVERY_TIMEOUT_MS), 1000);
+  const eventBudgetMs = Math.max(Number(options.eventBudgetMs || WEBHOOK_DELIVERY_EVENT_BUDGET_MS), 1000);
+  const fetcher = options.fetcher || fetch;
+  const privateAddressResolver = options.resolvesToPrivateAddress || resolvesToPrivateAddress;
+  const sleepFn = options.sleep || sleep;
+  const deadline = Date.now() + eventBudgetMs;
+  let lastError = "";
+  let lastStatus = 0;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const remainingMs = Math.max(deadline - Date.now(), 0);
+    if (remainingMs <= 0) {
+      return { status: "failed", httpStatus: lastStatus || 0, error: lastError || "Webhook delivery budget exhausted." };
+    }
+    const urlStatus = publicWebhookUrlStatus(webhook.url);
+    if (!urlStatus.ok) {
+      return { status: "failed", httpStatus: lastStatus || 0, error: urlStatus.error };
+    }
+    if (await privateAddressResolver(new URL(urlStatus.url).hostname)) {
+      return {
+        status: "failed",
+        httpStatus: lastStatus || 0,
+        error: "Webhook host resolves to a private or internal address."
+      };
+    }
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    try {
+      const response = await fetchWithTimeout(fetcher, urlStatus.url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "user-agent": "SEO Fix Kit Webhooks",
+          "x-seofixkit-event": eventType,
+          "x-seofixkit-signature": `t=${timestamp},v1=${await apiWebhookSignature(env, webhook.id, timestamp, body)}`
+        },
+        body,
+        redirect: "manual"
+      }, Math.min(timeoutMs, remainingMs));
+      lastStatus = response.status;
+      if (response.ok) return { status: "delivered", httpStatus: response.status, error: "" };
+      lastError = `HTTP ${response.status}`;
+      if (!shouldRetryWebhookResponse(response.status) || attempt === maxAttempts) {
+        return { status: "failed", httpStatus: response.status, error: lastError };
+      }
+    } catch (error) {
+      lastError = cleanText(error?.message || "Webhook delivery failed.", 500);
+      if (attempt === maxAttempts) {
+        return { status: "failed", httpStatus: lastStatus || 0, error: lastError };
+      }
+    }
+    const sleepMs = Math.min(webhookRetryDelayMs(attempt), Math.max(deadline - Date.now(), 0));
+    if (sleepMs > 0) await sleepFn(sleepMs);
+  }
+
+  return { status: "failed", httpStatus: lastStatus || 0, error: lastError || "Webhook delivery failed." };
+}
+
+async function fetchWithTimeout(fetcher, url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetcher(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`Webhook delivery timed out after ${timeoutMs}ms.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function shouldRetryWebhookResponse(status) {
+  return status === 408 || status === 429 || (status >= 500 && status <= 599);
+}
+
+function webhookRetryDelayMs(attempt) {
+  return Math.min(WEBHOOK_DELIVERY_RETRY_BASE_MS * (2 ** Math.max(attempt - 1, 0)), 1000);
+}
+
+function webhookDeliveryTimeoutMs(env) {
+  return Math.min(Math.max(Number(env.SEOFIXKIT_WEBHOOK_TIMEOUT_MS || WEBHOOK_DELIVERY_TIMEOUT_MS), 1000), 15000);
+}
+
+function webhookDeliveryMaxAttempts(env) {
+  return Math.min(Math.max(Number(env.SEOFIXKIT_WEBHOOK_MAX_ATTEMPTS || WEBHOOK_DELIVERY_MAX_ATTEMPTS), 1), 5);
+}
+
+function webhookDeliveryEventBudgetMs(env) {
+  return Math.min(Math.max(Number(env.SEOFIXKIT_WEBHOOK_EVENT_BUDGET_MS || WEBHOOK_DELIVERY_EVENT_BUDGET_MS), 1000), 30000);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function publicWebhookUrlStatus(value) {
@@ -154,6 +246,8 @@ export {
   apiWebhookSignature,
   apiWebhookSigningSecret,
   cleanWebhookEvents,
+  deliverApiWebhook,
   deliverApiWebhooks,
+  shouldRetryWebhookResponse,
   publicWebhookUrlStatus
 };
