@@ -51,6 +51,7 @@ import {
   normalizeLargeRenderedCrawlRequest,
   retryLargeRenderedCrawlFailures
 } from "../shared/large-rendered-crawl.js";
+import { largeCrawlProofWriteStatus } from "../shared/large-crawl-proof-writer.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -84,6 +85,7 @@ const ADMIN_SESSION_COOKIE = "sfk_admin_session";
 const BETA_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const REPORT_RETENTION_DAYS = 30;
 const LARGE_RENDERED_CRAWL_LEASE_MS = 15 * 60 * 1000;
+const PROTECTED_FIX_REQUEST_STATUSES = new Set(["paid", "in_progress", "delivered", "refunded", "refund_failed", "disputed"]);
 const FIX_PACK_OFFER = {
   name: "SEO Fix Pack",
   productKey: "seofixkit_fix_pack",
@@ -955,6 +957,15 @@ app.delete("/v1/audits/:id", (req, res) => {
     res.status(404).set("cache-control", "no-store").json({ error: "Audit not found." });
     return;
   }
+  const protectedFixRequest = localProtectedFixRequestForReport(job.reportId, access.ownerEmail);
+  if (protectedFixRequest) {
+    res.status(409).set("cache-control", "no-store").json({
+      error: "This audit report is locked because it is attached to a paid Fix Pack record.",
+      code: "FIX_PACK_REPORT_LOCKED",
+      fixRequestId: protectedFixRequest.id
+    });
+    return;
+  }
   if (job.reportId) auditReports.delete(job.reportId);
   auditJobs.delete(job.id);
   res.set("cache-control", "no-store").json({ ok: true, deleted: true, auditId: req.params.id });
@@ -996,17 +1007,44 @@ app.post("/v1/large-crawls/:id/retry", (req, res) => {
 });
 
 app.post("/v1/large-crawls/:id/batches/claim", (req, res) => {
-  const result = claimLocalLargeRenderedCrawlBatch(localApiAccess(req), req.params.id, { api: true });
+  const proofWriter = largeCrawlProofWriteStatus({ headers: req.headers, env: process.env });
+  if (!proofWriter.ok) {
+    return res.status(proofWriter.status).set("cache-control", "no-store").json({ error: proofWriter.error, code: proofWriter.code });
+  }
+  const result = claimLocalLargeRenderedCrawlBatch(localApiAccess(req), req.params.id, {
+    api: true,
+    trustedRenderer: true,
+    trustedProofWriter: true
+  });
   res.status(result.status).set("cache-control", "no-store").json(result.body);
 });
 
 app.post("/v1/large-crawls/:id/batches/process", async (req, res) => {
-  const result = await processLocalLargeRenderedCrawlBatch(localApiAccess(req), req.params.id, req.body || {}, { api: true });
+  const proofWriter = largeCrawlProofWriteStatus({ headers: req.headers, env: process.env });
+  if (!proofWriter.ok) {
+    return res.status(proofWriter.status).set("cache-control", "no-store").json({ error: proofWriter.error, code: proofWriter.code });
+  }
+  const result = await processLocalLargeRenderedCrawlBatch(localApiAccess(req), req.params.id, req.body || {}, {
+    api: true,
+    trustedRenderer: true,
+    trustedProofWriter: true
+  });
   res.status(result.status).set("cache-control", "no-store").json(result.body);
 });
 
 app.post("/v1/large-crawls/:id/batches/:batchId/proof", (req, res) => {
-  const result = saveLocalLargeRenderedCrawlBatchProof(localApiAccess(req), req.params.id, req.params.batchId, req.body || {}, { api: true });
+  const proofWriter = largeCrawlProofWriteStatus({ headers: req.headers, env: process.env });
+  if (!proofWriter.ok) {
+    return res.status(proofWriter.status).set("cache-control", "no-store").json({ error: proofWriter.error, code: proofWriter.code });
+  }
+  const body = req.body || {};
+  const result = saveLocalLargeRenderedCrawlBatchProof(localApiAccess(req), req.params.id, req.params.batchId, {
+    ...body,
+    proofToken: req.get("x-seofixkit-proof-token") || body.proofToken || body.proof_token || ""
+  }, {
+    api: true,
+    trustedRenderer: true
+  });
   res.status(result.status).set("cache-control", "no-store").json(result.body);
 });
 
@@ -1467,17 +1505,41 @@ app.post("/api/large-crawls/:id/retry", (req, res) => {
 });
 
 app.post("/api/large-crawls/:id/batches/claim", (req, res) => {
-  const result = claimLocalLargeRenderedCrawlBatch(localBetaAccess(req), req.params.id);
+  const proofWriter = largeCrawlProofWriteStatus({ headers: req.headers, env: process.env });
+  if (!proofWriter.ok) {
+    return res.status(proofWriter.status).set("cache-control", "no-store").json({ error: proofWriter.error, code: proofWriter.code });
+  }
+  const result = claimLocalLargeRenderedCrawlBatch(localBetaAccess(req), req.params.id, {
+    trustedRenderer: true,
+    trustedProofWriter: true
+  });
   res.status(result.status).set("cache-control", "no-store").json(result.body);
 });
 
 app.post("/api/large-crawls/:id/batches/process", async (req, res) => {
-  const result = await processLocalLargeRenderedCrawlBatch(localBetaAccess(req), req.params.id, req.body || {});
+  const proofWriter = largeCrawlProofWriteStatus({ headers: req.headers, env: process.env });
+  if (!proofWriter.ok) {
+    return res.status(proofWriter.status).set("cache-control", "no-store").json({ error: proofWriter.error, code: proofWriter.code });
+  }
+  const result = await processLocalLargeRenderedCrawlBatch(localBetaAccess(req), req.params.id, req.body || {}, {
+    trustedRenderer: true,
+    trustedProofWriter: true
+  });
   res.status(result.status).set("cache-control", "no-store").json(result.body);
 });
 
 app.post("/api/large-crawls/:id/batches/:batchId/proof", (req, res) => {
-  const result = saveLocalLargeRenderedCrawlBatchProof(localBetaAccess(req), req.params.id, req.params.batchId, req.body || {});
+  const proofWriter = largeCrawlProofWriteStatus({ headers: req.headers, env: process.env });
+  if (!proofWriter.ok) {
+    return res.status(proofWriter.status).set("cache-control", "no-store").json({ error: proofWriter.error, code: proofWriter.code });
+  }
+  const body = req.body || {};
+  const result = saveLocalLargeRenderedCrawlBatchProof(localBetaAccess(req), req.params.id, req.params.batchId, {
+    ...body,
+    proofToken: req.get("x-seofixkit-proof-token") || body.proofToken || body.proof_token || ""
+  }, {
+    trustedRenderer: true
+  });
   res.status(result.status).set("cache-control", "no-store").json(result.body);
 });
 
@@ -1908,7 +1970,7 @@ app.get("/demo", (req, res) => {
 - Action: Do not add another H1.
 - Acceptance: Re-run audit; finding stays guarded, not queued as a fix.</code>
       </section>
-      <p><a class="cta" href="${origin}/">Join waitlist</a></p>
+      <p><a class="cta" href="${origin}/">Request access</a></p>
     </main>
   </body>
 </html>`);
@@ -2137,9 +2199,11 @@ app.get(/.*/, (req, res) => {
   res.sendFile(path.join(rootDir, "dist", "index.html"));
 });
 
-app.listen(port, "127.0.0.1", () => {
-  console.log(`SEO Fix Kit server running at http://127.0.0.1:${port}`);
-});
+if (process.env.NODE_ENV !== "test") {
+  app.listen(port, "127.0.0.1", () => {
+    console.log(`SEO Fix Kit server running at http://127.0.0.1:${port}`);
+  });
+}
 
 function isBetaPasswordValid(bodyPassword = "") {
   const expected = process.env.BETA_ACCESS_PASSWORD || "local-beta";
@@ -2186,6 +2250,15 @@ function localApiAccess(req) {
   };
 }
 
+function localProtectedFixRequestForReport(reportId = "", ownerEmail = "") {
+  if (!reportId || !ownerEmail) return null;
+  return fixRequests.find((request) =>
+    request.ownerEmail === ownerEmail &&
+    PROTECTED_FIX_REQUEST_STATUSES.has(request.status) &&
+    (request.reportId === reportId || request.finalReportId === reportId)
+  ) || null;
+}
+
 function localDeveloperSummary(access) {
   const tokens = [...apiTokens.values()]
     .filter((token) => token.ownerEmail === access.ownerEmail && token.status === "active")
@@ -2208,9 +2281,14 @@ function localDeveloperSummary(access) {
       getReport: "GET /v1/audits/{audit_id}/report",
       startLargeCrawl: "POST /v1/large-crawls",
       getLargeCrawl: "GET /v1/large-crawls/{large_crawl_id}",
+      projects: "GET /v1/projects"
+    },
+    workerOnlyDocs: {
+      authHeader: "x-seofixkit-worker-token: WORKER_TOKEN",
+      proofToken: "Send claim response proof_token/proofToken back with proof saves.",
       claimLargeCrawlBatch: "POST /v1/large-crawls/{large_crawl_id}/batches/claim",
       processLargeCrawlBatch: "POST /v1/large-crawls/{large_crawl_id}/batches/process",
-      projects: "GET /v1/projects"
+      saveLargeCrawlProof: "POST /v1/large-crawls/{large_crawl_id}/batches/{batch_id}/proof"
     }
   };
 }
@@ -2979,26 +3057,24 @@ async function createLocalLargeRenderedCrawl(body = {}, access = {}, options = {
     large_crawl: localApiLargeRenderedCrawlResponse(created.job)
   }).catch(() => {});
 
-  return {
-    status: 202,
-    body: options.api
-      ? {
-          ok: true,
-          large_crawl: localApiLargeRenderedCrawlResponse(created.job),
-          large_crawl_id: created.job.id,
-          status_url: `/v1/large-crawls/${created.job.id}`,
-          claim_url: `/v1/large-crawls/${created.job.id}/batches/claim`
-        }
-      : {
-          ok: true,
-          mode: "queued",
-          largeCrawl: localLargeRenderedCrawlResponse(created.job),
-          largeCrawlId: created.job.id,
-          statusUrl: `/api/large-crawls/${created.job.id}`,
-          claimUrl: `/api/large-crawls/${created.job.id}/batches/claim`
-        }
-  };
-}
+	  return {
+	    status: 202,
+	    body: options.api
+	      ? {
+	          ok: true,
+	          large_crawl: localApiLargeRenderedCrawlResponse(created.job),
+	          large_crawl_id: created.job.id,
+	          status_url: `/v1/large-crawls/${created.job.id}`
+	        }
+	      : {
+	          ok: true,
+	          mode: "queued",
+	          largeCrawl: localLargeRenderedCrawlResponse(created.job),
+	          largeCrawlId: created.job.id,
+	          statusUrl: `/api/large-crawls/${created.job.id}`
+	        }
+	  };
+	}
 
 function storeLocalLargeRenderedCrawl(created = {}) {
   largeCrawlJobs.set(created.job.id, created.job);
@@ -3079,6 +3155,8 @@ function retryLocalLargeRenderedCrawl(access = {}, id = "", options = {}) {
 }
 
 function claimLocalLargeRenderedCrawlBatch(access = {}, id = "", options = {}) {
+  const proofWriter = largeCrawlProofWriteStatus({ trustedRenderer: options.trustedRenderer });
+  if (!proofWriter.ok) return { status: proofWriter.status, body: { error: proofWriter.error, code: proofWriter.code } };
   expireStaleLocalLargeCrawlLeases(id);
   const resolved = resolveLocalLargeRenderedCrawl(access, id, options);
   if (!resolved.ok) return { status: resolved.status, body: { error: resolved.error } };
@@ -3094,27 +3172,36 @@ function claimLocalLargeRenderedCrawlBatch(access = {}, id = "", options = {}) {
   largeCrawlJobs.set(id, claimed.job);
   largeCrawlBatches.set(id, batches);
   largeCrawlFrontier.set(id, frontierRows);
+  const responseBatch = { ...claimed.batch, status: "running", leasedAt: claimed.batch.leasedAt || now, startedAt: claimed.batch.startedAt || now, updatedAt: now };
+  const proofToken = localLargeCrawlProofLeaseToken(id, claimed.batch.id, responseBatch.leasedAt);
   const urls = frontierRows
     .filter((row) => row.batchId === claimed.batch.id && row.status === "rendering")
     .sort((a, b) => Number(a.priority || 0) - Number(b.priority || 0));
   const response = localLargeRenderedCrawlResponse(claimed.job);
+  const trustedProofWriter = Boolean(options.trustedProofWriter);
+  const apiClaimBody = {
+    ok: true,
+    large_crawl: localApiLargeRenderedCrawlResponse(claimed.job),
+    batch: localApiLargeCrawlBatchResponse(responseBatch),
+    urls: urls.map(localApiLargeCrawlFrontierResponse)
+  };
+  const betaClaimBody = {
+    ok: true,
+    largeCrawl: response,
+    batch: responseBatch,
+    urls
+  };
+  if (trustedProofWriter) {
+    apiClaimBody.proof_url = `/v1/large-crawls/${id}/batches/${claimed.batch.id}/proof`;
+    betaClaimBody.proofUrl = `/api/large-crawls/${id}/batches/${claimed.batch.id}/proof`;
+    if (proofToken) {
+      apiClaimBody.proof_token = proofToken;
+      betaClaimBody.proofToken = proofToken;
+    }
+  }
   return {
     status: 200,
-    body: options.api
-      ? {
-          ok: true,
-          large_crawl: localApiLargeRenderedCrawlResponse(claimed.job),
-          batch: localApiLargeCrawlBatchResponse(claimed.batch),
-          urls: urls.map(localApiLargeCrawlFrontierResponse),
-          proof_url: `/v1/large-crawls/${id}/batches/${claimed.batch.id}/proof`
-        }
-      : {
-          ok: true,
-          largeCrawl: response,
-          batch: claimed.batch,
-          urls,
-          proofUrl: `/api/large-crawls/${id}/batches/${claimed.batch.id}/proof`
-        }
+    body: options.api ? apiClaimBody : betaClaimBody
   };
 }
 
@@ -3123,6 +3210,7 @@ async function processLocalLargeRenderedCrawlBatch(access = {}, id = "", body = 
   if (claimedResult.status !== 200) return claimedResult;
   const claimedBatch = options.api ? claimedResult.body.batch : claimedResult.body.batch;
   const batchId = claimedBatch.batch_id || claimedBatch.id;
+  refreshLocalLargeCrawlBatchLease(id, batchId);
   const urls = (options.api ? claimedResult.body.urls : claimedResult.body.urls || [])
     .slice(0, Math.min(Math.max(Number(body.limit || 10), 1), 1000));
   deferUnprocessedLocalLargeCrawlUrls(id, batchId, urls);
@@ -3147,8 +3235,13 @@ async function processLocalLargeRenderedCrawlBatch(access = {}, id = "", body = 
         error: cleanText(error?.message || "Rendered proof failed.", 500)
       });
     }
+    refreshLocalLargeCrawlBatchLease(id, batchId);
   }
-  const saved = saveLocalLargeRenderedCrawlBatchProof(access, id, batchId, { pages, failures }, options);
+  refreshLocalLargeCrawlBatchLease(id, batchId);
+  const saved = saveLocalLargeRenderedCrawlBatchProof(access, id, batchId, { pages, failures }, {
+    ...options,
+    trustedRenderer: true
+  });
   if (saved.status !== 200) return saved;
   return {
     status: 200,
@@ -3156,6 +3249,16 @@ async function processLocalLargeRenderedCrawlBatch(access = {}, id = "", body = 
       ? { ...saved.body, processed_url_count: pages.length + failures.length, rendered_count: pages.length, failed_count: failures.length }
       : { ...saved.body, processedUrlCount: pages.length + failures.length, renderedCount: pages.length, failedCount: failures.length }
   };
+}
+
+function refreshLocalLargeCrawlBatchLease(id = "", batchId = "") {
+  if (!id || !batchId) return;
+  const now = new Date().toISOString();
+  largeCrawlBatches.set(id, (largeCrawlBatches.get(id) || []).map((batch) =>
+    batch.id === batchId && batch.status === "running"
+      ? { ...batch, leasedAt: now, updatedAt: now }
+      : batch
+  ));
 }
 
 function expireStaleLocalLargeCrawlLeases(id = "") {
@@ -3201,10 +3304,18 @@ function deferUnprocessedLocalLargeCrawlUrls(id = "", batchId = "", processingRo
 }
 
 function saveLocalLargeRenderedCrawlBatchProof(access = {}, id = "", batchId = "", body = {}, options = {}) {
+  const proofWriter = largeCrawlProofWriteStatus({ trustedRenderer: options.trustedRenderer });
+  if (!proofWriter.ok) return { status: proofWriter.status, body: { error: proofWriter.error, code: proofWriter.code } };
   const resolved = resolveLocalLargeRenderedCrawl(access, id, options);
   if (!resolved.ok) return { status: resolved.status, body: { error: resolved.error } };
   const batch = resolved.batches.find((item) => item.id === batchId);
   if (!batch) return { status: 404, body: { error: "Large crawl batch not found." } };
+  if (!localLargeCrawlBatchLeaseIsActive(batch) && !localLargeCrawlProofLeaseTokenIsValid(body, id, batch)) {
+    return {
+      status: 409,
+      body: { error: "Large crawl batch does not have an active renderer lease.", code: "ACTIVE_RENDERER_LEASE_REQUIRED" }
+    };
+  }
   const now = new Date().toISOString();
   const pages = Array.isArray(body.pages) ? body.pages : [];
   const failures = Array.isArray(body.failures) ? body.failures : [];
@@ -3213,7 +3324,7 @@ function saveLocalLargeRenderedCrawlBatchProof(access = {}, id = "", batchId = "
 
   for (const page of pages) {
     const frontierRow = findLargeCrawlFrontierRow(frontierRows, batchId, page);
-    if (!frontierRow) continue;
+    if (!frontierRow || frontierRow.status !== "rendering") continue;
     const proof = largeRenderedCrawlProofFromPage(resolved.job, batch, frontierRow, page, now);
     proofRows = [...proofRows.filter((row) => row.frontierId !== frontierRow.id), proof];
     frontierRows = frontierRows.map((row) =>
@@ -3225,7 +3336,7 @@ function saveLocalLargeRenderedCrawlBatchProof(access = {}, id = "", batchId = "
 
   for (const failure of failures) {
     const frontierRow = findLargeCrawlFrontierRow(frontierRows, batchId, failure);
-    if (!frontierRow) continue;
+    if (!frontierRow || frontierRow.status !== "rendering") continue;
     const retryCount = Number(frontierRow.retryCount || 0) + 1;
     const lastError = cleanText(failure.error || failure.message || "Rendered proof failed.", 500);
     frontierRows = frontierRows.map((row) =>
@@ -3399,10 +3510,33 @@ function localApiLargeCrawlFrontierResponse(row = {}) {
 
 function findLargeCrawlFrontierRow(frontierRows = [], batchId = "", input = {}) {
   const wantedId = input.frontierId || input.frontier_id || "";
-  const wantedUrl = stripUrlHash(input.url || input.targetUrl || input.target_url || "");
-  return frontierRows.find((row) => row.batchId === batchId && row.id === wantedId) ||
-    frontierRows.find((row) => row.batchId === batchId && stripUrlHash(row.url) === wantedUrl) ||
-    null;
+  const wantedUrl = canonicalLargeCrawlProofUrl(input.url || input.targetUrl || input.target_url || "");
+  if (!wantedId && !wantedUrl) return null;
+  return frontierRows.find((row) => {
+    if (row.batchId !== batchId) return false;
+    if (wantedId && row.id !== wantedId) return false;
+    if (wantedUrl && canonicalLargeCrawlProofUrl(row.url) !== wantedUrl) return false;
+    return true;
+  }) || null;
+}
+
+function localLargeCrawlBatchLeaseIsActive(batch = {}, nowMs = Date.now()) {
+  if (batch.status !== "running" || !batch.leasedAt) return false;
+  const leasedAt = Date.parse(batch.leasedAt);
+  return Number.isFinite(leasedAt) && leasedAt >= nowMs - LARGE_RENDERED_CRAWL_LEASE_MS;
+}
+
+function localLargeCrawlProofLeaseToken(jobId = "", batchId = "", leasedAt = "") {
+  const secret = String(process.env.SEOFIXKIT_LARGE_CRAWL_WORKER_TOKEN || "").trim();
+  if (!secret || !jobId || !batchId || !leasedAt) return "";
+  return sha256Hex(`${secret}:${jobId}:${batchId}:${leasedAt}`);
+}
+
+function localLargeCrawlProofLeaseTokenIsValid(body = {}, jobId = "", batch = {}) {
+  if (batch.status !== "running") return false;
+  const supplied = String(body.proofToken || body.proof_token || "").trim();
+  if (!supplied) return false;
+  return constantTimeEqual(supplied, localLargeCrawlProofLeaseToken(jobId, batch.id, batch.leasedAt));
 }
 
 function authResult(access = {}, api = false) {
@@ -3831,6 +3965,21 @@ function stripUrlHash(value = "") {
   }
 }
 
+function canonicalLargeCrawlProofUrl(value = "") {
+  const stripped = stripUrlHash(value);
+  try {
+    const url = new URL(stripped);
+    url.protocol = url.protocol.toLowerCase();
+    url.hostname = url.hostname.toLowerCase();
+    if (url.pathname.length > 1) {
+      url.pathname = url.pathname.replace(/\/+$/g, "") || "/";
+    }
+    return url.href;
+  } catch {
+    return String(stripped || "").replace(/\/+$/g, "");
+  }
+}
+
 function makePrivateReportId(url) {
   const host = new URL(url).hostname
     .replace(/^www\./, "")
@@ -4242,3 +4391,105 @@ function constantTimeEqual(left, right) {
 
   return maxLength > 0 && diff === 0;
 }
+
+function resetLocalStateForTests() {
+  auditReports.clear();
+  auditJobs.clear();
+  auditSchedules.clear();
+  largeCrawlJobs.clear();
+  largeCrawlBatches.clear();
+  largeCrawlFrontier.clear();
+  largeCrawlProofs.clear();
+  largeCrawlDeadLetters.length = 0;
+  betaSessions.clear();
+  accessTokens.clear();
+  apiTokens.clear();
+  apiWebhooks.clear();
+  apiWebhookEvents.length = 0;
+  reportBrandingProfiles.clear();
+  reportShareLinks.clear();
+  reportDomains.clear();
+  teamMembers.clear();
+  issueCollaborations.clear();
+  siteClaims.clear();
+  fixRequests.length = 0;
+}
+
+function seedProtectedLocalAuditForTests({ ownerEmail = "owner@example.com", status = "paid" } = {}) {
+  const access = {
+    ok: true,
+    ownerEmail,
+    accessMode: "founder-override",
+    sessionHash: "test-session"
+  };
+  const token = createLocalApiToken(access, "Smoke test API key");
+  const now = new Date().toISOString();
+  const report = {
+    id: makePrivateReportId("https://example.com/"),
+    url: "https://example.com/",
+    score: 91,
+    summary: { totalFindings: 1, guardedFalsePositives: 0, pagesScanned: 1 },
+    findings: [{ id: "finding-1", severity: "medium", title: "Missing title" }],
+    pages: [{ url: "https://example.com/" }],
+    scannedAt: now,
+    reportPath: "",
+    reportUrl: "",
+    retention: { expiresAt: isoDaysFromNow(REPORT_RETENTION_DAYS), days: REPORT_RETENTION_DAYS },
+    owner: { email: ownerEmail }
+  };
+  report.reportPath = `/beta/reports/${report.id}`;
+  report.reportUrl = `http://127.0.0.1:${port}${report.reportPath}`;
+  auditReports.set(report.id, report);
+
+  const job = {
+    id: randomUUID(),
+    ownerEmail,
+    ownerSessionHash: access.sessionHash,
+    accessMode: access.accessMode,
+    targetUrl: report.url,
+    targetHost: safeHost(report.url),
+    competitorUrls: [],
+    backlinkRows: [],
+    localSeo: { enabled: false },
+    keywordRows: [],
+    renderedCrawlTarget: 0,
+    maxPages: 1,
+    status: "completed",
+    reportId: report.id,
+    error: "",
+    createdAt: now,
+    updatedAt: now,
+    startedAt: now,
+    completedAt: now,
+    expiresAt: isoDaysFromNow(REPORT_RETENTION_DAYS)
+  };
+  auditJobs.set(job.id, job);
+
+  const fixRequest = {
+    id: randomUUID(),
+    reportId: report.id,
+    finalReportId: "",
+    ownerEmail,
+    targetUrl: report.url,
+    targetHost: safeHost(report.url),
+    score: report.score,
+    issueCount: report.summary.totalFindings,
+    status,
+    offer: FIX_PACK_OFFER,
+    createdAt: now,
+    updatedAt: now
+  };
+  fixRequests.push(fixRequest);
+  return {
+    apiToken: token.secret,
+    auditId: job.id,
+    reportId: report.id,
+    fixRequestId: fixRequest.id
+  };
+}
+
+export {
+  app,
+  resetLocalStateForTests,
+  seedProtectedLocalAuditForTests
+};

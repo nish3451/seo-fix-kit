@@ -15,25 +15,32 @@
     "ops:audit-owned": "node scripts/run-live-audit-batch.mjs",
     "test:billing": "node server/dodo-payment-smoke-test.js",
     "test:audit": "node server/audit/smoke-test.js",
+    "test:large-crawl-security": "node server/large-crawl-security-smoke-test.js",
+    "test:report-retention-security": "node server/report-retention-security-smoke-test.js",
+    "test:local-developer-api-security": "node server/local-developer-api-security-smoke-test.js",
+    "test:audit-batch-runner": "node --test scripts/run-live-audit-batch.test.mjs",
+    "test:webhooks": "node --test worker/lib/webhooks.test.mjs",
     "test:large-crawl": "node server/large-rendered-crawl-smoke-test.js",
-    "check": "npm run test:billing && npm run test:audit && npm run test:large-crawl && npm run build"
+    "check": "npm run test:billing && npm run test:audit && npm run test:large-crawl-security && npm run test:report-retention-security && npm run test:local-developer-api-security && npm run test:audit-batch-runner && npm run test:webhooks && npm run test:large-crawl && npm run build"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.0",
     "cheerio": "^1.1.2",
-    "concurrently": "^9.2.1",
+    "concurrently": "10.0.3",
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "playwright": "^1.57.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
-    "vite": "^7.3.0"
+    "vite": "8.0.16"
   },
   "devDependencies": {
     "@cloudflare/puppeteer": "^1.1.0",
-    "wrangler": "^4.93.0"
+    "esbuild": "0.28.1",
+    "wrangler": "4.100.0"
   },
   "overrides": {
+    "esbuild": "0.28.1",
     "ws": "^8.20.1"
   }
 }

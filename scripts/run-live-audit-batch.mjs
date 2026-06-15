@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const BASE_URL = process.env.SEOFIXKIT_BASE_URL || "https://seofixkit.com";
 const TARGETS_PATH =
@@ -9,90 +10,102 @@ const OUT_DIR = process.env.SEOFIXKIT_AUDIT_OUT_DIR || "ops/audit-batches";
 const MAX_PAGES = Number(process.env.SEOFIXKIT_MAX_PAGES || 6);
 const PREFLIGHT_TIMEOUT_MS = Number(process.env.SEOFIXKIT_PREFLIGHT_TIMEOUT_MS || 15000);
 const AUDIT_TIMEOUT_MS = Number(process.env.SEOFIXKIT_AUDIT_TIMEOUT_MS || 180000);
+const AUDIT_POLL_INTERVAL_MS = Number(process.env.SEOFIXKIT_AUDIT_POLL_INTERVAL_MS || 5000);
+const AUDIT_POLL_TIMEOUT_MS = Number(process.env.SEOFIXKIT_AUDIT_POLL_TIMEOUT_MS || 10 * 60 * 1000);
 
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
-const ownerEmail = `nish.audit.${Date.now()}@seofixkit.com`;
 
-const adminToken = readAdminToken();
-const targets = JSON.parse(await readFile(TARGETS_PATH, "utf8"));
-
-await mkdir(OUT_DIR, { recursive: true });
-
-const result = {
-  runId,
-  createdAt: new Date().toISOString(),
-  baseUrl: BASE_URL,
-  ownerEmail,
-  maxPages: MAX_PAGES,
-  targets: [],
-  repeatedIssues: [],
-  recommendation: null
-};
-
-const invite = await createInvite(ownerEmail);
-const cookie = await login(ownerEmail, invite.code);
-
-for (const target of targets) {
-  console.error(`[audit-batch] checking ${target.project}: ${target.url}`);
-  const entry = {
-    project: target.project,
-    url: target.url,
-    kind: target.kind,
-    audit: Boolean(target.audit),
-    source: target.source,
-    note: target.note || "",
-    preflight: await preflight(target.url)
-  };
-
-  if (!target.audit) {
-    entry.status = "skipped";
-    entry.reason = target.note || "Not marked as an SEO target.";
-    result.targets.push(entry);
-    continue;
-  }
-
-  if (!entry.preflight.ok) {
-    entry.status = "failed";
-    entry.reason = "Preflight failed.";
-    result.targets.push(entry);
-    continue;
-  }
-
-  try {
-    const report = await audit(target.url, cookie);
-    entry.status = "audited";
-    entry.report = summarizeReport(report);
-  } catch (error) {
-    entry.status = "failed";
-    entry.reason = error.message || "Audit failed.";
-  }
-
-  result.targets.push(entry);
+if (isDirectRun()) {
+  await main();
 }
 
-result.repeatedIssues = summarizeRepeatedIssues(result.targets);
-result.recommendation = recommendOffer(result);
+async function main() {
+  const ownerEmail = `nish.audit.${Date.now()}@seofixkit.com`;
+  const adminToken = readAdminToken();
+  const targets = JSON.parse(await readFile(TARGETS_PATH, "utf8"));
 
-const jsonPath = path.join(OUT_DIR, `${runId}-owned-project-audit-batch.json`);
-const mdPath = path.join(OUT_DIR, `${runId}-owned-project-audit-batch.md`);
-await writeFile(jsonPath, `${JSON.stringify(result, null, 2)}\n`);
-await writeFile(mdPath, renderMarkdown(result));
+  await mkdir(OUT_DIR, { recursive: true });
 
-console.log(
-  JSON.stringify(
-    {
-      ok: true,
-      audited: result.targets.filter((target) => target.status === "audited").length,
-      failed: result.targets.filter((target) => target.status === "failed").length,
-      skipped: result.targets.filter((target) => target.status === "skipped").length,
-      jsonPath,
-      mdPath,
-      recommendation: result.recommendation
-    },
-    null,
-    2
-  )
-);
+  const result = {
+    runId,
+    createdAt: new Date().toISOString(),
+    baseUrl: BASE_URL,
+    ownerEmail,
+    maxPages: MAX_PAGES,
+    targets: [],
+    repeatedIssues: [],
+    recommendation: null
+  };
+
+  const invite = await createInvite(ownerEmail, adminToken);
+  const cookie = await login(ownerEmail, invite.code);
+
+  for (const target of targets) {
+    console.error(`[audit-batch] checking ${target.project}: ${target.url}`);
+    const entry = {
+      project: target.project,
+      url: target.url,
+      kind: target.kind,
+      audit: Boolean(target.audit),
+      source: target.source,
+      note: target.note || "",
+      preflight: await preflight(target.url)
+    };
+
+    if (!target.audit) {
+      entry.status = "skipped";
+      entry.reason = target.note || "Not marked as an SEO target.";
+      result.targets.push(entry);
+      continue;
+    }
+
+    if (!entry.preflight.ok) {
+      entry.status = "failed";
+      entry.reason = "Preflight failed.";
+      result.targets.push(entry);
+      continue;
+    }
+
+    try {
+      const report = await audit(target.url, cookie);
+      entry.status = "audited";
+      entry.report = summarizeReport(report);
+    } catch (error) {
+      entry.status = "failed";
+      entry.reason = error.message || "Audit failed.";
+    }
+
+    result.targets.push(entry);
+  }
+
+  result.repeatedIssues = summarizeRepeatedIssues(result.targets);
+  result.recommendation = recommendOffer(result);
+
+  const jsonPath = path.join(OUT_DIR, `${runId}-owned-project-audit-batch.json`);
+  const mdPath = path.join(OUT_DIR, `${runId}-owned-project-audit-batch.md`);
+  await writeFile(jsonPath, `${JSON.stringify(result, null, 2)}\n`);
+  await writeFile(mdPath, renderMarkdown(result));
+
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        audited: result.targets.filter((target) => target.status === "audited").length,
+        failed: result.targets.filter((target) => target.status === "failed").length,
+        skipped: result.targets.filter((target) => target.status === "skipped").length,
+        jsonPath,
+        mdPath,
+        recommendation: result.recommendation
+      },
+      null,
+      2
+    )
+  );
+}
+
+function isDirectRun() {
+  return import.meta.url === pathToFileURL(process.argv[1] || "").href;
+}
 
 function readAdminToken() {
   const envToken = process.env.SEOFIXKIT_ADMIN_TOKEN || process.env.ADMIN_EXPORT_TOKEN;
@@ -116,7 +129,7 @@ function readAdminToken() {
   }
 }
 
-async function createInvite(email) {
+async function createInvite(email, adminToken) {
   const response = await fetchWithTimeout(`${BASE_URL}/admin/invites`, {
     method: "POST",
     headers: {
@@ -179,20 +192,89 @@ async function preflight(url) {
   }
 }
 
-async function audit(url, cookie) {
-  const response = await fetchWithTimeout(`${BASE_URL}/api/audit`, {
+async function audit(url, cookie, options = {}) {
+  const baseUrl = options.baseUrl || BASE_URL;
+  const fetcher = options.fetcher || fetch;
+  const response = await fetchWithTimeout(`${baseUrl}/api/audit`, {
     method: "POST",
     headers: {
       cookie,
       "content-type": "application/json"
     },
     body: JSON.stringify({ url, maxPages: MAX_PAGES })
-  }, AUDIT_TIMEOUT_MS);
+  }, options.auditTimeoutMs || AUDIT_TIMEOUT_MS, fetcher);
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(payload.error || `Audit failed with ${response.status}`);
   }
+  if (isAuditReportPayload(payload)) return payload.report || payload;
+  if (payload.mode === "queued") {
+    return waitForQueuedAuditReport(payload, cookie, {
+      baseUrl,
+      fetcher,
+      auditTimeoutMs: options.auditTimeoutMs || AUDIT_TIMEOUT_MS,
+      pollIntervalMs: options.pollIntervalMs ?? AUDIT_POLL_INTERVAL_MS,
+      pollTimeoutMs: options.pollTimeoutMs ?? AUDIT_POLL_TIMEOUT_MS
+    });
+  }
+  throw new Error("Audit response did not include a completed report or queued job.");
+}
+
+function isAuditReportPayload(payload = {}) {
+  const report = payload.report || payload;
+  return Boolean(report?.id && Array.isArray(report.findings) && Array.isArray(report.pages));
+}
+
+async function waitForQueuedAuditReport(payload, cookie, options = {}) {
+  const statusUrl = payload.statusUrl || payload.status_url || payload.job?.statusUrl || payload.job?.status_url || "";
+  if (!statusUrl) throw new Error("Queued audit did not return a status URL.");
+  const deadline = Date.now() + Math.max(Number(options.pollTimeoutMs || AUDIT_POLL_TIMEOUT_MS), 1);
+  const pollIntervalMs = Math.max(Number(options.pollIntervalMs || AUDIT_POLL_INTERVAL_MS), 250);
+  const maxRequestTimeoutMs = Math.max(Number(options.auditTimeoutMs || AUDIT_TIMEOUT_MS), 1);
+  let lastStatus = payload.job?.status || "queued";
+
+  while (Date.now() < deadline) {
+    const remainingMs = Math.max(deadline - Date.now(), 1);
+    const jobPayload = await fetchJson(resolveUrl(statusUrl, options.baseUrl || BASE_URL), {
+      headers: { cookie }
+    }, options.fetcher || fetch, Math.min(maxRequestTimeoutMs, remainingMs));
+    const job = jobPayload.job || {};
+    lastStatus = job.status || lastStatus;
+    if (lastStatus === "failed") {
+      throw new Error(job.error || "Audit job failed.");
+    }
+    if (lastStatus === "completed" || lastStatus === "complete") {
+      const reportId = job.reportId || job.report_id || "";
+      if (!reportId) throw new Error("Completed audit job did not include a report ID.");
+      const remainingMs = Math.max(deadline - Date.now(), 1);
+      const reportPayload = await fetchJson(resolveUrl(`/api/reports/${encodeURIComponent(reportId)}`, options.baseUrl || BASE_URL), {
+        headers: { cookie }
+      }, options.fetcher || fetch, Math.min(maxRequestTimeoutMs, remainingMs));
+      if (!isAuditReportPayload(reportPayload)) throw new Error("Completed audit report payload was missing report fields.");
+      return reportPayload.report || reportPayload;
+    }
+    const sleepMs = Math.min(pollIntervalMs, Math.max(deadline - Date.now(), 0));
+    if (sleepMs > 0) await sleep(sleepMs);
+  }
+
+  throw new Error(`Audit job timed out while ${lastStatus}.`);
+}
+
+async function fetchJson(url, options, fetcher, timeoutMs) {
+  const response = await fetchWithTimeout(url, options, timeoutMs, fetcher);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || `Request failed with ${response.status}`);
+  }
   return payload;
+}
+
+function resolveUrl(value, baseUrl) {
+  return new URL(value, baseUrl).href;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function summarizeReport(report) {
@@ -355,11 +437,11 @@ ${skipped.length ? skipped.map((target) => `- ${target.project} (${target.url}):
 `;
 }
 
-async function fetchWithTimeout(url, options, timeoutMs) {
+async function fetchWithTimeout(url, options, timeoutMs, fetcher = fetch) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    return await fetcher(url, { ...options, signal: controller.signal });
   } catch (error) {
     if (error?.name === "AbortError") {
       throw new Error(`Request timed out after ${timeoutMs}ms.`);
@@ -369,3 +451,11 @@ async function fetchWithTimeout(url, options, timeoutMs) {
     clearTimeout(timer);
   }
 }
+
+export {
+  audit,
+  fetchWithTimeout,
+  isAuditReportPayload,
+  resolveUrl,
+  waitForQueuedAuditReport
+};
