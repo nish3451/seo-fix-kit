@@ -1272,6 +1272,7 @@ function ReportView({ report }) {
   const keywordRankAudit = report.keywordRankAudit || report.keyword_rank_audit || null;
   const platformSeoAudit = report.platformSeoAudit || report.platform_seo_audit || null;
   const geoReadiness = report.geoReadiness || report.geo_readiness || null;
+  const remediationBrief = report.remediationBrief || report.remediation_brief || null;
   const pageSummaries = report.pageSummaries || summarizePages(report.pages || [], report.findings || [], report.url);
   const shareUrl = report.reportUrl || `${window.location.origin}${report.reportPath || window.location.pathname}`;
   const topThree = topFixes.slice(0, 3);
@@ -1345,6 +1346,8 @@ function ReportView({ report }) {
       {crawlIntelligence?.status === "ready" && <CrawlIntelligencePanel audit={crawlIntelligence} />}
 
       {["ready", "first_run"].includes(reportDelta?.status) && <ReportDeltaPanel delta={reportDelta} />}
+
+      {remediationBrief && <RemediationBriefPanel brief={remediationBrief} reportId={report.id} />}
 
       {backlinkAudit?.status === "ready" && <BacklinkAuditPanel audit={backlinkAudit} />}
 
@@ -1509,6 +1512,58 @@ function ReportDeltaPanel({ delta }) {
           <DeltaIssueColumn title="Fixed since last audit" empty="No proven issues disappeared yet." issues={fixedIssues} tone="fixed" />
           <DeltaIssueColumn title="New since last audit" empty="No new proven issues appeared." issues={newIssues} tone="new" />
         </div>
+      )}
+    </section>
+  );
+}
+
+function RemediationBriefPanel({ brief, reportId }) {
+  const queue = brief.priorityQueue || [];
+  const history = brief.proofHistory || {};
+  return (
+    <section className="remediation-brief-panel" aria-label="Agent remediation brief">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Agent repair brief</p>
+        <h2>{queue.length ? "Turn proven issues into a repair queue" : "No priority repair queue"}</h2>
+        <p>{brief.support?.safeHandoff || "Use the report proof and acceptance checks before closing repairs."}</p>
+      </div>
+      <div className="remediation-brief-grid">
+        <div className="remediation-next-actions">
+          <strong>Next actions</strong>
+          <ol>
+            {(brief.nextActions || []).map((action) => (
+              <li key={action}>{action}</li>
+            ))}
+          </ol>
+        </div>
+        <div className="remediation-proof-history">
+          <Metric label="Fixed" value={history.fixedIssues || 0} />
+          <Metric label="New" value={history.newIssues || 0} />
+          <Metric label="Persistent" value={history.persistentIssues || 0} />
+        </div>
+      </div>
+      {queue.length ? (
+        <div className="remediation-queue">
+          {queue.slice(0, 4).map((item) => (
+            <article key={item.id}>
+              <span className={`status-pill ${item.severity}`}>{item.severity}</span>
+              <h3>{item.title}</h3>
+              <p>{item.proof || item.fix}</p>
+              <ul>
+                {(item.acceptanceChecks || []).slice(0, 2).map((check) => (
+                  <li key={check}>{check}</li>
+                ))}
+              </ul>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="quiet-note">Keep monitoring and rerun after meaningful site changes.</p>
+      )}
+      {reportId && (
+        <a className="action-link" href={`/api/reports/${encodeURIComponent(reportId)}/remediation-brief.json`}>
+          Download remediation JSON
+        </a>
       )}
     </section>
   );
