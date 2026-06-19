@@ -78,6 +78,7 @@ Cloudflare cannot run the local Express + Chromium server directly. The deployab
 
 - React UI served by Workers Static Assets from `dist/`
 - Public `/demo`, `/methodology`, `/packages`, `/privacy`, `/support`, `/terms`, `/sitemap.xml`, and `/llms.txt` stay served by the Worker/public asset path
+- `/api/health` is a shallow public runtime check; `/api/deep-health` is a public-safe readiness check for bindings, D1 schema, Dodo checkout/webhook config, and self-serve repair capabilities without exposing secrets, provider ids, checkout URLs, customer data, or table counts
 - `/api/waitlist` handled by `worker/index.js` and stored in D1
 - `/admin/summary` powers the private ops dashboard, and `/admin/leads.csv` exports waitlist leads when called with the admin export token
 - `/admin/invites` creates invite codes for specific emails
