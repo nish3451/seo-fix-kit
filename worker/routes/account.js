@@ -10,6 +10,7 @@ import {
   betaAccessResponse,
   betaAccessStatus
 } from "../lib/auth.js";
+import { agencyWorkspaceAccessForOwner, monitoringAccessForOwner, offerCatalogForOwner } from "../lib/offers.js";
 import {
   auditJobResponse,
   auditScheduleResponse,
@@ -95,6 +96,9 @@ async function getAccountSummary(request, env) {
   const sites = (siteClaims.results || []).map(siteClaimResponse);
   const schedules = (auditSchedules.results || []).map(auditScheduleResponse);
   const verifiedSites = sites.filter((site) => site.status === "verified").length;
+  const offers = await offerCatalogForOwner(env, access.ownerEmail);
+  const monitoring = await monitoringAccessForOwner(env, access.ownerEmail, schedules.length);
+  const agencyWorkspace = await agencyWorkspaceAccessForOwner(env, access.ownerEmail);
 
   return jsonNoStore({
     ok: true,
@@ -108,13 +112,17 @@ async function getAccountSummary(request, env) {
       openFixRequests: requests.filter((request) => !["delivered", "refunded"].includes(request.status)).length,
       runningAudits: recentAuditJobs.filter((job) => ["queued", "running"].includes(job.status)).length,
       verifiedSites,
-      monitors: schedules.length
+      monitors: schedules.length,
+      monitorLimit: monitoring.limit
     },
     recentReports,
     recentAuditJobs,
     sites,
     schedules,
     fixRequests: requests,
+    offers,
+    monitoring,
+    agencyWorkspace,
     nextActions: accountNextActions(recentReports, requests, sites, recentAuditJobs)
   });
 }

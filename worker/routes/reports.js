@@ -1,12 +1,14 @@
 import { issuePatternKey } from "../../shared/audit-engine.js";
+import { repairSprintEligibilityFromProposals } from "../../shared/offers.js";
 import { betaAccessResponse, betaAccessStatus } from "../lib/auth.js";
 import { json, jsonNoStore } from "../lib/http.js";
+import { agencyWorkspaceAccessForOwner } from "../lib/offers.js";
 import {
   deleteReportRowsWithBlobs,
   ownerReportRow,
   reportJsonForRow
 } from "../lib/report-data.js";
-import { fixRequestResponse } from "../lib/serializers.js";
+import { fixRequestResponse, repairProposalResponse } from "../lib/serializers.js";
 import { cleanText, isSafeReportId, isSafeUuid, normalizeEmail, parseJson } from "../lib/text.js";
 
 async function getTeamMembers(request, env) {
@@ -48,8 +50,18 @@ async function createTeamMember(request, env) {
   )
     .bind(access.ownerEmail)
     .first();
-  if (Number(count?.count || 0) >= 10) {
-    return jsonNoStore({ error: "This workspace already has 10 active teammates." }, 429);
+  const agency = await agencyWorkspaceAccessForOwner(env, access.ownerEmail, {
+    teamSeats: Number(count?.count || 0)
+  });
+  if (Number(count?.count || 0) >= agency.limits.teamSeats) {
+    return jsonNoStore(
+      {
+        error: `This workspace already has ${agency.limits.teamSeats} active teammates.`,
+        code: "AGENCY_TEAM_SEAT_LIMIT",
+        agencyWorkspace: agency
+      },
+      429
+    );
   }
 
   const now = new Date().toISOString();
@@ -130,6 +142,108 @@ async function saveReportCollaboration(request, env) {
   const result = await saveIssueCollaborations(env, access, reportId, report, body.items || []);
   if (!result.ok) return jsonNoStore({ error: result.error }, 400);
   return jsonNoStore(await reportCollaborationResponse(env, access, reportId, report));
+}
+
+async function updateRepairProposalApproval(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Repair proposal storage is not configured." }, 503);
+
+  const url = new URL(request.url);
+  const match = url.pathname.match(/^\/api\/reports\/([^/]+)\/repair-proposals\/([^/]+)$/);
+  const reportId = match ? decodeURIComponent(match[1]) : "";
+  const proposalId = match ? decodeURIComponent(match[2]) : "";
+  if (!isSafeReportId(reportId) || !isSafeUuid(proposalId)) return json({ error: "Repair proposal not found." }, 404);
+  const row = await ownerReportRow(env, reportId, access);
+  if (!row) return json({ error: "Report not found." }, 404);
+
+  const existing = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM repair_proposals
+     WHERE id = ?
+       AND report_id = ?
+       AND owner_email = ?
+     LIMIT 1`
+  )
+    .bind(proposalId, reportId, access.ownerEmail)
+    .first();
+  if (!existing?.id) return json({ error: "Repair proposal not found." }, 404);
+
+  const body = await request.json().catch(() => ({}));
+  const action = cleanText(body.action || "", 40).toLowerCase();
+  if (!["approve", "dismiss"].includes(action)) {
+    return jsonNoStore({ error: "Choose approve or dismiss." }, 400);
+  }
+  if ((existing.delivery_status || "draft") !== "draft") {
+    return jsonNoStore({ error: "Repair approval cannot be changed after delivery starts." }, 409);
+  }
+  if (action === "approve" && existing.execution_mode === "unsupported") {
+    return jsonNoStore({ error: "This repair item is not executable yet and cannot be approved for delivery." }, 400);
+  }
+  const now = new Date().toISOString();
+  const ownerNote = cleanText(body.ownerNote || body.owner_note || "", 1000);
+  const nextApprovalStatus = action === "approve" ? "approved" : "dismissed";
+  await env.WAITLIST_DB.prepare(
+    `UPDATE repair_proposals
+     SET approval_status = ?,
+         owner_note = ?,
+         approved_at = ?,
+         approved_by_email = ?,
+         dismissed_at = ?,
+         updated_at = ?
+     WHERE id = ?
+       AND report_id = ?
+       AND owner_email = ?`
+  )
+    .bind(
+      nextApprovalStatus,
+      ownerNote || existing.owner_note || "",
+      action === "approve" ? now : existing.approved_at || null,
+      action === "approve" ? access.ownerEmail : existing.approved_by_email || null,
+      action === "dismiss" ? now : null,
+      now,
+      proposalId,
+      reportId,
+      access.ownerEmail
+    )
+    .run();
+  await logRepairProposalEvent(env, {
+    proposalId,
+    fixRequestId: existing.fix_request_id || "",
+    event: action === "approve" ? "owner_approved" : "owner_dismissed",
+    actorEmail: access.ownerEmail,
+    fromStatus: existing.approval_status || "pending",
+    toStatus: nextApprovalStatus,
+    detail: { reportId, hadOwnerNote: Boolean(ownerNote) }
+  });
+  const updated = await env.WAITLIST_DB.prepare("SELECT * FROM repair_proposals WHERE id = ? LIMIT 1")
+    .bind(proposalId)
+    .first();
+  return jsonNoStore({ ok: true, proposal: repairProposalResponse(updated) });
+}
+
+async function logRepairProposalEvent(env, { proposalId, fixRequestId = "", event, actorEmail, fromStatus, toStatus, detail = {} }) {
+  try {
+    await env.WAITLIST_DB.prepare(
+      `INSERT INTO repair_proposal_events
+        (id, proposal_id, fix_request_id, event, actor_type, actor_email, from_status, to_status, detail_json, created_at)
+       VALUES (?, ?, ?, ?, 'owner', ?, ?, ?, ?, ?)`
+    )
+      .bind(
+        crypto.randomUUID(),
+        proposalId,
+        fixRequestId || null,
+        event,
+        actorEmail,
+        fromStatus || "",
+        toStatus || "",
+        JSON.stringify(detail || {}).slice(0, 2000),
+        new Date().toISOString()
+      )
+      .run();
+  } catch {
+    // Approval is the source of truth; event logging should not block owners.
+  }
 }
 
 async function teamMembersForOwner(env, ownerEmail) {
@@ -360,8 +474,29 @@ async function getSavedReport(request, env) {
       report.fixRequest.finalReportPath = `/beta/reports/${encodeURIComponent(fixRequest.final_report_id)}`;
     }
   }
+  report.repairProposals = await repairProposalsForReport(env, id, access.ownerEmail);
+  report.repairSprint = repairSprintEligibilityFromProposals(report.repairProposals, report.fixRequest || null);
+  report.agencyWorkspace = await agencyWorkspaceAccessForOwner(env, access.ownerEmail);
 
   return jsonNoStore(report);
+}
+
+async function repairProposalsForReport(env, reportId, ownerEmail) {
+  try {
+    const rows = await env.WAITLIST_DB.prepare(
+      `SELECT *
+       FROM repair_proposals
+       WHERE report_id = ?
+         AND owner_email = ?
+       ORDER BY priority ASC, updated_at DESC
+       LIMIT 50`
+    )
+      .bind(reportId, ownerEmail)
+      .all();
+    return (rows.results || []).map((row) => repairProposalResponse(row));
+  } catch {
+    return [];
+  }
 }
 
 function summarizeIssuePatterns(rows) {
@@ -400,9 +535,11 @@ export {
   reportIdFromSuffixPath,
   reportIssuesForCollaboration,
   revokeTeamMember,
+  repairProposalsForReport,
   saveIssueCollaborations,
   saveReportCollaboration,
   summarizeIssuePatterns,
   teamMemberResponse,
-  teamMembersForOwner
+  teamMembersForOwner,
+  updateRepairProposalApproval
 };

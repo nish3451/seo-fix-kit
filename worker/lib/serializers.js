@@ -130,6 +130,7 @@ function apiReportResponse(report = {}) {
     local_seo_audit: report.localSeoAudit || null,
     keyword_rank_audit: report.keywordRankAudit || null,
     platform_seo_audit: report.platformSeoAudit || null,
+    geo_readiness: report.geoReadiness || null,
     findings: (report.findings || []).map(apiIssueResponse),
     repair_plan: report.repairPlan || [],
     repair_brief: report.repairBrief || "",
@@ -201,6 +202,50 @@ function fixRequestResponse(row, now = new Date().toISOString()) {
   };
 }
 
+function repairExecutionModeLabel(mode = "") {
+  const labels = {
+    generated_proposal: "Generated proposal",
+    cms_candidate: "CMS edit candidate",
+    github_pr_candidate: "GitHub PR candidate",
+    manual_task: "Manual task",
+    unsupported: "Unsupported"
+  };
+  return labels[String(mode || "").trim()] || labels.manual_task;
+}
+
+function repairProposalResponse(row = {}, now = new Date().toISOString()) {
+  const executionMode = row.execution_mode || "manual_task";
+  return {
+    id: row.id || "",
+    fixRequestId: row.fix_request_id || "",
+    reportId: row.report_id || "",
+    issueId: row.issue_id || "",
+    issueTitle: row.issue_title || "",
+    targetUrl: row.target_url || "",
+    targetHost: row.target_host || safeHostname(row.target_url || ""),
+    severity: row.severity || "",
+    source: row.source || "",
+    priority: Number(row.priority || 0),
+    executionMode,
+    executionModeLabel: repairExecutionModeLabel(executionMode),
+    approvalStatus: row.approval_status || "pending",
+    deliveryStatus: row.delivery_status || "draft",
+    generatedTitle: row.generated_title || "",
+    generatedSummary: row.generated_summary || "",
+    proof: parseJson(row.proof_json, null),
+    proposal: parseJson(row.proposal_json, null),
+    acceptance: parseJson(row.acceptance_json, []),
+    ownerNote: row.owner_note || "",
+    deliveryUrl: row.delivery_url || "",
+    finalReportId: row.final_report_id || "",
+    approvedAt: row.approved_at || "",
+    dismissedAt: row.dismissed_at || "",
+    deliveredAt: row.delivered_at || "",
+    createdAt: row.created_at || now,
+    updatedAt: row.updated_at || now
+  };
+}
+
 function billingFixRequestResponse(row, now = new Date().toISOString()) {
   return {
     ...fixRequestResponse(row, now),
@@ -220,6 +265,8 @@ export {
   auditScheduleResponse,
   billingFixRequestResponse,
   fixRequestResponse,
+  repairExecutionModeLabel,
+  repairProposalResponse,
   siteClaimInstructions,
   siteClaimResponse,
   siteVerificationText

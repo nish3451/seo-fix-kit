@@ -31,24 +31,55 @@ async function ownerReportRow(env, reportId, access) {
 }
 
 const PRESERVED_FIX_REQUEST_STATUSES = ["paid", "in_progress", "delivered", "refunded", "refund_failed", "disputed"];
+const PRESERVED_REPAIR_PROPOSAL_APPROVAL_STATUSES = ["approved"];
+const PRESERVED_REPAIR_PROPOSAL_DELIVERY_STATUSES = ["in_progress", "delivered"];
 
 async function preserveFixRequestReports(env, fixRequest) {
   const ids = [fixRequest?.report_id, fixRequest?.final_report_id]
     .map((value) => String(value || ""))
     .filter((value) => isSafeReportId(value));
-  if (!ids.length) return;
+  const proposalIds = await repairProposalReportIdsForFixRequest(env, fixRequest?.id);
+  await preserveReportIds(env, [...ids, ...proposalIds]);
+}
+
+async function repairProposalReportIdsForFixRequest(env, fixRequestId) {
+  if (!env.WAITLIST_DB || !fixRequestId) return [];
+  try {
+    const rows = await env.WAITLIST_DB.prepare(
+      `SELECT report_id, final_report_id
+       FROM repair_proposals
+       WHERE fix_request_id = ?`
+    )
+      .bind(fixRequestId)
+      .all();
+    return (rows.results || [])
+      .flatMap((row) => [row.report_id, row.final_report_id])
+      .map((value) => String(value || ""))
+      .filter((value) => isSafeReportId(value));
+  } catch {
+    return [];
+  }
+}
+
+async function preserveReportIds(env, reportIds = []) {
+  const ids = [...new Set(reportIds.map((value) => String(value || "")).filter((value) => isSafeReportId(value)))];
+  if (!ids.length) return { reportChanges: 0, jobChanges: 0 };
   const placeholders = ids.map(() => "?").join(", ");
   const now = new Date().toISOString();
-  await env.WAITLIST_DB.prepare(
+  const reports = await env.WAITLIST_DB.prepare(
     `UPDATE audit_reports SET expires_at = NULL, updated_at = ? WHERE id IN (${placeholders})`
   )
     .bind(now, ...ids)
     .run();
-  await env.WAITLIST_DB.prepare(
+  const jobs = await env.WAITLIST_DB.prepare(
     `UPDATE audit_jobs SET expires_at = NULL, updated_at = ? WHERE report_id IN (${placeholders})`
   )
     .bind(now, ...ids)
     .run();
+  return {
+    reportChanges: Number(reports?.meta?.changes || 0),
+    jobChanges: Number(jobs?.meta?.changes || 0)
+  };
 }
 
 async function protectedFixRequestForReport(env, reportId) {
@@ -65,33 +96,50 @@ async function protectedFixRequestForReport(env, reportId) {
     .first();
 }
 
+async function protectedRepairExecutionForReport(env, reportId) {
+  if (!env.WAITLIST_DB || !isSafeReportId(reportId)) return null;
+  const approvalPlaceholders = PRESERVED_REPAIR_PROPOSAL_APPROVAL_STATUSES.map(() => "?").join(", ");
+  const deliveryPlaceholders = PRESERVED_REPAIR_PROPOSAL_DELIVERY_STATUSES.map(() => "?").join(", ");
+  const fixRequestPlaceholders = PRESERVED_FIX_REQUEST_STATUSES.map(() => "?").join(", ");
+  try {
+    return await env.WAITLIST_DB.prepare(
+      `SELECT repair_proposals.id,
+              repair_proposals.fix_request_id,
+              repair_proposals.approval_status,
+              repair_proposals.delivery_status,
+              fix_requests.status AS fix_request_status
+       FROM repair_proposals
+       LEFT JOIN fix_requests ON fix_requests.id = repair_proposals.fix_request_id
+       WHERE (repair_proposals.report_id = ? OR repair_proposals.final_report_id = ?)
+         AND (
+           (
+             repair_proposals.approval_status IN (${approvalPlaceholders})
+             AND fix_requests.status IN (${fixRequestPlaceholders})
+           )
+           OR repair_proposals.delivery_status IN (${deliveryPlaceholders})
+         )
+       LIMIT 1`
+    )
+      .bind(
+        reportId,
+        reportId,
+        ...PRESERVED_REPAIR_PROPOSAL_APPROVAL_STATUSES,
+        ...PRESERVED_FIX_REQUEST_STATUSES,
+        ...PRESERVED_REPAIR_PROPOSAL_DELIVERY_STATUSES
+      )
+      .first();
+  } catch {
+    return null;
+  }
+}
+
 async function preserveProtectedFixRequestReport(env, reportId) {
   if (!env.WAITLIST_DB || !isSafeReportId(reportId)) return false;
-  const placeholders = PRESERVED_FIX_REQUEST_STATUSES.map(() => "?").join(", ");
-  const now = new Date().toISOString();
-  const updated = await env.WAITLIST_DB.prepare(
-    `UPDATE audit_reports
-     SET expires_at = NULL, updated_at = ?
-     WHERE id = ?
-       AND EXISTS (
-         SELECT 1
-         FROM fix_requests
-         WHERE status IN (${placeholders})
-           AND (report_id = ? OR final_report_id = ?)
-       )`
-  )
-    .bind(now, reportId, ...PRESERVED_FIX_REQUEST_STATUSES, reportId, reportId)
-    .run();
-  if (Number(updated?.meta?.changes || 0) === 1) {
-    await env.WAITLIST_DB.prepare(
-      `UPDATE audit_jobs
-       SET expires_at = NULL, updated_at = ?
-       WHERE report_id = ?`
-    )
-      .bind(now, reportId)
-      .run();
-  }
-  return Number(updated?.meta?.changes || 0) === 1;
+  const protectedFixRequest = await protectedFixRequestForReport(env, reportId);
+  const protectedRepairExecution = protectedFixRequest ? null : await protectedRepairExecutionForReport(env, reportId);
+  if (!protectedFixRequest && !protectedRepairExecution) return false;
+  const preserved = await preserveReportIds(env, [reportId]);
+  return preserved.reportChanges === 1;
 }
 
 async function saveAuditReport(report, request, env, access) {
@@ -196,6 +244,10 @@ async function deleteReportRowsWithBlobs(env, rows = []) {
   const protectedIds = [];
   const placeholders = PRESERVED_FIX_REQUEST_STATUSES.map(() => "?").join(", ");
   for (const row of candidateRows) {
+    if (await preserveProtectedFixRequestReport(env, row.id)) {
+      protectedIds.push(row.id);
+      continue;
+    }
     const deleted = await env.WAITLIST_DB.prepare(
       `DELETE FROM audit_reports
        WHERE id = ?
@@ -410,6 +462,8 @@ function makePrivateReportId(url) {
 
 export {
   PRESERVED_FIX_REQUEST_STATUSES,
+  PRESERVED_REPAIR_PROPOSAL_APPROVAL_STATUSES,
+  PRESERVED_REPAIR_PROPOSAL_DELIVERY_STATUSES,
   R2_REPORT_MARKER,
   REPORT_RETENTION_DAYS,
   REPORT_STORAGE_MAX_BYTES,
@@ -426,9 +480,11 @@ export {
   latestSavedReportForDelta,
   makePrivateReportId,
   ownerReportRow,
+  preserveReportIds,
   preserveProtectedFixRequestReport,
   preserveFixRequestReports,
   protectedFixRequestForReport,
+  protectedRepairExecutionForReport,
   reportJsonForRow,
   reportR2Key,
   saveAuditReport,

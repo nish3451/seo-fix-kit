@@ -18,8 +18,12 @@ Live product claims:
 - Verified sessions can supply local business details, keywords, and citation URLs for local SEO proof and repair actions.
 - Verified sessions can import Search Console or rank-tracker keyword rows for low-CTR, page-two, decline, cannibalization, intent-match, uncrawled landing-page repair actions, and rank observation history.
 - Reports include rendered WordPress and ecommerce platform proof for Product schema, breadcrumbs, faceted links, archives, and plugin resource impact.
+- Reports include SEO/GEO readiness checks for crawlable answer content, entity clarity, useful schema, internal context, and optional llms.txt boundaries.
 - Dodo is the source of truth for visible Fix Pack pricing and checkout.
-- Paid Fix Pack fulfillment includes status, delivery notes, and one rerun after fixes.
+- Paid Fix Pack fulfillment includes owner-approved repair proposals, status, delivery notes, and one rerun after fixes.
+- The private billing portal lists the staged offer ladder for monitoring, Repair Sprint, SEO/GEO repair agent, and agency workspace, but monthly checkout remains entitlement-gated and not live.
+- Repair Sprint eligibility can be shown from approved proposal state, but distinct Repair Sprint checkout is not live yet.
+- Agency Workspace features run under beta limits; paid Agency Workspace checkout is not live yet.
 
 Current product boundary:
 - Does not sell or claim completed 50,000-page rendered validation; large crawls are early-access staged plans until every batch has page-level proof and merge readiness is clear.
@@ -27,6 +31,8 @@ Current product boundary:
 - Does not provide full-site rank, index, or orphan discovery beyond rendered crawl proof and sitemap inventory samples.
 - Does not provide proprietary backlink discovery beyond supplied/imported link-edge history.
 - Does not provide live keyword volume providers, traffic estimates, or continuous rank tracking yet.
+- Does not sell live monthly monitoring, recurring repair agent, or agency workspace subscriptions until entitlement billing is wired.
+- Does not claim llms.txt is required for Google Search or Google generative search surfaces.
 - Does not scrape private Google Business Profile data or discover every citation automatically.
 - Does not log into WordPress, Shopify, WooCommerce, Magento, or private CMS/plugin admin settings.
 - Does not replace Ahrefs or Semrush.

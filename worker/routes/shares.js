@@ -7,6 +7,7 @@ import {
 } from "../../shared/white-label-report.js";
 import { betaAccessResponse, betaAccessStatus } from "../lib/auth.js";
 import { cookieValue, json, jsonNoStore, secureHeaders } from "../lib/http.js";
+import { agencyWorkspaceAccessForOwner } from "../lib/offers.js";
 import { ownerReportRow, reportJsonForRow } from "../lib/report-data.js";
 import {
   checkQuotaSet,
@@ -102,9 +103,13 @@ async function listReportShares(request, env) {
     .bind(reportId, access.ownerEmail)
     .all();
   const customDomain = await primaryVerifiedReportDomain(env, access.ownerEmail);
+  const agencyWorkspace = await agencyWorkspaceAccessForOwner(env, access.ownerEmail, {
+    clientLinks: (shares.results || []).length
+  });
   return jsonNoStore({
     ok: true,
-    shares: (shares.results || []).map((share) => reportShareResponse(share, url.origin, customDomain, env))
+    shares: (shares.results || []).map((share) => reportShareResponse(share, url.origin, customDomain, env)),
+    agencyWorkspace
   });
 }
 
@@ -126,8 +131,18 @@ async function createReportShare(request, env) {
   )
     .bind(reportId, access.ownerEmail)
     .first();
-  if (Number(count?.count || 0) >= 10) {
-    return jsonNoStore({ error: "This report already has 10 active client links." }, 429);
+  const agencyWorkspace = await agencyWorkspaceAccessForOwner(env, access.ownerEmail, {
+    clientLinks: Number(count?.count || 0)
+  });
+  if (Number(count?.count || 0) >= agencyWorkspace.limits.clientLinksPerReport) {
+    return jsonNoStore(
+      {
+        error: `This report already has ${agencyWorkspace.limits.clientLinksPerReport} active client links.`,
+        code: "AGENCY_CLIENT_LINK_LIMIT",
+        agencyWorkspace
+      },
+      429
+    );
   }
 
   const report = parseJson(row.report_json, {});
@@ -401,6 +416,27 @@ async function createReportDomain(request, env) {
     return jsonNoStore({ error: "That report domain is already connected to another workspace." }, 409);
   }
   if (existing?.id) return jsonNoStore({ ok: true, domain: reportDomainResponse(existing, env) });
+
+  const count = await env.WAITLIST_DB.prepare(
+    `SELECT COUNT(*) AS count
+     FROM report_domains
+     WHERE owner_email = ?
+       AND revoked_at IS NULL`
+  )
+    .bind(access.ownerEmail)
+    .first();
+  const activeDomains = Number(count?.count || 0);
+  const agencyWorkspace = await agencyWorkspaceAccessForOwner(env, access.ownerEmail, { reportDomains: activeDomains });
+  if (activeDomains >= agencyWorkspace.limits.reportDomains) {
+    return jsonNoStore(
+      {
+        error: `This workspace already has ${agencyWorkspace.limits.reportDomains} active report domain.`,
+        code: "AGENCY_REPORT_DOMAIN_LIMIT",
+        agencyWorkspace
+      },
+      429
+    );
+  }
 
   const now = new Date().toISOString();
   const row = {

@@ -14,6 +14,7 @@
     "cf:dry-run": "npm run build && wrangler deploy --dry-run",
     "ops:audit-owned": "node scripts/run-live-audit-batch.mjs",
     "test:billing": "node server/dodo-payment-smoke-test.js",
+    "test:product-truth": "node server/product-truth-smoke-test.js",
     "test:audit": "node server/audit/smoke-test.js",
     "test:large-crawl-security": "node server/large-crawl-security-smoke-test.js",
     "test:report-retention-security": "node server/report-retention-security-smoke-test.js",
@@ -21,7 +22,7 @@
     "test:audit-batch-runner": "node --test scripts/run-live-audit-batch.test.mjs",
     "test:webhooks": "node --test worker/lib/webhooks.test.mjs",
     "test:large-crawl": "node server/large-rendered-crawl-smoke-test.js",
-    "check": "npm run test:billing && npm run test:audit && npm run test:large-crawl-security && npm run test:report-retention-security && npm run test:local-developer-api-security && npm run test:audit-batch-runner && npm run test:webhooks && npm run test:large-crawl && npm run build"
+    "check": "npm run test:billing && npm run test:product-truth && npm run test:audit && npm run test:large-crawl-security && npm run test:report-retention-security && npm run test:local-developer-api-security && npm run test:audit-batch-runner && npm run test:webhooks && npm run test:large-crawl && npm run build"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.0",

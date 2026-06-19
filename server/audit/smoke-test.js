@@ -4,11 +4,69 @@ import {
   appendReportDeltaBrief,
   buildReportDelta
 } from "../../shared/report-delta.js";
+import { buildGeoReadinessAudit } from "../../shared/geo-readiness.js";
+import { buildRepairProposalsFromReport } from "../../shared/repair-execution.js";
 
 // The production engine has no static fallback when rendering fails, so the
 // live target must reach network idle. aiconverter.app keeps analytics/ad
 // connections open and never idles; the product site renders clean.
 const target = process.env.TEST_URL || "https://seofixkit.com/";
+
+const proposalFixture = buildRepairProposalsFromReport(
+  {
+    url: "https://example.com/",
+    findings: [
+      {
+        id: "missing-description",
+        severity: "critical",
+        title: "Missing meta description on home",
+        evidence: "No meta description found.",
+        fix: "Add a concise page-specific meta description.",
+        snippet: '<meta name="description" content="Example description." />'
+      },
+      {
+        id: "slow-load",
+        severity: "warning",
+        title: "Slow rendered load on home",
+        evidence: "Rendered audit reached network idle in 4500ms.",
+        fix: "Reduce render-blocking scripts and compress heavy assets."
+      },
+      {
+        id: "platform-seo",
+        severity: "notice",
+        title: "WooCommerce product metadata needs cleanup",
+        evidence: "WooCommerce plugin evidence was detected.",
+        fix: "Update product metadata in the CMS.",
+        source: "platform-seo-audit"
+      },
+      {
+        id: "unsupported-proof",
+        severity: "notice",
+        title: "Unclear third-party constraint",
+        evidence: "The issue is outside this site.",
+        fix: ""
+      }
+    ]
+  },
+  { targetUrl: "https://example.com/", targetHost: "example.com" }
+);
+const proposalModes = new Map(proposalFixture.map((proposal) => [proposal.issueId, proposal.executionMode]));
+if (proposalModes.get("missing-description") !== "generated_proposal") {
+  throw new Error("Missing meta description was not classified as a generated proposal.");
+}
+if (proposalModes.get("slow-load") !== "manual_task") {
+  throw new Error("Slow rendered load was not classified as a manual task.");
+}
+if (proposalModes.get("platform-seo") !== "cms_candidate") {
+  throw new Error("Platform SEO item was not classified as a CMS candidate.");
+}
+if (proposalModes.get("unsupported-proof") !== "unsupported") {
+  throw new Error("Unsupported repair item was not classified safely.");
+}
+const emptyGeoReadiness = buildGeoReadinessAudit({ url: "https://example.com/", pages: [] });
+if (emptyGeoReadiness.status !== "skipped" || emptyGeoReadiness.repairOpportunities.length !== 0) {
+  throw new Error("GEO readiness should not create repair work without rendered page proof.");
+}
 
 const report = await auditUrl(target, { maxPages: 2, pageSpeed: false });
 
@@ -622,6 +680,22 @@ for (const expected of [
 
 if (!platformReport.repairBrief.includes("Platform SEO audit")) {
   throw new Error("Platform SEO audit was not carried into the repair brief.");
+}
+
+if (platformReport.geoReadiness?.status !== "ready") {
+  throw new Error("SEO/GEO readiness audit summary is missing.");
+}
+
+if (!platformReport.repairBrief.includes("SEO/GEO readiness")) {
+  throw new Error("SEO/GEO readiness was not carried into the repair brief.");
+}
+
+if (!platformReport.geoReadiness.guidance.llmsTxt.includes("not required for Google Search")) {
+  throw new Error("SEO/GEO readiness must not claim llms.txt is required for Google.");
+}
+
+if (!platformReport.repairPlan.some((item) => item.source === "geo-readiness")) {
+  throw new Error("SEO/GEO repair plan items are missing.");
 }
 
 const crawlIntelligenceReport = await auditUrl(`${fixtureUrl}crawl-intel`, { maxPages: 8, pageSpeed: false });
