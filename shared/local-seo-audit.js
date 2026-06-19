@@ -144,7 +144,7 @@ export async function buildLocalSeoAudit(report = {}, input = {}, options = {}) 
   const siteChecks = buildSiteChecks(report, localInput);
   const citationRows = [];
   for (const row of localInput.citationRows || []) {
-    citationRows.push(await inspectCitationRow(row, options.fetcher || fetch));
+    citationRows.push(await inspectCitationRow(row, options.fetcher || fetch, options.privateAddressResolver));
   }
   const keywordChecks = buildKeywordChecks(report, localInput.localKeywords || []);
   const googleBusinessProfile = buildGoogleBusinessProfileCheck(report, localInput.googleBusinessProfileUrl);
@@ -279,8 +279,8 @@ function buildGoogleBusinessProfileCheck(report, url = "") {
   };
 }
 
-async function inspectCitationRow(row, fetcher) {
-  const source = await fetchCitation(row.sourceUrl, fetcher);
+async function inspectCitationRow(row, fetcher, privateAddressResolver) {
+  const source = await fetchCitation(row.sourceUrl, fetcher, privateAddressResolver);
   const text = normalizeSearchText(source.text || "");
   const checks = {
     name: row.expectedName
@@ -308,17 +308,22 @@ async function inspectCitationRow(row, fetcher) {
   };
 }
 
-async function fetchCitation(url, fetcher) {
+async function fetchCitation(url, fetcher, privateAddressResolver) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const { response } = await fetchPublicUrl(fetcher, url, {
-      headers: {
-        accept: "text/html,text/plain,application/xhtml+xml",
-        "user-agent": "SEOFixKit/0.9 local-seo-proof-audit"
+    const { response } = await fetchPublicUrl(
+      fetcher,
+      url,
+      {
+        headers: {
+          accept: "text/html,text/plain,application/xhtml+xml",
+          "user-agent": "SEOFixKit/0.9 local-seo-proof-audit"
+        },
+        signal: controller.signal
       },
-      signal: controller.signal
-    });
+      { privateAddressResolver }
+    );
     const contentType = response.headers?.get?.("content-type") || "";
     const body = contentType.includes("text") || contentType.includes("html") || contentType.includes("xhtml")
       ? (await response.text()).slice(0, MAX_CITATION_TEXT_BYTES)

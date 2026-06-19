@@ -5,12 +5,22 @@ import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { auditUrl } from "./audit/engine.js";
+import { rootSitemap } from "../shared/audit-engine.js";
 import {
   buildWhiteLabelReportHtml,
   defaultBranding,
   normalizeBrandingInput,
   whiteLabelReportFilename
 } from "../shared/white-label-report.js";
+import {
+  demoHtml,
+  llmsText,
+  methodologyHtml,
+  packagesHtml,
+  privacyHtml,
+  supportHtml,
+  termsHtml
+} from "../worker/routes/pages.js";
 import {
   backlinkRowsKey,
   parseBacklinkRows
@@ -32,6 +42,38 @@ import {
 import {
   buildCrawlInventory
 } from "../shared/crawl-inventory.js";
+import { resolvesToPrivateAddress } from "../shared/url-safety.js";
+import {
+  agentActionResponse,
+  apiRepairQueueStatusResponse,
+  apiRepairQueueSummary,
+  cleanActionMode,
+  cleanQueueStatus,
+  cleanRerunState,
+  defaultProposedChangeForItem,
+  deriveRepairQueueItems
+} from "../shared/repair-queue.js";
+import { repairAccountSummaryFromItems } from "../shared/account-repair-summary.js";
+import { selectFixPackRepair } from "../shared/fix-pack-repair-selection.js";
+import {
+  repairActionDetailResponse,
+  repairQueueItemDetailResponse
+} from "../shared/repair-api-serializers.js";
+import {
+  comparableReportHost,
+  normalizeRepairActionCreateInput,
+  normalizeRepairActionPatch,
+  normalizeRepairQueuePatchItems,
+  queueStatusFromActionState,
+  repairActionTransitionEvents,
+  repairActionWebhookPayload,
+  repairProofIssueForAction,
+  reportTimestampMs,
+  rerunProofBlockedByNewApply,
+  rerunProofFreshAfterMs,
+  rerunReportProvesIssue,
+  validRerunProofReport
+} from "../shared/repair-action-rules.js";
 import {
   normalizeRenderedCrawlTarget,
   renderedCrawlTargetSummary
@@ -77,6 +119,8 @@ const reportShareLinks = new Map();
 const reportDomains = new Map();
 const teamMembers = new Map();
 const issueCollaborations = new Map();
+const localRepairQueueRows = new Map();
+const localRepairActionRows = new Map();
 const siteClaims = new Map();
 const fixRequests = [];
 const VERSION = "0.9.0";
@@ -85,7 +129,10 @@ const ADMIN_SESSION_COOKIE = "sfk_admin_session";
 const BETA_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 const REPORT_RETENTION_DAYS = 30;
 const LARGE_RENDERED_CRAWL_LEASE_MS = 15 * 60 * 1000;
+const LOCAL_WEBHOOK_TIMEOUT_MS = Math.max(Number(process.env.SEOFIXKIT_LOCAL_WEBHOOK_TIMEOUT_MS || 5000), 1);
 const PROTECTED_FIX_REQUEST_STATUSES = new Set(["paid", "in_progress", "delivered", "refunded", "refund_failed", "disputed"]);
+const LOCAL_REBUY_BLOCKED_FIX_REQUEST_STATUSES = new Set(["refunded", "refund_failed", "disputed"]);
+const LOCAL_PENDING_FIX_REQUEST_STATUSES = new Set(["new", "checkout_created"]);
 const FIX_PACK_OFFER = {
   name: "SEO Fix Pack",
   productKey: "seofixkit_fix_pack",
@@ -188,14 +235,76 @@ app.post("/api/beta/fix-request", (req, res) => {
     res.status(401).json({ error: "Private beta session required." });
     return;
   }
-  const report = auditReports.get(String(req.body?.reportId || ""));
+  const reportId = String(req.body?.reportId || "");
+  const report = auditReports.get(reportId);
   if (!report || report.owner?.email !== access.ownerEmail) {
     res.status(404).json({ error: "Report not found." });
     return;
   }
+  const existingFixRequest = fixRequests.slice().reverse().find((request) =>
+    request.reportId === (report.id || reportId) &&
+    request.ownerEmail === access.ownerEmail
+  );
+  if (existingFixRequest && PROTECTED_FIX_REQUEST_STATUSES.has(existingFixRequest.status)) {
+    res.set("cache-control", "no-store").json({
+      ok: true,
+      mode: existingFixRequest.status,
+      ...(LOCAL_REBUY_BLOCKED_FIX_REQUEST_STATUSES.has(existingFixRequest.status)
+        ? {
+          checkoutAvailable: false,
+          message: "This Fix Pack was refunded or disputed, so checkout is closed for this report."
+        }
+        : {}),
+      request: localFixRequestResponse(existingFixRequest),
+      offer: FIX_PACK_OFFER,
+      selectedRepair: null
+    });
+    return;
+  }
+  const repairSelection = localFixPackRepairSelection(report, req.body || {});
+  if (repairSelection.selectionConflict) {
+    res.status(409).set("cache-control", "no-store").json({
+      error: "Selected repair is no longer available for checkout. Refresh the report and choose an active repair.",
+      code: "FIX_PACK_REPAIR_SELECTION_UNAVAILABLE",
+      checkoutAvailable: false,
+      offer: FIX_PACK_OFFER,
+      selectedRepair: null
+    });
+    return;
+  }
+  if (!repairSelection.selectedRepair) {
+    res.status(409).set("cache-control", "no-store").json({
+      error: "No active proof-backed repair is available for checkout.",
+      checkoutAvailable: false,
+      offer: FIX_PACK_OFFER,
+      selectedRepair: null
+    });
+    return;
+  }
+  if (existingFixRequest && LOCAL_PENDING_FIX_REQUEST_STATUSES.has(existingFixRequest.status)) {
+    existingFixRequest.selectedRepair = repairSelection.selectedRepair;
+    existingFixRequest.updatedAt = new Date().toISOString();
+    if (existingFixRequest.status === "new" && process.env.DODO_SEOFIXKIT_MOCK_CHECKOUT_URL) {
+      existingFixRequest.status = "checkout_created";
+    }
+    res.set("cache-control", "no-store").json({
+      ok: true,
+      mode: existingFixRequest.status === "checkout_created" ? "checkout" : "request",
+      ...(existingFixRequest.status === "checkout_created" && process.env.DODO_SEOFIXKIT_MOCK_CHECKOUT_URL
+        ? { checkoutUrl: process.env.DODO_SEOFIXKIT_MOCK_CHECKOUT_URL }
+        : {
+          checkoutAvailable: false,
+          message: "Fix request saved. Dodo checkout is only created by the Cloudflare Worker."
+        }),
+      request: existingFixRequest,
+      offer: FIX_PACK_OFFER,
+      selectedRepair: repairSelection.selectedRepair
+    });
+    return;
+  }
   const request = {
     id: randomUUID(),
-    reportId: report.id,
+    reportId: report.id || reportId,
     ownerEmail: access.ownerEmail,
     targetUrl: report.url,
     targetHost: new URL(report.url).hostname,
@@ -208,6 +317,7 @@ app.post("/api/beta/fix-request", (req, res) => {
     assignedTo: "",
     deliveryUrl: "",
     finalReportId: "",
+    selectedRepair: repairSelection.selectedRepair,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -218,7 +328,8 @@ app.post("/api/beta/fix-request", (req, res) => {
       mode: "checkout",
       checkoutUrl: process.env.DODO_SEOFIXKIT_MOCK_CHECKOUT_URL,
       request,
-      offer: FIX_PACK_OFFER
+      offer: FIX_PACK_OFFER,
+      selectedRepair: repairSelection.selectedRepair
     });
     return;
   }
@@ -228,7 +339,8 @@ app.post("/api/beta/fix-request", (req, res) => {
     checkoutAvailable: false,
     message: "Fix request saved. Dodo checkout is only created by the Cloudflare Worker.",
     request,
-    offer: FIX_PACK_OFFER
+    offer: FIX_PACK_OFFER,
+    selectedRepair: repairSelection.selectedRepair
   });
 });
 
@@ -291,7 +403,7 @@ app.get("/api/billing/summary", (req, res) => {
     subscriptionState: {
       status: "not_live",
       label: "No recurring subscription",
-      message: "SEO Fix Kit currently sells one-time Fix Pack requests. Recurring plans are not live yet."
+      message: "SEO Fix Kit currently sells one-time Fix Pack requests. Repair Agent and Growth Add-On subscriptions remain roadmap."
     },
     subscriptions: [],
     requests: ownerFixRequests.map(localBillingFixRequestResponse),
@@ -308,11 +420,11 @@ app.get("/api/account/summary", (req, res) => {
     res.status(401).set("cache-control", "no-store").json({ error: "Private beta session required." });
     return;
   }
-  const reports = [...auditReports.values()]
+  const reportRecords = [...auditReports.values()]
     .filter((report) => report.owner?.email === access.ownerEmail)
     .sort((a, b) => String(b.scannedAt).localeCompare(String(a.scannedAt)))
-    .slice(0, 12)
-    .map((report) => ({
+    .slice(0, 12);
+  const reports = reportRecords.map((report) => ({
       id: report.id,
       url: report.url,
       targetHost: safeHost(report.url),
@@ -344,6 +456,7 @@ app.get("/api/account/summary", (req, res) => {
     .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
     .slice(0, 20)
     .map(localAuditScheduleResponse);
+  const repairAgent = localAccountRepairAgentSummary(access, reportRecords, reports, schedules);
   res.set("cache-control", "no-store").json({
     ok: true,
     owner: {
@@ -356,22 +469,77 @@ app.get("/api/account/summary", (req, res) => {
       openFixRequests: requests.filter((request) => !["delivered", "refunded"].includes(request.status)).length,
       runningAudits: jobs.filter((job) => ["queued", "running"].includes(job.status)).length,
       verifiedSites: sites.filter((site) => site.status === "verified").length,
-      monitors: schedules.length
+      monitors: schedules.length,
+      repairItems: repairAgent.counts.total,
+      openRepairs: repairAgent.counts.active,
+      draftedActions: repairAgent.counts.awaitingApproval,
+      approvedActions: repairAgent.counts.approvedActions,
+      appliedRepairs: repairAgent.counts.appliedAwaitingRerun,
+      regressedRepairs: repairAgent.counts.regressed + repairAgent.counts.monitorRegressions
     },
     recentReports: reports,
     recentAuditJobs: jobs,
     sites,
     schedules,
     fixRequests: requests,
-    nextActions: !sites.some((site) => site.status === "verified")
-      ? [{ id: "verify-site", label: "Verify your site", detail: "Verify a host before running self-serve audits." }]
-      : jobs.some((job) => ["queued", "running"].includes(job.status))
-      ? [{ id: "audit-running", label: "Audit running", detail: "The report will appear when proof collection finishes." }]
-      : reports.length
-      ? [{ id: "review-fixes", label: "Review proven fixes", detail: "Open a report and start a Fix Pack only when the findings are real." }]
-      : [{ id: "run-audit", label: "Run your first audit", detail: "Start with your homepage or highest-value product page." }]
+    repairAgent,
+    nextActions: localAccountNextActions(reports, requests, sites, jobs, repairAgent)
   });
 });
+
+function localAccountNextActions(reports, requests, sites = [], jobs = [], repairAgent = {}) {
+  if (jobs.some((job) => ["queued", "running"].includes(job.status))) {
+    return [{ id: "audit-running", label: "Audit running", detail: "The report will appear when proof collection finishes." }];
+  }
+  if (!reports.length) {
+    if (!sites.some((site) => site.status === "verified")) {
+      return [{ id: "verify-site", label: "Verify your site", detail: "Verify a host before running self-serve audits." }];
+    }
+    return [{ id: "run-audit", label: "Run your first audit", detail: "Start with your homepage or highest-value product page." }];
+  }
+  const nextRepair = repairAgent.nextItems?.[0];
+  if (repairAgent.unavailable && nextRepair) {
+    return [{
+      id: "repair-queue-unavailable",
+      label: "Repair queue unavailable",
+      detail: "Repair actions are temporarily unavailable while repair storage is being updated."
+    }];
+  }
+  if (nextRepair) {
+    return [{
+      id: nextRepair.nextActionId,
+      label: nextRepair.nextActionLabel,
+      detail: nextRepair.nextActionDetail,
+      href: nextRepair.reportPath
+    }];
+  }
+  if (!sites.some((site) => site.status === "verified")) {
+    return [{ id: "verify-site", label: "Verify your site", detail: "Verify a host before running self-serve audits." }];
+  }
+  if (reports.some((report) => Number(report.totalFindings || 0) > 0) && !requests.length) {
+    return [{ id: "review-fixes", label: "Review proven fixes", detail: "Open a report and start a Fix Pack only when the findings are real." }];
+  }
+  if (requests.some((request) => ["paid", "in_progress"].includes(request.status))) {
+    return [{ id: "watch-delivery", label: "Watch delivery status", detail: "Your billing page shows due dates, notes, delivery links, and rerun proof." }];
+  }
+  return [{ id: "rerun-later", label: "Keep the report handy", detail: "Rerun after meaningful content, template, or metadata changes." }];
+}
+
+function localAccountRepairAgentSummary(access = {}, reportRecords = [], reportResponses = [], schedules = []) {
+  const responseById = new Map(reportResponses.map((report) => [report.id, report]));
+  const contexts = reportRecords.map((report) => {
+    const response = responseById.get(report.id) || {};
+    return {
+      report,
+      response,
+      items: localRepairQueueItems(access, report)
+    };
+  });
+  return {
+    ...repairAccountSummaryFromItems(contexts, schedules),
+    unavailable: false
+  };
+}
 
 app.get("/api/audit/schedules", (req, res) => {
   const access = localBetaAccess(req);
@@ -826,6 +994,77 @@ app.patch("/api/reports/:id/collaboration", (req, res) => {
   res.set("cache-control", "no-store").json(localReportCollaborationResponse(access, report));
 });
 
+app.get("/api/reports/:id/repair-queue", (req, res) => {
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res.status(401).set("cache-control", "no-store").json({ error: "Private beta session required." });
+    return;
+  }
+  const report = auditReports.get(req.params.id);
+  if (!report || report.owner?.email !== access.ownerEmail) {
+    res.status(404).set("cache-control", "no-store").json({ error: "Report not found." });
+    return;
+  }
+  res.set("cache-control", "no-store").json(localRepairQueueResponse(access, report));
+});
+
+app.patch("/api/reports/:id/repair-queue", (req, res) => {
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res.status(401).set("cache-control", "no-store").json({ error: "Private beta session required." });
+    return;
+  }
+  const report = auditReports.get(req.params.id);
+  if (!report || report.owner?.email !== access.ownerEmail) {
+    res.status(404).set("cache-control", "no-store").json({ error: "Report not found." });
+    return;
+  }
+  const result = saveLocalRepairQueue(access, report, req.body?.items || [req.body || {}]);
+  if (!result.ok) {
+    res.status(result.status || 400).set("cache-control", "no-store").json({ error: result.error });
+    return;
+  }
+  res.set("cache-control", "no-store").json(localRepairQueueResponse(access, report));
+});
+
+app.post("/api/reports/:id/repair-actions", (req, res) => {
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res.status(401).set("cache-control", "no-store").json({ error: "Private beta session required." });
+    return;
+  }
+  const report = auditReports.get(req.params.id);
+  if (!report || report.owner?.email !== access.ownerEmail) {
+    res.status(404).set("cache-control", "no-store").json({ error: "Report not found." });
+    return;
+  }
+  const result = createLocalRepairAction(access, report, req.body || {});
+  if (!result.ok) {
+    res.status(result.status || 400).set("cache-control", "no-store").json({ error: result.error });
+    return;
+  }
+  res.status(201).set("cache-control", "no-store").json(result.body);
+});
+
+app.patch("/api/reports/:id/repair-actions/:actionId", (req, res) => {
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res.status(401).set("cache-control", "no-store").json({ error: "Private beta session required." });
+    return;
+  }
+  const report = auditReports.get(req.params.id);
+  if (!report || report.owner?.email !== access.ownerEmail) {
+    res.status(404).set("cache-control", "no-store").json({ error: "Report not found." });
+    return;
+  }
+  const result = updateLocalRepairAction(access, report, req.params.actionId, req.body || {});
+  if (!result.ok) {
+    res.status(result.status || 400).set("cache-control", "no-store").json({ error: result.error });
+    return;
+  }
+  res.set("cache-control", "no-store").json(result.body);
+});
+
 app.get("/v1/projects", (req, res) => {
   const access = localApiAccess(req);
   if (!access.ok) {
@@ -909,11 +1148,14 @@ app.get("/v1/audits/:id/issues", (req, res) => {
     return;
   }
   const findings = (resolved.report.findings || []).filter((finding) => finding.severity !== "good");
+  const queue = localApiRepairQueueOverlay(access, resolved.report);
   res.set("cache-control", "no-store").json({
     ok: true,
     auditId: resolved.job?.id || "",
     reportId: resolved.report.id,
-    issues: findings.map(apiIssueResponse),
+    issues: findings.map((finding) => apiIssueResponse(finding, queue.byIssue.get(finding.id), {
+      repairQueueUnavailable: queue.unavailable
+    })),
     total: findings.length
   });
 });
@@ -929,7 +1171,85 @@ app.get("/v1/audits/:id/report", (req, res) => {
     res.status(resolved.status).set("cache-control", "no-store").json({ error: resolved.error });
     return;
   }
-  res.set("cache-control", "no-store").json({ ok: true, report: apiReportResponse(resolved.report) });
+  const queue = localApiRepairQueueOverlay(access, resolved.report);
+  res.set("cache-control", "no-store").json({
+    ok: true,
+    report: apiReportResponse(resolved.report, {
+      repairQueueItems: queue.items,
+      repairQueueUnavailable: queue.unavailable
+    })
+  });
+});
+
+app.get("/v1/audits/:id/repair-queue", (req, res) => {
+  const access = localApiAccess(req);
+  if (!access.ok) {
+    res.status(access.status || 401).set("cache-control", "no-store").json({ error: access.error || "API key required." });
+    return;
+  }
+  const resolved = resolveLocalApiAudit(access, req.params.id);
+  if (!resolved.ok) {
+    res.status(resolved.status).set("cache-control", "no-store").json({ error: resolved.error });
+    return;
+  }
+  res.set("cache-control", "no-store").json(localApiRepairQueueResponse(access, resolved));
+});
+
+app.patch("/v1/audits/:id/repair-queue", (req, res) => {
+  const access = localApiAccess(req);
+  if (!access.ok) {
+    res.status(access.status || 401).set("cache-control", "no-store").json({ error: access.error || "API key required." });
+    return;
+  }
+  const resolved = resolveLocalApiAudit(access, req.params.id);
+  if (!resolved.ok) {
+    res.status(resolved.status).set("cache-control", "no-store").json({ error: resolved.error });
+    return;
+  }
+  const result = saveLocalRepairQueue(access, resolved.report, req.body?.items || [req.body || {}]);
+  if (!result.ok) {
+    res.status(result.status || 400).set("cache-control", "no-store").json({ error: result.error });
+    return;
+  }
+  res.set("cache-control", "no-store").json(localApiRepairQueueResponse(access, resolved));
+});
+
+app.post("/v1/audits/:id/repair-actions", (req, res) => {
+  const access = localApiAccess(req);
+  if (!access.ok) {
+    res.status(access.status || 401).set("cache-control", "no-store").json({ error: access.error || "API key required." });
+    return;
+  }
+  const resolved = resolveLocalApiAudit(access, req.params.id);
+  if (!resolved.ok) {
+    res.status(resolved.status).set("cache-control", "no-store").json({ error: resolved.error });
+    return;
+  }
+  const result = createLocalRepairAction(access, resolved.report, req.body || {});
+  if (!result.ok) {
+    res.status(result.status || 400).set("cache-control", "no-store").json({ error: result.error });
+    return;
+  }
+  res.status(201).set("cache-control", "no-store").json(localApiRepairActionResponse(access, resolved, result.body?.action));
+});
+
+app.patch("/v1/audits/:id/repair-actions/:actionId", (req, res) => {
+  const access = localApiAccess(req);
+  if (!access.ok) {
+    res.status(access.status || 401).set("cache-control", "no-store").json({ error: access.error || "API key required." });
+    return;
+  }
+  const resolved = resolveLocalApiAudit(access, req.params.id);
+  if (!resolved.ok) {
+    res.status(resolved.status).set("cache-control", "no-store").json({ error: resolved.error });
+    return;
+  }
+  const result = updateLocalRepairAction(access, resolved.report, req.params.actionId, req.body || {});
+  if (!result.ok) {
+    res.status(result.status || 400).set("cache-control", "no-store").json({ error: result.error });
+    return;
+  }
+  res.set("cache-control", "no-store").json(localApiRepairActionResponse(access, resolved, result.body?.action));
 });
 
 app.get("/v1/audits/:id", (req, res) => {
@@ -966,7 +1286,10 @@ app.delete("/v1/audits/:id", (req, res) => {
     });
     return;
   }
-  if (job.reportId) auditReports.delete(job.reportId);
+  if (job.reportId) {
+    cleanupLocalRepairsForDeletedReport(job.reportId, access.ownerEmail);
+    auditReports.delete(job.reportId);
+  }
   auditJobs.delete(job.id);
   res.set("cache-control", "no-store").json({ ok: true, deleted: true, auditId: req.params.id });
 });
@@ -1311,6 +1634,41 @@ app.post("/admin/invites", (req, res) => {
   });
 });
 
+app.get("/llms.txt", (req, res) => {
+  const origin = `http://${req.get("host")}`;
+  res.set("content-type", "text/plain; charset=utf-8").send(llmsText(origin));
+});
+
+app.get("/demo", (req, res) => {
+  const origin = `http://${req.get("host")}`;
+  res.set("content-type", "text/html; charset=utf-8").send(demoHtml(origin));
+});
+
+app.get("/methodology", (req, res) => {
+  const origin = `http://${req.get("host")}`;
+  res.set("content-type", "text/html; charset=utf-8").send(methodologyHtml(origin));
+});
+
+app.get("/packages", (req, res) => {
+  const origin = `http://${req.get("host")}`;
+  res.set("content-type", "text/html; charset=utf-8").send(packagesHtml(origin));
+});
+
+app.get("/privacy", (req, res) => {
+  const origin = `http://${req.get("host")}`;
+  res.set("content-type", "text/html; charset=utf-8").send(privacyHtml(origin));
+});
+
+app.get("/support", (req, res) => {
+  const origin = `http://${req.get("host")}`;
+  res.set("content-type", "text/html; charset=utf-8").send(supportHtml(origin));
+});
+
+app.get("/terms", (req, res) => {
+  const origin = `http://${req.get("host")}`;
+  res.set("content-type", "text/html; charset=utf-8").send(termsHtml(origin));
+});
+
 app.get("/api/demo-audit", async (req, res) => {
   try {
     const access = localBetaAccess(req);
@@ -1587,7 +1945,8 @@ app.get("/api/reports/:id/client.pdf", async (req, res) => {
       report,
       branding,
       share,
-      origin: `http://${req.get("host")}`
+      origin: `http://${req.get("host")}`,
+      includeDraftBriefs: true
     });
   } catch (error) {
     res.status(500).set("cache-control", "no-store").json({ error: error?.message || "Could not generate PDF." });
@@ -1916,115 +2275,32 @@ function demoKeywordRows(baseUrl) {
   ];
 }
 
-app.get("/demo", (req, res) => {
-  const origin = `http://127.0.0.1:${port}`;
-  res.type("html").send(`<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>SEO Fix Kit Demo - Proof-Backed SEO Repair</title>
-    <meta name="description" content="A public sample showing how SEO Fix Kit refuses static crawler false positives and turns verified issues into repair briefs." />
-    <link rel="canonical" href="${origin}/demo" />
-    <style>
-      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
-      body { margin: 0; min-width: 320px; }
-      main { margin: 0 auto; max-width: 980px; padding: 36px 22px 60px; }
-      a { color: #98f0cc; font-weight: 780; text-decoration: none; }
-      header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 54px; }
-      h1 { font-size: clamp(44px, 9vw, 104px); letter-spacing: 0; line-height: .9; margin: 0 0 18px; max-width: 780px; }
-      h2 { font-size: clamp(24px, 3vw, 34px); margin: 0; }
-      p, li { color: rgba(251,248,239,.75); font-size: 18px; line-height: 1.6; }
-      .kicker { color: #98f0cc; font-size: 13px; font-weight: 880; letter-spacing: .08em; text-transform: uppercase; }
-      .grid { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 34px 0; }
-      .panel { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; padding: 20px; }
-      .panel strong { color: #dcc062; display: block; font-size: 14px; margin-bottom: 10px; text-transform: uppercase; }
-      .proof { border-color: rgba(152,240,204,.28); }
-      .proof strong { color: #98f0cc; }
-      .cta { align-items: center; background: #98f0cc; border-radius: 8px; color: #06100c; display: inline-flex; font-weight: 880; min-height: 48px; padding: 0 18px; }
-      code { color: #fbf8ef; white-space: pre-wrap; }
-      @media (max-width: 760px) { header { align-items: flex-start; gap: 18px; flex-direction: column; } .grid { grid-template-columns: 1fr; } }
-    </style>
-  </head>
-  <body>
-    <main>
-      <header>
-        <a href="${origin}/">SEO Fix Kit</a>
-        <span class="kicker">Public sample</span>
-      </header>
-      <section>
-        <p class="kicker">Proof loop</p>
-        <h1>Do not fix what is not broken.</h1>
-        <p>Weak SEO scanners read the raw app shell and invent work. SEO Fix Kit compares raw HTML with the rendered page, shows the proof, and only creates a repair when the browser-visible page is actually wrong.</p>
-      </section>
-      <section class="grid" aria-label="Sample audit outcome">
-        <article class="panel"><strong>Static scanner</strong><p>No H1. No internal links. Thin content. Needs cleanup.</p></article>
-        <article class="panel proof"><strong>Rendered proof</strong><p>Browser render shows a real H1, normal internal links, and substantial page content.</p></article>
-        <article class="panel"><strong>Repair brief</strong><p>No duplicate H1. No fake internal links. No busywork. Keep monitoring and rerun after real content changes.</p></article>
-      </section>
-      <section class="panel proof">
-        <h2>Sample developer brief</h2>
-        <p>The paid beta turns verified findings into a repair queue with acceptance checks and one rerun after fixes.</p>
-        <code>- Finding: False positive guarded. H1 exists after render.
-- Evidence: Rendered H1 is visible in the final DOM.
-- Action: Do not add another H1.
-- Acceptance: Re-run audit; finding stays guarded, not queued as a fix.</code>
-      </section>
-      <p><a class="cta" href="${origin}/">Request access</a></p>
-    </main>
-  </body>
-</html>`);
+app.get("/robots.txt", (req, res) => {
+  const origin = `http://${req.get("host")}`;
+  res.type("text").send(`User-agent: *\nAllow: /\n\nSitemap: ${origin}/sitemap.xml\n`);
 });
 
-app.get(["/robots.txt", "/fixture/robots.txt"], (req, res) => {
-  res.type("text").send("User-agent: *\nAllow: /\n\nSitemap: /sitemap.xml\n");
+app.get("/sitemap.xml", (req, res) => {
+  const origin = `http://${req.get("host")}`;
+  res.type("xml").send(rootSitemap(origin));
 });
 
-app.get(["/sitemap.xml", "/fixture/sitemap.xml"], (req, res) => {
+app.get("/fixture/robots.txt", (req, res) => {
+  const origin = `http://${req.get("host")}`;
+  res.type("text").send(`User-agent: *\nAllow: /\n\nSitemap: ${origin}/fixture/sitemap.xml\n`);
+});
+
+app.get("/fixture/sitemap.xml", (req, res) => {
+  const origin = `http://${req.get("host")}`;
   res.type("xml").send(`<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>http://127.0.0.1:${port}/fixture/rendered-page</loc></url>
-  <url><loc>http://127.0.0.1:${port}/fixture/platform-store</loc></url>
-  <url><loc>http://127.0.0.1:${port}/fixture/crawl-intel</loc></url>
-  <url><loc>http://127.0.0.1:${port}/fixture/blue-widget-repair-a</loc></url>
-  <url><loc>http://127.0.0.1:${port}/fixture/blue-widget-repair-b</loc></url>
-  <url><loc>http://127.0.0.1:${port}/fixture/orphan-crawl-intel</loc></url>
+  <url><loc>${origin}/fixture/rendered-page</loc></url>
+  <url><loc>${origin}/fixture/platform-store</loc></url>
+  <url><loc>${origin}/fixture/crawl-intel</loc></url>
+  <url><loc>${origin}/fixture/blue-widget-repair-a</loc></url>
+  <url><loc>${origin}/fixture/blue-widget-repair-b</loc></url>
+  <url><loc>${origin}/fixture/orphan-crawl-intel</loc></url>
 </urlset>`);
-});
-
-app.get(["/support", "/terms"], (req, res) => {
-  const isTerms = req.path === "/terms";
-  res
-    .set({ "cache-control": "public, max-age=300" })
-    .type("html")
-    .send(`<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${isTerms ? "Terms" : "Support"} - SEO Fix Kit</title>
-    <style>
-      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
-      body { margin: 0; min-width: 320px; }
-      main { margin: 0 auto; max-width: 820px; padding: 42px 22px 70px; }
-      a { color: #98f0cc; font-weight: 780; text-decoration: none; }
-      h1 { font-size: clamp(42px, 8vw, 82px); letter-spacing: 0; line-height: .94; margin: 36px 0 18px; }
-      h2 { font-size: 24px; margin: 32px 0 10px; }
-      p, li { color: rgba(251,248,239,.76); font-size: 17px; line-height: 1.65; }
-    </style>
-  </head>
-  <body>
-    <main>
-      <a href="/">SEO Fix Kit</a>
-      <h1>${isTerms ? "Terms" : "Support"}</h1>
-      ${
-        isTerms
-          ? "<p>SEO Fix Kit private beta audits are informational and repair-focused. We do not guarantee rankings, traffic, revenue, or indexing outcomes.</p><h2>Billing</h2><p>Paid Fix Pack checkout starts from a saved report and covers one repair pass plus one rerun after fixes.</p><h2>Use</h2><p>Only audit sites you own or are authorized to review. Abuse, automated load, and private-network targets may be blocked.</p>"
-          : "<p>Email support@seofixkit.com with your report link, checkout ID, or access email if you need help.</p><h2>What to include</h2><p>Send the site URL, the private report URL, and the exact issue you want reviewed.</p><h2>Response</h2><p>Private beta support is founder-operated; timing is not guaranteed yet.</p>"
-      }
-    </main>
-  </body>
-</html>`);
 });
 
 app.get("/.well-known/seofixkit-report-domain.txt", (req, res) => {
@@ -2278,10 +2554,18 @@ function localDeveloperSummary(access) {
       startAudit: "POST /v1/audits",
       getAudit: "GET /v1/audits/{audit_id}",
       getIssues: "GET /v1/audits/{audit_id}/issues",
+      getRepairQueue: "GET /v1/audits/{audit_id}/repair-queue",
+      updateRepairQueue: "PATCH /v1/audits/{audit_id}/repair-queue",
+      createRepairAction: "POST /v1/audits/{audit_id}/repair-actions",
+      updateRepairAction: "PATCH /v1/audits/{audit_id}/repair-actions/{action_id}",
       getReport: "GET /v1/audits/{audit_id}/report",
       startLargeCrawl: "POST /v1/large-crawls",
       getLargeCrawl: "GET /v1/large-crawls/{large_crawl_id}",
-      projects: "GET /v1/projects"
+      projects: "GET /v1/projects",
+      webhookEvents: "audit.completed, audit.failed, repair_action.drafted, repair_action.approved, repair_action.applied, repair_action.fixed, repair_action.regressed"
+    },
+    issueFields: {
+      repair_queue: "Safe per-issue queue status. Draft text is only returned from owner-authenticated repair-action surfaces."
     },
     workerOnlyDocs: {
       authHeader: "x-seofixkit-worker-token: WORKER_TOKEN",
@@ -2560,8 +2844,8 @@ function localReportShareUnlocked(req, share) {
   return Boolean(value) && constantTimeEqual(value, localReportShareCookieValue(share));
 }
 
-async function sendLocalWhiteLabelPdf(res, { report, branding, share, origin }) {
-  const html = buildWhiteLabelReportHtml({ report, branding, share, origin });
+async function sendLocalWhiteLabelPdf(res, { report, branding, share, origin, includeDraftBriefs = false }) {
+  const html = buildWhiteLabelReportHtml({ report, branding, share, origin, includeDraftBriefs });
   const pdf = await renderLocalPdf(html);
   res
     .set({
@@ -2693,6 +2977,306 @@ function saveLocalIssueCollaborations(access, report, items = []) {
     });
   }
   return { ok: true };
+}
+
+function localRepairQueueResponse(access, report) {
+  const items = ensureLocalRepairQueueRows(access, report);
+  return {
+    ok: true,
+    reportId: report.id,
+    items,
+    counts: localRepairQueueCounts(items),
+    unavailable: false,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function localApiRepairQueueResponse(access, resolved = {}) {
+  const report = resolved.report || {};
+  const items = ensureLocalRepairQueueRows(access, report);
+  return {
+    ok: true,
+    audit_id: resolved.job?.id || "",
+    report_id: report.id || "",
+    items: items.map(repairQueueItemDetailResponse),
+    summary: apiRepairQueueSummary(items),
+    unavailable: false
+  };
+}
+
+function localApiRepairActionResponse(access, resolved = {}, action = {}) {
+  const queue = localApiRepairQueueResponse(access, resolved);
+  return {
+    ok: true,
+    action: repairActionDetailResponse(action),
+    queue: {
+      items: queue.items,
+      summary: queue.summary
+    }
+  };
+}
+
+function saveLocalRepairQueue(access, report, items = []) {
+  const normalized = normalizeRepairQueuePatchItems(items, ensureLocalRepairQueueRows(access, report));
+  if (!normalized.ok) return { ok: false, error: normalized.error, status: normalized.status || 400 };
+  const update = normalized.update;
+  localStoreRepairQueueRow(access, report, update.existing, {
+    status: update.status,
+    actionMode: update.actionMode,
+    rerunStatus: update.rerunStatus,
+    rerunReportId: update.rerunReportId
+  });
+  return { ok: true };
+}
+
+function createLocalRepairAction(access, report, body = {}) {
+  const issueId = cleanText(body.issueId || body.issue_id || "", 160);
+  const item = ensureLocalRepairQueueRows(access, report).find((candidate) => candidate.issueId === issueId);
+  if (!item) return { ok: false, error: "Repair item no longer exists in this report.", status: 400 };
+  const proposedChange = cleanText(body.proposedChange || body.proposed_change || defaultProposedChangeForItem(item), 4000);
+  if (!proposedChange) return { ok: false, error: "Draft action needs a proposed change.", status: 400 };
+  const normalized = normalizeRepairActionCreateInput(body, item);
+  if (!normalized.ok) return { ok: false, error: normalized.error, status: normalized.status || 400 };
+  const now = new Date().toISOString();
+  const row = localStoreRepairQueueRow(access, report, item, {
+    status: "drafted",
+    actionMode: normalized.actionMode,
+    rerunStatus: "not_run",
+    rerunReportId: ""
+  });
+  const action = {
+    id: randomUUID(),
+    report_id: report.id,
+    owner_email: access.ownerEmail,
+    queue_item_id: row.id,
+    issue_id: item.issueId,
+    action_mode: row.action_mode,
+    action_type: normalized.actionType,
+    approval_state: "drafted",
+    execution_state: "not_started",
+    rerun_state: "not_run",
+    source_proof: cleanText(item.proof, 1200),
+    proposed_change: proposedChange,
+    acceptance: cleanText(body.acceptance || item.acceptance, 1000),
+    rerun_report_id: "",
+    created_at: now,
+    updated_at: now,
+    approved_at: "",
+    applied_at: "",
+    updated_by_email: access.ownerEmail
+  };
+  localRepairActionRows.set(action.id, action);
+  scheduleLocalRepairActionWebhook(access, report, "repair_action.drafted", action);
+  return {
+    ok: true,
+    body: {
+      ok: true,
+      action: agentActionResponse(action),
+      queue: localRepairQueueResponse(access, report)
+    }
+  };
+}
+
+function updateLocalRepairAction(access, report, actionId, body = {}) {
+  const action = localRepairActionRows.get(String(actionId || ""));
+  if (!action || action.report_id !== report.id || action.owner_email !== access.ownerEmail) {
+    return { ok: false, error: "Action not found.", status: 404 };
+  }
+  const normalized = normalizeRepairActionPatch(body, action, {
+    messages: {
+      appliedBeforeApproved: "Repair action must be approved before it can be applied.",
+      missingRerunReport: "Rerun repair actions need a rerun report."
+    }
+  });
+  if (!normalized.ok) return { ok: false, error: normalized.error, status: normalized.status || 400 };
+  const { approvalState, executionState, rerunState, rerunReportId } = normalized;
+  const now = new Date().toISOString();
+  if (rerunProofBlockedByNewApply(action, executionState, rerunState)) {
+    return {
+      ok: false,
+      error: "Rerun repair states require a later rerun after the action is applied.",
+      status: 400
+    };
+  }
+  const proofFreshAfterMs = cleanRerunState(rerunState) !== "not_run" ? rerunProofFreshAfterMs(action, report) : 0;
+  if (rerunReportId && !localOwnerHasReport(access, rerunReportId, report, {
+    freshAfterMs: proofFreshAfterMs,
+    issue: repairProofIssueForAction(report, action),
+    rerunState
+  })) {
+    return { ok: false, error: "Rerun report not found.", status: 404 };
+  }
+  const patched = {
+    ...action,
+    approval_state: approvalState,
+    execution_state: executionState,
+    rerun_state: rerunState,
+    rerun_report_id: rerunReportId,
+    updated_at: now,
+    approved_at: approvalState === "approved" && action.approval_state !== "approved" ? now : action.approved_at || "",
+    applied_at: executionState === "applied" && action.execution_state !== "applied" ? now : action.applied_at || "",
+    updated_by_email: access.ownerEmail
+  };
+  localRepairActionRows.set(patched.id, patched);
+  localUpdateRepairQueueFromAction(access, report, patched);
+  for (const eventType of repairActionTransitionEvents(action, patched)) {
+    scheduleLocalRepairActionWebhook(access, report, eventType, patched);
+  }
+  return {
+    ok: true,
+    body: {
+      ok: true,
+      action: agentActionResponse(patched),
+      queue: localRepairQueueResponse(access, report)
+    }
+  };
+}
+
+function scheduleLocalRepairActionWebhook(access, report, eventType, action = {}) {
+  deliverLocalApiWebhooks(
+    access.ownerEmail,
+    eventType,
+    repairActionWebhookPayload(action, report)
+  ).catch((error) => {
+    console.error("Local repair action webhook delivery failed", {
+      eventType,
+      actionId: action?.id || "",
+      reportId: action?.report_id || "",
+      error: error?.message || String(error)
+    });
+  });
+}
+
+function cleanupLocalRepairsForDeletedReport(reportId = "", ownerEmail = "") {
+  if (!reportId || !ownerEmail) return;
+  const now = new Date().toISOString();
+  for (const [key, row] of [...localRepairQueueRows.entries()]) {
+    if (row.owner_email !== ownerEmail) continue;
+    if (row.report_id === reportId) {
+      localRepairQueueRows.delete(key);
+      continue;
+    }
+    if (row.last_rerun_report_id === reportId) {
+      row.status = ["fixed", "regressed"].includes(row.status) ? "applied" : row.status;
+      row.rerun_status = "not_run";
+      row.last_rerun_report_id = null;
+      row.updated_at = now;
+      row.updated_by_email = ownerEmail;
+    }
+  }
+  for (const [key, action] of [...localRepairActionRows.entries()]) {
+    if (action.owner_email !== ownerEmail) continue;
+    if (action.report_id === reportId) {
+      localRepairActionRows.delete(key);
+      continue;
+    }
+    if (action.rerun_report_id === reportId) {
+      action.rerun_state = "not_run";
+      action.rerun_report_id = "";
+      action.updated_at = now;
+      action.updated_by_email = ownerEmail;
+    }
+  }
+}
+
+function localRepairQueueItems(access, report) {
+  const rows = [...localRepairQueueRows.values()]
+    .filter((row) => row.owner_email === access.ownerEmail && row.report_id === report.id);
+  const actions = [...localRepairActionRows.values()]
+    .filter((row) => row.owner_email === access.ownerEmail && row.report_id === report.id);
+  return deriveRepairQueueItems(report, rows, actions);
+}
+
+function ensureLocalRepairQueueRows(access, report) {
+  const initialItems = localRepairQueueItems(access, report);
+  for (const item of initialItems) {
+    if (!item.id && item.issueId) localStoreRepairQueueRow(access, report, item);
+  }
+  return localRepairQueueItems(access, report);
+}
+
+function localStoreRepairQueueRow(access, report, item = {}, updates = {}) {
+  const issueId = cleanText(item.issueId || item.issue_id || "", 160);
+  const key = `${access.ownerEmail}:${report.id}:${issueId}`;
+  const current = localRepairQueueRows.get(key);
+  const now = new Date().toISOString();
+  const row = {
+    id: current?.id || item.id || `local-${report.id}-${issueId}`.replace(/[^a-z0-9.-]/gi, "-").slice(0, 120),
+    report_id: report.id,
+    owner_email: access.ownerEmail,
+    issue_id: issueId,
+    title: cleanText(item.title, 220),
+    severity: item.severity || "notice",
+    page_url: cleanText(item.pageUrl || item.page_url, 600),
+    page_label: cleanText(item.pageLabel || item.page_label, 120),
+    proof: cleanText(item.proof, 1200),
+    fix: cleanText(item.fix, 1600),
+    snippet: cleanText(item.snippet, 3000),
+    acceptance: cleanText(item.acceptance, 1000),
+    confidence: cleanText(item.confidence || "verified", 80),
+    source: cleanText(item.source, 160),
+    source_kind: item.sourceKind || item.source_kind || "finding",
+    estimated_effort: cleanText(item.estimatedEffort || item.estimated_effort, 80),
+    work_type: cleanText(item.workType || item.work_type, 80),
+    action_mode: cleanActionMode(updates.actionMode || item.actionMode || item.action_mode),
+    status: cleanQueueStatus(updates.status || item.status),
+    rerun_status: cleanRerunState(updates.rerunStatus || item.rerunStatus || item.rerun_status),
+    last_rerun_report_id: updates.rerunReportId || null,
+    created_at: current?.created_at || now,
+    updated_at: now,
+    updated_by_email: access.ownerEmail
+  };
+  localRepairQueueRows.set(key, row);
+  return row;
+}
+
+function localUpdateRepairQueueFromAction(access, report, action) {
+  const item = ensureLocalRepairQueueRows(access, report).find((candidate) => candidate.issueId === action.issue_id);
+  if (!item) return;
+  localStoreRepairQueueRow(access, report, item, {
+    status: queueStatusFromActionState(action),
+    actionMode: action.action_mode,
+    rerunStatus: action.rerun_state,
+    rerunReportId: action.rerun_report_id || ""
+  });
+}
+
+function localRepairQueueCounts(items = []) {
+  return items.reduce((counts, item) => {
+    counts.total += 1;
+    counts[item.status] = (counts[item.status] || 0) + 1;
+    if (item.latestAction) counts.withActions += 1;
+    return counts;
+  }, {
+    total: 0,
+    open: 0,
+    in_progress: 0,
+    drafted: 0,
+    approved: 0,
+    applied: 0,
+    fixed: 0,
+    ignored: 0,
+    regressed: 0,
+    withActions: 0
+  });
+}
+
+function localOwnerHasReport(access, reportId, referenceReport = {}, options = {}) {
+  if (reportId === referenceReport.id || reportId === referenceReport.reportId || reportId === referenceReport.report_id) return false;
+  const report = auditReports.get(reportId);
+  if (!report || report.owner?.email !== access.ownerEmail) return false;
+  if (report.retention?.expiresAt && report.retention.expiresAt <= new Date().toISOString()) return false;
+  if (!validRerunProofReport(report)) return false;
+  const freshAfterMs = Number(options.freshAfterMs || 0);
+  if (freshAfterMs > 0) {
+    const proofTimestampMs = reportTimestampMs(report);
+    if (!proofTimestampMs || proofTimestampMs <= freshAfterMs) return false;
+  }
+  if (comparableReportHost(report) !== comparableReportHost(referenceReport)) return false;
+  if (cleanRerunState(options.rerunState || "") !== "not_run" && !rerunReportProvesIssue(report, options.issue, options.rerunState)) {
+    return false;
+  }
+  return true;
 }
 
 function reportIssuesForCollaboration(report = {}) {
@@ -3026,7 +3610,8 @@ async function createLocalLargeRenderedCrawl(body = {}, access = {}, options = {
     includeUrls: true,
     maxUrls: normalized.targetPages,
     maxSitemaps: 25,
-    fetcher: fetch
+    fetcher: fetch,
+    privateAddressResolver: resolvesToPrivateAddress
   });
   const created = createLargeRenderedCrawlJob({
     ownerEmail: access.ownerEmail,
@@ -3719,7 +4304,9 @@ function resolveLocalApiAudit(access, id) {
   return { ok: true, job, report };
 }
 
-function apiIssueResponse(finding = {}) {
+function apiIssueResponse(finding = {}, repairQueueItem = null, options = {}) {
+  const repairQueue = repairQueueItem ? apiRepairQueueStatusResponse(repairQueueItem) : null;
+  if (repairQueue) repairQueue.unavailable = Boolean(options.repairQueueUnavailable);
   return {
     id: finding.id || "",
     severity: finding.severity || "notice",
@@ -3731,11 +4318,20 @@ function apiIssueResponse(finding = {}) {
     fix: finding.fix || "",
     acceptance: finding.acceptance || "",
     confidence: finding.confidence || "verified",
-    source: finding.source || ""
+    source: finding.source || "",
+    repair_queue: repairQueue
   };
 }
 
-function apiReportResponse(report = {}) {
+function apiReportResponse(report = {}, options = {}) {
+  const repairQueueItems = Array.isArray(options.repairQueueItems) ? options.repairQueueItems : [];
+  const repairQueueUnavailable = Boolean(options.repairQueueUnavailable);
+  const queueByIssue = new Map(repairQueueItems.map((item) => [item.issueId, item]));
+  const repairQueue = repairQueueItems.length
+    ? { ...apiRepairQueueSummary(repairQueueItems), unavailable: repairQueueUnavailable }
+    : repairQueueUnavailable
+      ? { ...apiRepairQueueSummary([]), unavailable: true }
+      : null;
   return {
     id: report.id || "",
     url: report.url || "",
@@ -3753,7 +4349,12 @@ function apiReportResponse(report = {}) {
     local_seo_audit: report.localSeoAudit || null,
     keyword_rank_audit: report.keywordRankAudit || null,
     platform_seo_audit: report.platformSeoAudit || null,
-    findings: (report.findings || []).map(apiIssueResponse),
+    ai_answer_readiness: report.aiAnswerReadiness || null,
+    growth_opportunities: report.growthOpportunities || null,
+    findings: (report.findings || []).map((finding) => apiIssueResponse(finding, queueByIssue.get(finding.id), {
+      repairQueueUnavailable
+    })),
+    repair_queue: repairQueue,
     repair_plan: report.repairPlan || [],
     repair_brief: report.repairBrief || "",
     pages: report.pages || [],
@@ -3761,6 +4362,24 @@ function apiReportResponse(report = {}) {
     report_url: report.reportUrl || "",
     created_at: report.scannedAt || report.createdAt || "",
     expires_at: report.retention?.expiresAt || ""
+  };
+}
+
+function localApiRepairQueueOverlay(access = {}, report = {}) {
+  const items = access.ownerEmail ? ensureLocalRepairQueueRows(access, report) : deriveRepairQueueItems(report, [], []);
+  return {
+    items,
+    byIssue: new Map(items.map((item) => [item.issueId, item])),
+    unavailable: false
+  };
+}
+
+function localFixPackRepairSelection(report = {}, body = {}) {
+  const { items } = localApiRepairQueueOverlay({ ownerEmail: report.owner?.email || report.ownerEmail || "" }, report);
+  const selection = selectFixPackRepair(items, body);
+  return {
+    selectedRepair: selection.selectedRepair,
+    selectionConflict: Boolean(selection.conflict)
   };
 }
 
@@ -4277,7 +4896,17 @@ function normalizeDnsHost(value) {
 }
 
 function cleanWebhookEvents(events = []) {
-  const allowed = new Set(["audit.completed", "audit.failed", "large_crawl.created", "large_crawl.ready_to_merge"]);
+  const allowed = new Set([
+    "audit.completed",
+    "audit.failed",
+    "large_crawl.created",
+    "large_crawl.ready_to_merge",
+    "repair_action.drafted",
+    "repair_action.approved",
+    "repair_action.applied",
+    "repair_action.fixed",
+    "repair_action.regressed"
+  ]);
   const values = Array.isArray(events) ? events : [];
   const cleaned = values.filter((event) => allowed.has(String(event)));
   return cleaned.length ? [...new Set(cleaned)] : ["audit.completed", "audit.failed"];
@@ -4325,8 +4954,12 @@ async function deliverLocalApiWebhooks(ownerEmail, eventType, data = {}) {
     };
     apiWebhookEvents.push(eventRecord);
     try {
+      const webhookHost = new URL(webhook.url).hostname;
+      if (await resolvesToPrivateAddress(webhookHost)) {
+        throw new Error("Webhook host resolves to a private or internal address.");
+      }
       const timestamp = String(Math.floor(Date.now() / 1000));
-      const response = await fetch(webhook.url, {
+      const response = await fetchLocalWebhook(webhook.url, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -4354,6 +4987,21 @@ async function deliverLocalApiWebhooks(ownerEmail, eventType, data = {}) {
       webhook.lastError = eventRecord.error;
       webhook.updatedAt = deliveredAt;
     }
+  }
+}
+
+async function fetchLocalWebhook(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LOCAL_WEBHOOK_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`Webhook delivery timed out after ${LOCAL_WEBHOOK_TIMEOUT_MS}ms.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -4411,11 +5059,13 @@ function resetLocalStateForTests() {
   reportDomains.clear();
   teamMembers.clear();
   issueCollaborations.clear();
+  localRepairQueueRows.clear();
+  localRepairActionRows.clear();
   siteClaims.clear();
   fixRequests.length = 0;
 }
 
-function seedProtectedLocalAuditForTests({ ownerEmail = "owner@example.com", status = "paid" } = {}) {
+function seedProtectedLocalAuditForTests({ ownerEmail = "owner@example.com", status = "paid", url = "https://example.com/", findingPageUrl = url } = {}) {
   const access = {
     ok: true,
     ownerEmail,
@@ -4425,12 +5075,21 @@ function seedProtectedLocalAuditForTests({ ownerEmail = "owner@example.com", sta
   const token = createLocalApiToken(access, "Smoke test API key");
   const now = new Date().toISOString();
   const report = {
-    id: makePrivateReportId("https://example.com/"),
-    url: "https://example.com/",
+    id: makePrivateReportId(url),
+    url,
     score: 91,
     summary: { totalFindings: 1, guardedFalsePositives: 0, pagesScanned: 1 },
-    findings: [{ id: "finding-1", severity: "medium", title: "Missing title" }],
-    pages: [{ url: "https://example.com/" }],
+    findings: [{
+      id: "finding-1",
+      severity: "medium",
+      title: "Missing title",
+      pageUrl: findingPageUrl,
+      evidence: "Rendered title is missing.",
+      fix: "Add a descriptive title.",
+      confidence: "verified",
+      source: "rendered"
+    }],
+    pages: [{ url: findingPageUrl }],
     scannedAt: now,
     reportPath: "",
     reportUrl: "",

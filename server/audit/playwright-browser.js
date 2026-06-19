@@ -39,6 +39,7 @@ function wrapPage(page) {
         ...options,
         waitUntil: WAIT_UNTIL_MAP[options.waitUntil] || options.waitUntil || "load"
       }),
+    route: (pattern, handler) => page.route(pattern, handler),
     evaluate: (pageFunction, ...args) => page.evaluate(pageFunction, ...args),
     // puppeteer-only; playwright sets the user agent at context creation.
     setUserAgent: async () => {},

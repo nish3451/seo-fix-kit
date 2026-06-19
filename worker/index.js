@@ -22,6 +22,8 @@ import {
   demoHtml,
   homeMarkdown,
   llmsText,
+  methodologyHtml,
+  packagesHtml,
   privacyHtml,
   supportHtml,
   termsHtml
@@ -46,6 +48,12 @@ import {
   saveReportCollaboration
 } from "./routes/reports.js";
 import {
+  createRepairAction,
+  getRepairQueue,
+  saveRepairQueue,
+  updateRepairAction
+} from "./routes/repair-agent.js";
+import {
   createAuditSchedule,
   deleteAuditSchedule,
   failStaleRunningAuditJobs,
@@ -61,10 +69,14 @@ import {
 import {
   apiCreateAudit,
   apiCreateProject,
+  apiCreateRepairAction,
   apiDeleteAudit,
   apiGetAudit,
   apiGetAuditIssues,
   apiGetAuditReport,
+  apiGetRepairQueue,
+  apiSaveRepairQueue,
+  apiUpdateRepairAction,
   apiListAudits,
   apiListProjects,
   createDeveloperApiToken,
@@ -296,6 +308,22 @@ export default {
         return saveReportCollaboration(request, env);
       }
 
+      if (url.pathname.startsWith("/api/reports/") && url.pathname.endsWith("/repair-queue") && request.method === "GET") {
+        return getRepairQueue(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/reports/") && url.pathname.endsWith("/repair-queue") && request.method === "PATCH") {
+        return saveRepairQueue(request, env);
+      }
+
+      if (url.pathname.startsWith("/api/reports/") && url.pathname.endsWith("/repair-actions") && request.method === "POST") {
+        return createRepairAction(request, env, ctx);
+      }
+
+      if (url.pathname.startsWith("/api/reports/") && url.pathname.includes("/repair-actions/") && request.method === "PATCH") {
+        return updateRepairAction(request, env, ctx);
+      }
+
       if (url.pathname.startsWith("/r/") && url.pathname.endsWith("/unlock") && request.method === "POST") {
         return unlockClientReport(request, env);
       }
@@ -334,6 +362,22 @@ export default {
 
       if (url.pathname.startsWith("/v1/audits/") && url.pathname.endsWith("/report") && request.method === "GET") {
         return apiGetAuditReport(request, env);
+      }
+
+      if (url.pathname.startsWith("/v1/audits/") && url.pathname.endsWith("/repair-queue") && request.method === "GET") {
+        return apiGetRepairQueue(request, env);
+      }
+
+      if (url.pathname.startsWith("/v1/audits/") && url.pathname.endsWith("/repair-queue") && request.method === "PATCH") {
+        return apiSaveRepairQueue(request, env);
+      }
+
+      if (url.pathname.startsWith("/v1/audits/") && url.pathname.endsWith("/repair-actions") && request.method === "POST") {
+        return apiCreateRepairAction(request, env, ctx);
+      }
+
+      if (url.pathname.startsWith("/v1/audits/") && url.pathname.includes("/repair-actions/") && request.method === "PATCH") {
+        return apiUpdateRepairAction(request, env, ctx);
       }
 
       if (url.pathname.startsWith("/v1/audits/") && request.method === "GET") {
@@ -524,6 +568,18 @@ export default {
 
       if (url.pathname === "/demo") {
         return new Response(demoHtml(url.origin), {
+          headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
+        });
+      }
+
+      if (url.pathname === "/methodology") {
+        return new Response(methodologyHtml(url.origin), {
+          headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
+        });
+      }
+
+      if (url.pathname === "/packages") {
+        return new Response(packagesHtml(url.origin), {
           headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
         });
       }

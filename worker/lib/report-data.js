@@ -1,4 +1,5 @@
 import { appendReportDeltaBrief, buildReportDelta } from "../../shared/report-delta.js";
+import { isRepairTablesMissingError } from "./repair-tables.js";
 import { cleanText, isSafeReportId, isoDaysFromNow, parseJson } from "./text.js";
 
 const REPORT_RETENTION_DAYS = 30;
@@ -6,7 +7,7 @@ const REPORT_RETENTION_DAYS = 30;
 async function ownerReportRow(env, reportId, access) {
   if (!isSafeReportId(reportId)) return null;
   const row = await env.WAITLIST_DB.prepare(
-    `SELECT report_json, owner_email, owner_invite_id, expires_at, url
+    `SELECT id, report_json, owner_email, owner_invite_id, expires_at, url, target_host, created_at, updated_at
      FROM audit_reports
      WHERE id = ?
      LIMIT 1`
@@ -27,7 +28,8 @@ async function ownerReportRow(env, reportId, access) {
   ) {
     return null;
   }
-  return hydrateReportRow(env, row);
+  const hydrated = await hydrateReportRow(env, row);
+  return hydrated?.report_json ? hydrated : null;
 }
 
 const PRESERVED_FIX_REQUEST_STATUSES = ["paid", "in_progress", "delivered", "refunded", "refund_failed", "disputed"];
@@ -196,19 +198,7 @@ async function deleteReportRowsWithBlobs(env, rows = []) {
   const protectedIds = [];
   const placeholders = PRESERVED_FIX_REQUEST_STATUSES.map(() => "?").join(", ");
   for (const row of candidateRows) {
-    const deleted = await env.WAITLIST_DB.prepare(
-      `DELETE FROM audit_reports
-       WHERE id = ?
-         AND NOT EXISTS (
-           SELECT 1
-           FROM fix_requests
-           WHERE status IN (${placeholders})
-             AND (report_id = ? OR final_report_id = ?)
-         )`
-    )
-      .bind(row.id, ...PRESERVED_FIX_REQUEST_STATUSES, row.id, row.id)
-      .run();
-    if (Number(deleted?.meta?.changes || 0) === 1) {
+    if (await deleteReportRowWithRepairCleanup(env, row, placeholders)) {
       deletedRows.push(row);
       continue;
     }
@@ -241,6 +231,102 @@ async function deleteReportRowsWithBlobs(env, rows = []) {
     }
   }
   return { deletedIds: deletedRows.map((row) => row.id), protectedIds, preservedIds: protectedIds, failedBlobDeletes };
+}
+
+async function deleteReportRowWithRepairCleanup(env, row, protectedStatusPlaceholders) {
+  const now = new Date().toISOString();
+  const cleanupAllowedPredicate = `EXISTS (
+         SELECT 1
+         FROM audit_reports candidate_report
+         WHERE candidate_report.id = ?
+           AND NOT EXISTS (
+             SELECT 1
+             FROM fix_requests
+             WHERE status IN (${protectedStatusPlaceholders})
+               AND (report_id = candidate_report.id OR final_report_id = candidate_report.id)
+           )
+       )`;
+  const statements = [
+    env.WAITLIST_DB.prepare(
+      `UPDATE repair_agent_actions
+       SET rerun_state = 'not_run',
+           rerun_report_id = NULL,
+           updated_at = ?,
+           updated_by_email = COALESCE(NULLIF(updated_by_email, ''), owner_email)
+       WHERE rerun_report_id = ?
+         AND ${cleanupAllowedPredicate}`
+    ).bind(now, row.id, row.id, ...PRESERVED_FIX_REQUEST_STATUSES),
+    env.WAITLIST_DB.prepare(
+      `UPDATE repair_queue_items
+       SET status = CASE
+             WHEN status IN ('fixed', 'regressed') THEN 'applied'
+             ELSE status
+           END,
+           rerun_status = 'not_run',
+           last_rerun_report_id = NULL,
+           updated_at = ?,
+           updated_by_email = COALESCE(NULLIF(updated_by_email, ''), owner_email)
+       WHERE last_rerun_report_id = ?
+         AND ${cleanupAllowedPredicate}`
+    ).bind(now, row.id, row.id, ...PRESERVED_FIX_REQUEST_STATUSES),
+    env.WAITLIST_DB.prepare(
+      `DELETE FROM repair_agent_actions
+       WHERE report_id = ?
+         AND ${cleanupAllowedPredicate}`
+    ).bind(row.id, row.id, ...PRESERVED_FIX_REQUEST_STATUSES),
+    env.WAITLIST_DB.prepare(
+      `DELETE FROM repair_queue_items
+       WHERE report_id = ?
+         AND ${cleanupAllowedPredicate}`
+    ).bind(row.id, row.id, ...PRESERVED_FIX_REQUEST_STATUSES),
+    env.WAITLIST_DB.prepare(
+      `DELETE FROM audit_jobs
+       WHERE report_id = ?
+         AND ${cleanupAllowedPredicate}`
+    ).bind(row.id, row.id, ...PRESERVED_FIX_REQUEST_STATUSES),
+    guardedReportDeleteStatement(env, row.id, protectedStatusPlaceholders)
+  ];
+  let results;
+  try {
+    results = await runReportDeletionBatch(env, statements);
+  } catch (error) {
+    if (!isRepairTablesMissingError(error)) throw error;
+    results = await runReportDeletionBatch(env, [
+      env.WAITLIST_DB.prepare(
+        `DELETE FROM audit_jobs
+         WHERE report_id = ?
+           AND ${cleanupAllowedPredicate}`
+      ).bind(row.id, row.id, ...PRESERVED_FIX_REQUEST_STATUSES),
+      guardedReportDeleteStatement(env, row.id, protectedStatusPlaceholders)
+    ]);
+  }
+  const deleted = results[results.length - 1];
+  return Number(deleted?.meta?.changes || 0) === 1;
+}
+
+function guardedReportDeleteStatement(env, reportId, protectedStatusPlaceholders) {
+  return env.WAITLIST_DB.prepare(
+    `DELETE FROM audit_reports
+     WHERE id = ?
+       AND NOT EXISTS (
+         SELECT 1
+         FROM fix_requests
+         WHERE status IN (${protectedStatusPlaceholders})
+           AND (report_id = ? OR final_report_id = ?)
+       )`
+  )
+    .bind(reportId, ...PRESERVED_FIX_REQUEST_STATUSES, reportId, reportId);
+}
+
+async function runReportDeletionBatch(env, statements = []) {
+  if (typeof env.WAITLIST_DB.batch === "function") {
+    return env.WAITLIST_DB.batch(statements);
+  }
+  const results = [];
+  for (const statement of statements) {
+    results.push(await statement.run());
+  }
+  return results;
 }
 
 async function recordReportBlobDeletionFailure(env, failure = {}) {

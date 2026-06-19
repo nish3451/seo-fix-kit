@@ -195,7 +195,8 @@ async function getPrivateReportPdf(request, env) {
     report,
     branding,
     share,
-    origin: url.origin
+    origin: url.origin,
+    includeDraftBriefs: true
   });
 }
 
@@ -728,11 +729,11 @@ function clientReportLockedResponse(request, branding, share, status = 401, erro
   );
 }
 
-async function renderWorkerWhiteLabelPdf(env, { report, branding, share, origin }) {
+async function renderWorkerWhiteLabelPdf(env, { report, branding, share, origin, includeDraftBriefs = false }) {
   if (!env.BROWSER) {
     return jsonNoStore({ error: "PDF export requires the Browser Run binding." }, 503);
   }
-  const html = buildWhiteLabelReportHtml({ report, branding, share, origin });
+  const html = buildWhiteLabelReportHtml({ report, branding, share, origin, includeDraftBriefs });
   let browser = null;
   try {
     browser = await puppeteer.launch(env.BROWSER);

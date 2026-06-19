@@ -18,17 +18,26 @@ Live product claims:
 - Verified sessions can supply local business details, keywords, and citation URLs for local SEO proof and repair actions.
 - Verified sessions can import Search Console or rank-tracker keyword rows for low-CTR, page-two, decline, cannibalization, intent-match, uncrawled landing-page repair actions, and rank observation history.
 - Reports include rendered WordPress and ecommerce platform proof for Product schema, breadcrumbs, faceted links, archives, and plugin resource impact.
+- Reports include proof-derived AI Answer Readiness checks for rendered content depth, helpful schema, canonical/internal-link clarity, question-led structure, sitemap context, and optional llms.txt reachability.
+- Reports include draft-only growth briefs from verified keyword, competitor, AI-readiness, and crawl gaps.
+- Reports include a private repair queue with proof, acceptance checks, status, safe draft action records, and approval state.
+- The account dashboard includes a repair-agent feed that ranks open repairs, drafted actions, applied items needing rerun proof, and monitor regressions.
+- Developer API issue/report responses include safe repair_queue status and repair-action lifecycle webhooks.
 - Dodo is the source of truth for visible Fix Pack pricing and checkout.
 - Paid Fix Pack fulfillment includes status, delivery notes, and one rerun after fixes.
 
 Current product boundary:
+- Public methodology and package pages describe the live proof loop, limits, and package ladder; they are not a public anonymous audit.
 - Does not sell or claim completed 50,000-page rendered validation; large crawls are early-access staged plans until every batch has page-level proof and merge readiness is clear.
 - 100,000+ enterprise rendered crawls and browser-container fleet autoscaling are not live yet.
 - Does not provide full-site rank, index, or orphan discovery beyond rendered crawl proof and sitemap inventory samples.
 - Does not provide proprietary backlink discovery beyond supplied/imported link-edge history.
 - Does not provide live keyword volume providers, traffic estimates, or continuous rank tracking yet.
+- Does not provide live AI-engine visibility tracking, AI citation monitoring, or answer-engine sampling. AI Answer Readiness is site-proof only.
+- Does not auto-publish growth content, create CMS drafts, open pull requests, or promise rankings/traffic from growth briefs.
 - Does not scrape private Google Business Profile data or discover every citation automatically.
 - Does not log into WordPress, Shopify, WooCommerce, Magento, or private CMS/plugin admin settings.
+- Does not publish CMS changes, open GitHub pull requests, or call provider admin APIs from the browser.
 - Does not replace Ahrefs or Semrush.
 - Does not provide anonymous public audits.
 - Does not guarantee rankings, traffic, indexing, or revenue.
@@ -41,15 +50,22 @@ Useful routes:
 - ${origin}/support
 - ${origin}/terms
 - ${origin}/demo
+- ${origin}/methodology
+- ${origin}/packages
 `;
 }
 
 function homeMarkdown(origin) {
   return `# SEO Fix Kit
 
-Proof-backed SEO audits and paid repair queue.
+Proof-backed SEO audits, self-serve repair queue, and approval-safe repair-agent workflow.
 
 Request a secure email access link to run a rate-limited private audit. The paid Fix Pack is one proof-backed repair pass for one report plus one rerun after fixes. No ranking promise is made.
+
+Public proof before payment:
+- Sample proof report: ${origin}/demo
+- Methodology and limits: ${origin}/methodology
+- Package ladder: ${origin}/packages
 
 Start at ${origin}/.
 `;
@@ -146,6 +162,175 @@ ${pageSocialHead({ origin, title: "SEO Fix Kit Demo - Proof-Backed SEO Repair", 
 - Acceptance: Re-run audit; finding stays guarded, not queued as a fix.</code>
       </section>
       <p><a class="cta" href="${origin}/">Request access</a></p>
+      <p><a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a></p>
+    </main>
+  </body>
+</html>`;
+}
+
+function methodologyHtml(origin) {
+  return publicProductPageHtml({
+    origin,
+    path: "/methodology",
+    title: "Methodology",
+    description: "How SEO Fix Kit turns rendered proof into a self-serve repair queue, what it can verify today, and what it does not claim.",
+    eyebrow: "Methodology and limits",
+    heading: "Proof first. Repairs second. Claims last.",
+    lead: "SEO Fix Kit starts with what a browser, sitemap, supplied data, and rerun can prove. The repair agent is a queue and approval system, not an autopilot that edits your site behind your back.",
+    body: `
+      <section class="band">
+        <h2>The proof loop</h2>
+        <div class="grid three">
+          <article class="panel proof"><strong>1. Render</strong><p>We compare raw HTML with the browser-rendered page, then keep false positives out when the final DOM already has the expected content.</p></article>
+          <article class="panel proof"><strong>2. Queue</strong><p>Only proven findings become repair queue items with severity, source proof, suggested action, and an acceptance check.</p></article>
+          <article class="panel proof"><strong>3. Re-measure</strong><p>Reruns and weekly monitors are the authority for fixed, still-open, new, or regressed status.</p></article>
+        </div>
+      </section>
+      <section class="band">
+        <h2>What is live today</h2>
+        <ul class="check-list">
+          <li>Private self-serve audits for authorized sites, with 1-page Lite checks and verified-host crawl depths up to 1,000 pages.</li>
+          <li>Rendered page proof, sitemap inventory up to 50,000 discovered URLs, crawl intelligence, resource waterfall proof, platform SEO checks, proof-derived AI Answer Readiness, draft-only growth briefs, competitor homepage benchmarks, and supplied backlink/local/keyword imports.</li>
+          <li>Private report repair queues with proof, status, safe drafts, approval state, teammate assignment, account-level next actions, and one Fix Pack checkout path when real fixes exist.</li>
+          <li>Developer API and webhook surfaces for owner-scoped audit workflows, including safe repair queue status and repair-action lifecycle events.</li>
+        </ul>
+      </section>
+      <section class="band">
+        <h2>Limits we state up front</h2>
+        <div class="grid two">
+          <article class="panel"><strong>No fake scale claim</strong><p>Large 50,000-page rendered crawls are early-access staged jobs. We do not call them complete until every batch has page-level proof and merge readiness is clear.</p></article>
+          <article class="panel"><strong>No AI visibility tracking</strong><p>AI Answer Readiness is proof-derived from rendered pages, schema, canonicals, links, sitemap context, and optional llms.txt. Live answer-engine sampling, AI citation monitoring, and AI visibility score tracking are not live.</p></article>
+          <article class="panel"><strong>No backlink database claim</strong><p>Backlink proof starts with supplied/imported rows and link-edge history. SEO Fix Kit does not replace Ahrefs, Semrush, or proprietary backlink discovery.</p></article>
+          <article class="panel"><strong>No hidden site writes</strong><p>Agent actions and growth briefs are records and reviewable drafts. The browser does not call CMS admin APIs, publish pages, merge code, or use private provider credentials.</p></article>
+        </div>
+      </section>
+      <section class="band">
+        <h2>Acceptance standard</h2>
+        <p>A repair is treated as proof-backed only when the report names the issue, shows source evidence, gives a concrete fix, and includes an acceptance check that can be rerun. Rankings, traffic, indexing, citations, and revenue are never guaranteed.</p>
+      </section>
+    `
+  });
+}
+
+function packagesHtml(origin) {
+  return publicProductPageHtml({
+    origin,
+    path: "/packages",
+    title: "Packages",
+    description: "The current SEO Fix Kit package ladder, including free beta audits, one-time Fix Pack checkout, and clearly marked roadmap packages.",
+    eyebrow: "Package ladder",
+    heading: "Start with proof. Pay only when there is work to do.",
+    lead: "The live paid offer is intentionally narrow: one proof-backed repair pass tied to one report, plus one rerun after fixes. Dodo checkout is the source of truth for the visible price.",
+    body: `
+      <section class="package-grid" aria-label="SEO Fix Kit package ladder">
+        <article class="package-card live">
+          <span>Live beta</span>
+          <h2>Private audit</h2>
+          <p>Run a rate-limited proof audit from a secure access link. Verified hosts unlock normal self-serve crawl depth.</p>
+          <ul>
+            <li>Rendered proof report</li>
+            <li>Repair queue when issues are proven</li>
+            <li>Account next actions</li>
+          </ul>
+          <a href="${origin}/">Request access</a>
+        </article>
+        <article class="package-card live">
+          <span>Live checkout when eligible</span>
+          <h2>SEO Fix Pack</h2>
+          <p>One proof-backed repair pass tied to the report queue, plus one rerun after fixes. Offered only from a report with real fixes.</p>
+          <ul>
+            <li>Dodo shows the actual checkout price</li>
+            <li>No ranking or traffic guarantee</li>
+            <li>Refund guard if payment succeeds but the queue cannot start</li>
+          </ul>
+          <a href="${origin}/support">Read support terms</a>
+        </article>
+        <article class="package-card">
+          <span>Roadmap</span>
+          <h2>Repair Agent</h2>
+          <p>Recurring approval workflow for safe drafts, CMS/GitHub handoff, and rerun tracking after explicit integrations exist.</p>
+          <ul>
+            <li>No live subscription yet</li>
+            <li>No CMS writes yet</li>
+            <li>No GitHub PR creation yet</li>
+          </ul>
+          <a href="${origin}/methodology">See limits</a>
+        </article>
+        <article class="package-card">
+          <span>Roadmap</span>
+          <h2>Growth Add-On</h2>
+          <p>Reports now include draft-only opportunities from verified gaps such as low CTR imports, competitor gaps, structured content, and crawl proof. The paid package remains roadmap until billing and integrations are live.</p>
+          <ul>
+            <li>No article-volume autopilot</li>
+            <li>No auto-publishing or CMS drafts</li>
+            <li>No backlink exchange network</li>
+            <li>No unqualified AI citation claims</li>
+          </ul>
+          <a href="${origin}/demo">View proof sample</a>
+        </article>
+      </section>
+      <section class="band">
+        <h2>Why this ladder exists</h2>
+        <p>The product is built to avoid audit noise and over-automation. The first paid step is a small, inspectable repair pass. Future packages only become live when proof, approval controls, billing, and provider safety are implemented.</p>
+      </section>
+    `
+  });
+}
+
+function publicProductPageHtml({ origin, path, title, description, eyebrow, heading, lead, body }) {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(title)} - SEO Fix Kit</title>
+    <meta name="description" content="${escapeHtml(description)}" />
+${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })}
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-width: 320px; }
+      main { margin: 0 auto; max-width: 1120px; padding: 36px 22px 68px; }
+      a { color: #98f0cc; font-weight: 780; text-decoration: none; }
+      header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 72px; }
+      nav { display: flex; flex-wrap: wrap; gap: 16px; justify-content: flex-end; }
+      h1 { font-size: clamp(46px, 8vw, 108px); letter-spacing: 0; line-height: .88; margin: 0; max-width: 820px; }
+      h2 { font-size: clamp(24px, 3vw, 34px); line-height: 1.08; margin: 0 0 14px; }
+      p, li { color: rgba(251,248,239,.76); font-size: 17px; line-height: 1.62; }
+      ul { margin: 0; padding-left: 22px; }
+      .eyebrow { color: #98f0cc; font-size: 13px; font-weight: 880; letter-spacing: 0; margin: 0 0 18px; text-transform: uppercase; }
+      .lead { font-size: clamp(19px, 2.4vw, 25px); max-width: 760px; }
+      .hero { margin-bottom: 48px; }
+      .band { border-top: 1px solid rgba(251,248,239,.14); padding: 32px 0; }
+      .grid, .package-grid { display: grid; gap: 14px; }
+      .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .grid.two, .package-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .panel, .package-card { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; display: grid; gap: 10px; padding: 20px; }
+      .panel.proof, .package-card.live { border-color: rgba(152,240,204,.28); }
+      .panel strong, .package-card span { color: #98f0cc; font-size: 12px; font-weight: 860; text-transform: uppercase; }
+      .package-card h2 { margin: 0; }
+      .package-card a { align-items: center; border: 1px solid rgba(152,240,204,.32); border-radius: 8px; display: inline-flex; justify-content: center; min-height: 44px; padding: 0 14px; width: fit-content; }
+      .check-list { display: grid; gap: 12px; list-style: none; padding-left: 0; }
+      .check-list li { background: rgba(7,13,10,.58); border: 1px solid rgba(251,248,239,.1); border-radius: 8px; padding: 14px 16px; }
+      @media (max-width: 760px) { header { align-items: flex-start; flex-direction: column; gap: 18px; margin-bottom: 44px; } nav { justify-content: flex-start; } .grid.three, .grid.two, .package-grid { grid-template-columns: 1fr; } main { padding-top: 26px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <a href="${origin}/">SEO Fix Kit</a>
+        <nav aria-label="Public pages">
+          <a href="${origin}/demo">Demo</a>
+          <a href="${origin}/methodology">Methodology</a>
+          <a href="${origin}/packages">Packages</a>
+        </nav>
+      </header>
+      <section class="hero">
+        <p class="eyebrow">${escapeHtml(eyebrow)}</p>
+        <h1>${escapeHtml(heading)}</h1>
+        <p class="lead">${escapeHtml(lead)}</p>
+      </section>
+      ${body}
     </main>
   </body>
 </html>`;
@@ -297,6 +482,8 @@ export {
   demoHtml,
   homeMarkdown,
   llmsText,
+  methodologyHtml,
+  packagesHtml,
   policyPageHtml,
   privacyHtml,
   supportHtml,

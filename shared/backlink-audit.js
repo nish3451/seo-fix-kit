@@ -93,6 +93,7 @@ export async function buildBacklinkAudit(report = {}, input = [], options = {}) 
   for (const row of parsed.rows) {
     rows.push(await inspectBacklinkRow(row, {
       fetcher: options.fetcher || fetch,
+      privateAddressResolver: options.privateAddressResolver,
       targetOrigin,
       targetHost,
       targetPageMap
@@ -214,7 +215,7 @@ function normalizeHeader(value = "") {
 }
 
 async function inspectBacklinkRow(row, context) {
-  const source = await fetchSource(row.sourceUrl, context.fetcher);
+  const source = await fetchSource(row.sourceUrl, context.fetcher, context.privateAddressResolver);
   const links = source.html ? extractLinks(source.html, row.sourceUrl) : [];
   const matchingLinks = links.filter((link) => linkMatchesTarget(link.href, row.targetUrl, context.targetOrigin));
   const targetStatus = await targetStatusFor(row.targetUrl, context);
@@ -246,17 +247,22 @@ async function inspectBacklinkRow(row, context) {
   };
 }
 
-async function fetchSource(url, fetcher) {
+async function fetchSource(url, fetcher, privateAddressResolver) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const { response } = await fetchPublicUrl(fetcher, url, {
-      headers: {
-        accept: "text/html,application/xhtml+xml",
-        "user-agent": "SEOFixKit/0.9 backlink-proof-audit"
+    const { response } = await fetchPublicUrl(
+      fetcher,
+      url,
+      {
+        headers: {
+          accept: "text/html,application/xhtml+xml",
+          "user-agent": "SEOFixKit/0.9 backlink-proof-audit"
+        },
+        signal: controller.signal
       },
-      signal: controller.signal
-    });
+      { privateAddressResolver }
+    );
     const contentType = response.headers?.get?.("content-type") || "";
     const body = contentType.includes("text/html") || contentType.includes("application/xhtml")
       ? (await response.text()).slice(0, MAX_SOURCE_HTML_BYTES)
@@ -289,16 +295,26 @@ async function targetStatusFor(targetUrl, context) {
   }
   try {
     let method = "HEAD";
-    let { response, finalUrl } = await fetchPublicUrl(context.fetcher, targetUrl, {
-      method: "HEAD",
-      signal: AbortSignal.timeout ? AbortSignal.timeout(FETCH_TIMEOUT_MS) : undefined
-    });
+    let { response, finalUrl } = await fetchPublicUrl(
+      context.fetcher,
+      targetUrl,
+      {
+        method: "HEAD",
+        signal: AbortSignal.timeout ? AbortSignal.timeout(FETCH_TIMEOUT_MS) : undefined
+      },
+      { privateAddressResolver: context.privateAddressResolver }
+    );
     if (response.status === 403 || response.status === 405) {
       method = "GET";
-      ({ response, finalUrl } = await fetchPublicUrl(context.fetcher, targetUrl, {
-        method: "GET",
-        signal: AbortSignal.timeout ? AbortSignal.timeout(FETCH_TIMEOUT_MS) : undefined
-      }));
+      ({ response, finalUrl } = await fetchPublicUrl(
+        context.fetcher,
+        targetUrl,
+        {
+          method: "GET",
+          signal: AbortSignal.timeout ? AbortSignal.timeout(FETCH_TIMEOUT_MS) : undefined
+        },
+        { privateAddressResolver: context.privateAddressResolver }
+      ));
     }
     return {
       ok: response.ok,

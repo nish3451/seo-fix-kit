@@ -8,7 +8,17 @@ const WEBHOOK_DELIVERY_EVENT_BUDGET_MS = 12000;
 const WEBHOOK_DELIVERY_RETRY_BASE_MS = 250;
 
 function cleanWebhookEvents(events = []) {
-  const allowed = new Set(["audit.completed", "audit.failed", "large_crawl.created", "large_crawl.ready_to_merge"]);
+  const allowed = new Set([
+    "audit.completed",
+    "audit.failed",
+    "large_crawl.created",
+    "large_crawl.ready_to_merge",
+    "repair_action.drafted",
+    "repair_action.approved",
+    "repair_action.applied",
+    "repair_action.fixed",
+    "repair_action.regressed"
+  ]);
   const values = Array.isArray(events) ? events : [];
   const cleaned = values.filter((event) => allowed.has(String(event)));
   return cleaned.length ? [...new Set(cleaned)] : ["audit.completed", "audit.failed"];

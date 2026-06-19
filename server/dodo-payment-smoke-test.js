@@ -32,7 +32,10 @@ const payload = JSON.stringify({
     metadata: {
       product_key: "seofixkit_fix_pack",
       fix_request_id: "fix_123",
-      report_id: "report_123"
+      report_id: "report_123",
+      repair_issue_id: "issue_123",
+      repair_queue_item_id: "queue_123",
+      repair_title: "Missing title"
     },
     product_cart: [{ product_id: "pdt_fix_pack", quantity: 1 }]
   }
@@ -70,6 +73,9 @@ assert.equal(payment.businessId, "bus_123");
 assert.equal(payment.customerEmail, "buyer@example.com");
 assert.equal(payment.metadataFixRequestId, "fix_123");
 assert.equal(payment.metadataProductKey, "seofixkit_fix_pack");
+assert.equal(payment.metadataRepairIssueId, "issue_123");
+assert.equal(payment.metadataRepairQueueItemId, "queue_123");
+assert.equal(payment.metadataRepairTitle, "Missing title");
 assert.deepEqual(payment.productIds, ["pdt_fix_pack"]);
 assert.equal(dodoProductMatches(payment, "pdt_fix_pack"), true);
 assert.equal(dodoProductMatches(payment, "pdt_other"), false);

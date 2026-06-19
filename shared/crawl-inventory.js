@@ -38,7 +38,10 @@ export async function buildCrawlInventory(startUrl = "", options = {}) {
     }
     seenSitemaps.add(normalizedSitemap);
 
-    const fetched = await fetchSitemap(normalizedSitemap, fetcher, { allowPrivate: options.allowPrivate });
+    const fetched = await fetchSitemap(normalizedSitemap, fetcher, {
+      allowPrivate: options.allowPrivate,
+      privateAddressResolver: options.privateAddressResolver
+    });
     const parsed = parseSitemap(fetched.body || "", normalizedSitemap);
     sitemaps.push({
       url: normalizedSitemap,
@@ -167,7 +170,10 @@ async function fetchSitemap(url, fetcher, options = {}) {
         },
         signal: controller.signal
       },
-      { allowPrivate: options.allowPrivate }
+      {
+        allowPrivate: options.allowPrivate,
+        privateAddressResolver: options.privateAddressResolver
+      }
     );
     const contentType = response.headers?.get?.("content-type") || "";
     const body = contentType.includes("xml") || contentType.includes("text") || contentType === ""

@@ -846,7 +846,8 @@ async function auditUrl(inputUrl, env, options = {}) {
   const engine = createAuditEngine({
     launchBrowser: () => puppeteer.launch(env.BROWSER),
     pagespeedApiKey: env.GOOGLE_PAGESPEED_API_KEY || env.PAGESPEED_API_KEY || "",
-    pagespeedDisabled: env.SEOFIXKIT_PAGESPEED_DISABLED === "1"
+    pagespeedDisabled: env.SEOFIXKIT_PAGESPEED_DISABLED === "1",
+    privateAddressResolver: (hostname) => resolvesToPrivateAddress(hostname)
   });
   return engine.auditUrl(inputUrl, options);
 }
