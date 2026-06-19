@@ -1,4 +1,5 @@
 import { issuePatternKey } from "../../shared/audit-engine.js";
+import { normalizeFixRequestStatus } from "../../shared/fulfillment.js";
 import { repairSprintEligibilityFromProposals } from "../../shared/offers.js";
 import { betaAccessResponse, betaAccessStatus } from "../lib/auth.js";
 import { json, jsonNoStore } from "../lib/http.js";
@@ -10,6 +11,8 @@ import {
 } from "../lib/report-data.js";
 import { fixRequestResponse, repairProposalResponse } from "../lib/serializers.js";
 import { cleanText, isSafeReportId, isSafeUuid, normalizeEmail, parseJson } from "../lib/text.js";
+
+const REPAIR_PROPOSAL_ACTIVE_FIX_REQUEST_STATUSES = new Set(["paid", "in_progress"]);
 
 async function getTeamMembers(request, env) {
   const access = await betaAccessStatus(request, env);
@@ -183,7 +186,7 @@ async function updateRepairProposalApproval(request, env) {
   const now = new Date().toISOString();
   const ownerNote = cleanText(body.ownerNote || body.owner_note || "", 1000);
   const nextApprovalStatus = action === "approve" ? "approved" : "dismissed";
-  await env.WAITLIST_DB.prepare(
+  const updateResult = await env.WAITLIST_DB.prepare(
     `UPDATE repair_proposals
      SET approval_status = ?,
          owner_note = ?,
@@ -193,7 +196,14 @@ async function updateRepairProposalApproval(request, env) {
          updated_at = ?
      WHERE id = ?
        AND report_id = ?
-       AND owner_email = ?`
+       AND owner_email = ?
+       AND delivery_status = 'draft'
+       AND EXISTS (
+         SELECT 1
+         FROM fix_requests
+         WHERE fix_requests.id = repair_proposals.fix_request_id
+           AND fix_requests.status IN ('paid', 'in_progress')
+       )`
   )
     .bind(
       nextApprovalStatus,
@@ -207,6 +217,12 @@ async function updateRepairProposalApproval(request, env) {
       access.ownerEmail
     )
     .run();
+  if (Number(updateResult?.meta?.changes || 0) !== 1) {
+    return jsonNoStore(
+      { error: "Repair approval can only be changed while the Fix Pack request is paid or in progress." },
+      409
+    );
+  }
   await logRepairProposalEvent(env, {
     proposalId,
     fixRequestId: existing.fix_request_id || "",
@@ -220,6 +236,14 @@ async function updateRepairProposalApproval(request, env) {
     .bind(proposalId)
     .first();
   return jsonNoStore({ ok: true, proposal: repairProposalResponse(updated) });
+}
+
+function repairProposalApprovalWindowStatus(status) {
+  const normalized = normalizeFixRequestStatus(status, "missing");
+  return {
+    ok: REPAIR_PROPOSAL_ACTIVE_FIX_REQUEST_STATUSES.has(normalized),
+    status: normalized
+  };
 }
 
 async function logRepairProposalEvent(env, { proposalId, fixRequestId = "", event, actorEmail, fromStatus, toStatus, detail = {} }) {
@@ -536,6 +560,7 @@ export {
   reportIssuesForCollaboration,
   revokeTeamMember,
   repairProposalsForReport,
+  repairProposalApprovalWindowStatus,
   saveIssueCollaborations,
   saveReportCollaboration,
   summarizeIssuePatterns,

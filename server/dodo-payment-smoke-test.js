@@ -27,6 +27,7 @@ import {
 import { repairProposalSummaryForFixRequest } from "../worker/routes/admin.js";
 import { jsonForStorage } from "../worker/routes/billing.js";
 import { repairProposalResponse } from "../worker/lib/serializers.js";
+import { repairProposalApprovalWindowStatus } from "../worker/routes/reports.js";
 
 const secret = "test_webhook_secret";
 const payload = JSON.stringify({
@@ -234,6 +235,11 @@ const proposalSummary = await repairProposalSummaryForFixRequest(fakeProposalSum
 assert.equal(proposalSummary.approved, 2);
 assert.equal(proposalSummary.approvedExecutable, 1);
 assert.equal(proposalSummary.executable, 2);
+assert.equal(repairProposalApprovalWindowStatus("paid").ok, true);
+assert.equal(repairProposalApprovalWindowStatus("in_progress").ok, true);
+assert.equal(repairProposalApprovalWindowStatus("delivered").ok, false);
+assert.equal(repairProposalApprovalWindowStatus("refunded").ok, false);
+assert.equal(repairProposalApprovalWindowStatus("disputed").ok, false);
 const storedProposalJson = jsonForStorage({ snippet: "\"".repeat(5000), fix: "Use complete JSON only." }, 4000, { truncated: true });
 assert.equal(storedProposalJson.length <= 4000, true);
 assert.equal(JSON.parse(storedProposalJson).fix, "Use complete JSON only.");
