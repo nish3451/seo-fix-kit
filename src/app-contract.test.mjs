@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DEVELOPER_WEBHOOK_EVENTS, developerWebhookRequest } from "./developer-webhooks.js";
-import { fixPackCheckoutBody, fixPackRepairTarget } from "./fix-pack-checkout.js";
+import {
+  fixPackCheckoutBody,
+  fixPackCheckoutDisabled,
+  fixPackCheckoutErrorOutcome,
+  fixPackCheckoutOutcome,
+  fixPackRepairTarget
+} from "./fix-pack-checkout.js";
 import {
   repairActionApplyPatch,
   repairActionApprovalPatch,
@@ -58,6 +64,25 @@ test("Fix Pack checkout omits immutable report-derived targets", () => {
 
   assert.equal(target.source, "report");
   assert.equal(body.selectedRepair, null);
+});
+
+test("Fix Pack checkout failures return a retryable error state", () => {
+  const serverFailure = fixPackCheckoutOutcome({ ok: false, error: "Repair target changed. Refresh checkout." });
+  assert.equal(serverFailure.status, "error");
+  assert.equal(serverFailure.message, "Repair target changed. Refresh checkout.");
+  assert.equal(serverFailure.checkoutUrl, "");
+  assert.equal(
+    fixPackCheckoutDisabled({ hasPriorityFixes: true, pricingStatus: "available", status: serverFailure.status }),
+    false
+  );
+
+  const thrownFailure = fixPackCheckoutErrorOutcome(new Error("Checkout migration is not ready."));
+  assert.equal(thrownFailure.status, "error");
+  assert.equal(thrownFailure.message, "Checkout migration is not ready.");
+  assert.equal(
+    fixPackCheckoutDisabled({ hasPriorityFixes: true, pricingStatus: "available", status: thrownFailure.status }),
+    false
+  );
 });
 
 test("repair action UI contract uses action endpoint for lifecycle changes", () => {

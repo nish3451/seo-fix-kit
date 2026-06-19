@@ -29,6 +29,35 @@ export function fixPackCheckoutBody(reportId, selectedRepair = null) {
   };
 }
 
+export function fixPackCheckoutDisabled({ hasPriorityFixes = false, pricingStatus = "", status = "" } = {}) {
+  return !hasPriorityFixes || pricingStatus !== "available" || status === "submitting" || status === "success";
+}
+
+export function fixPackCheckoutOutcome(result = {}) {
+  const checkoutUrl = result?.checkoutUrl || "";
+  if (checkoutUrl) {
+    return { status: "success", message: "Opening secure checkout.", checkoutUrl };
+  }
+
+  if (result?.ok) {
+    return { status: "success", message: result.message || "Request received.", checkoutUrl: "" };
+  }
+
+  return {
+    status: "error",
+    message: result?.message || result?.error || "Checkout could not open.",
+    checkoutUrl: ""
+  };
+}
+
+export function fixPackCheckoutErrorOutcome(error = null) {
+  return {
+    status: "error",
+    message: error?.message || "Checkout could not open.",
+    checkoutUrl: ""
+  };
+}
+
 function explicitSelectedRepair(selectedRepair = null) {
   if (
     !selectedRepair ||

@@ -2,7 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { CRAWL_DEPTH_TIERS, DEFAULT_CRAWL_PAGES, SELF_SERVE_MAX_CRAWL_PAGES } from "../shared/crawl-depth.js";
 import { RENDERED_CRAWL_TARGETS } from "../shared/rendered-crawl-scale.js";
 import { developerWebhookRequest } from "./developer-webhooks.js";
-import { fixPackCheckoutBody, fixPackRepairTarget } from "./fix-pack-checkout.js";
+import {
+  fixPackCheckoutBody,
+  fixPackCheckoutDisabled,
+  fixPackCheckoutErrorOutcome,
+  fixPackCheckoutOutcome,
+  fixPackRepairTarget
+} from "./fix-pack-checkout.js";
 import {
   repairActionApplyPatch,
   repairActionApprovalPatch,
@@ -4224,11 +4230,11 @@ function FixQuotePanel({ report, hasPriorityFixes }) {
   }, [hasPriorityFixes, report.id]);
   const selectedRepair = fixPackRepairTarget(report, repairQueue.items);
   const selectedRepairIsLive = selectedRepair?.source === "repair_queue";
-  const checkoutDisabled =
-    !hasPriorityFixes ||
-    pricing.status !== "available" ||
-    status === "submitting" ||
-    status === "success";
+  const checkoutDisabled = fixPackCheckoutDisabled({
+    hasPriorityFixes,
+    pricingStatus: pricing.status,
+    status
+  });
   const priceLabel =
     pricing.status === "available"
       ? pricing.displayPrice
@@ -4278,15 +4284,19 @@ function FixQuotePanel({ report, hasPriorityFixes }) {
             onClick={async () => {
               setStatus("submitting");
               setMessage("");
-              const result = await requestFixQuote(report.id, selectedRepairIsLive ? selectedRepair : null);
-              if (result.checkoutUrl) {
-                setStatus("success");
-                setMessage("Opening secure checkout.");
-                window.location.assign(result.checkoutUrl);
-                return;
+              try {
+                const result = await requestFixQuote(report.id, selectedRepairIsLive ? selectedRepair : null);
+                const outcome = fixPackCheckoutOutcome(result);
+                setStatus(outcome.status);
+                setMessage(outcome.message);
+                if (outcome.checkoutUrl) {
+                  window.location.assign(outcome.checkoutUrl);
+                }
+              } catch (error) {
+                const outcome = fixPackCheckoutErrorOutcome(error);
+                setStatus(outcome.status);
+                setMessage(outcome.message);
               }
-              setStatus(result.ok ? "success" : "error");
-              setMessage(result.message || result.error || (result.ok ? "Request received." : "Checkout could not open."));
             }}
             type="button"
           >
