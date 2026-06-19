@@ -3,13 +3,24 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { rootSitemap } from "../../shared/audit-engine.js";
 import {
+  demoHtml,
   homeMarkdown,
   llmsText,
   methodologyHtml,
-  packagesHtml
+  packagesHtml,
+  supportHtml
 } from "./pages.js";
 
 const origin = "https://seofixkit.com";
+const expectedSitemapUrls = [
+  `${origin}/`,
+  `${origin}/demo`,
+  `${origin}/methodology`,
+  `${origin}/packages`,
+  `${origin}/privacy`,
+  `${origin}/support`,
+  `${origin}/terms`
+];
 
 test("public proof pages expose methodology and package ladder without overclaims", () => {
   const methodology = methodologyHtml(origin);
@@ -33,20 +44,41 @@ test("machine-readable public surfaces list proof pages and limits", () => {
   const markdown = homeMarkdown(origin);
   const sitemap = rootSitemap(origin);
 
+  assert.deepEqual(parseSitemapUrls(sitemap), expectedSitemapUrls);
   for (const path of ["/demo", "/methodology", "/packages"]) {
     assert.match(llms, new RegExp(`${origin}${path}`));
     assert.match(markdown, new RegExp(`${origin}${path}`));
     assert.match(sitemap, new RegExp(`${origin}${path}`));
   }
+  assert.match(llms, new RegExp(`${origin}/llms\\.txt`));
+  assert.doesNotMatch(sitemap, /\/llms\.txt/);
   assert.match(llms, /Does not provide live AI-engine visibility tracking/);
   assert.match(llms, /Does not auto-publish growth content/);
   assert.match(llms, /Does not publish CMS changes/);
+});
+
+test("public demo and support pages carry enough buyer-facing detail", () => {
+  const demo = demoHtml(origin);
+  const support = supportHtml(origin);
+
+  assert.ok(visibleWordCount(demo) >= 250, "demo page should not look thin to rendered audits");
+  assert.ok(visibleWordCount(support) >= 250, "support page should not look thin to rendered audits");
+  assert.match(demo, /What this sample proves/);
+  assert.match(demo, /What this sample does not claim/);
+  assert.match(demo, /not a public anonymous audit/i);
+  assert.match(demo, /does not promise rankings, traffic, indexing, revenue, AI citations/i);
+  assert.match(support, /Delivery expectations/);
+  assert.match(support, /do not send secrets, private keys, passwords, payment card numbers, or production credentials/i);
+  assert.match(support, /We do not log into private CMS accounts, publish changes, merge code, or call provider admin APIs/i);
+  assert.match(support, /Ownership and deletion/);
+  assert.match(support, /sites you own or are authorized to audit/i);
 });
 
 test("static public skill and sitemap files keep buyer-facing boundaries", () => {
   const skill = readFileSync(new URL("../../public/.well-known/skill.md", import.meta.url), "utf8");
   const sitemap = readFileSync(new URL("../../public/sitemap.xml", import.meta.url), "utf8");
 
+  assert.deepEqual(parseSitemapUrls(sitemap), expectedSitemapUrls);
   for (const path of ["/demo", "/methodology", "/packages", "/support", "/terms"]) {
     assert.match(skill, new RegExp(`${origin}${path}`));
     assert.match(sitemap, new RegExp(`${origin}${path}`));
@@ -59,6 +91,7 @@ test("static public skill and sitemap files keep buyer-facing boundaries", () =>
   assert.match(skill, /does not guarantee rankings, traffic, indexing, or revenue/i);
   assert.doesNotMatch(skill, /guaranteed rankings|guarantees rankings|guarantees traffic/i);
   assert.doesNotMatch(skill, /provides live AI-engine visibility tracking/i);
+  assert.doesNotMatch(sitemap, /\/llms\.txt/);
   assert.doesNotMatch(`${skill}\n${sitemap}`, /fixture|127\.0\.0\.1|localhost|private\.example/i);
 });
 
@@ -70,3 +103,18 @@ test("Cloudflare asset routing sends public proof pages through the Worker", () 
     assert.equal(runWorkerFirst.has(path), true, `${path} must be served by the Worker before SPA assets`);
   }
 });
+
+function visibleWordCount(html) {
+  return String(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&[a-z0-9#]+;/gi, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
+}
+
+function parseSitemapUrls(xml) {
+  return [...String(xml).matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]);
+}

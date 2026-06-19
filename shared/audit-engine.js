@@ -2163,16 +2163,6 @@ function buildRenderedPerformanceSummary(homePage) {
 function addPerformanceFindings(add, performance = {}, label) {
   if (!performance || performance.status === "skipped") return;
   if (performance.status === "unavailable") {
-    add({
-      type: "performance",
-      severity: "notice",
-      title: `PageSpeed data unavailable on ${label}`,
-      why: "PageSpeed data adds Lighthouse lab proof for performance fixes. The rendered audit still collected local load proof.",
-      evidence: performance.reason || "PageSpeed Insights did not return a result.",
-      fix: "Rerun the audit later, or add a PageSpeed API key if automated volume is hitting public limits.",
-      source: DOCS.coreWebVitals,
-      confidence: "needs-review"
-    });
     return;
   }
 
@@ -2828,7 +2818,7 @@ function wait(ms) {
 }
 
 export function rootSitemap(origin) {
-  const urls = ["/", "/demo", "/methodology", "/packages", "/privacy", "/support", "/terms", "/llms.txt"];
+  const urls = ["/", "/demo", "/methodology", "/packages", "/privacy", "/support", "/terms"];
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls
     .map((path) => `<url><loc>${origin}${path}</loc></url>`)
     .join("")}</urlset>`;

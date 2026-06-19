@@ -111,9 +111,9 @@ function demoHtml(origin) {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>SEO Fix Kit Demo - Proof-Backed SEO Repair</title>
+    <title>Proof-Backed SEO Repair Demo - SEO Fix Kit</title>
     <meta name="description" content="A public sample showing how SEO Fix Kit refuses static crawler false positives and turns verified issues into repair briefs." />
-${pageSocialHead({ origin, title: "SEO Fix Kit Demo - Proof-Backed SEO Repair", description: "A public sample showing how SEO Fix Kit refuses static crawler false positives and turns verified issues into repair briefs.", path: "/demo" })}
+${pageSocialHead({ origin, title: "Proof-Backed SEO Repair Demo - SEO Fix Kit", description: "A public sample showing how SEO Fix Kit refuses static crawler false positives and turns verified issues into repair briefs.", path: "/demo" })}
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
       body { margin: 0; min-width: 320px; }
@@ -167,8 +167,31 @@ ${pageSocialHead({ origin, title: "SEO Fix Kit Demo - Proof-Backed SEO Repair", 
 - Action: Do not add another H1.
 - Acceptance: Re-run audit; finding stays guarded, not queued as a fix.</code>
       </section>
+      <section>
+        <h2>What this sample proves</h2>
+        <p>A useful SEO repair report has to separate a crawler limitation from a real customer problem. The sample shows that SEO Fix Kit does not stop at the first HTML response. It opens the page in a browser, reads the rendered title, description, headings, internal links, schema, social tags, images, and body copy, then records which static warnings should be guarded as false positives.</p>
+        <p>That distinction matters for agentic repair work. If a scanner says "add an H1" when the rendered page already has one, an agent could make the site worse by adding duplicate headings. SEO Fix Kit keeps that item out of the repair queue, explains why it was rejected, and points the user toward a rerun instead of fake busywork.</p>
+      </section>
+      <section class="grid" aria-label="What a paid Fix Pack uses from the sample">
+        <article class="panel proof">
+          <strong>Buyer proof</strong>
+          <p>The report shows the observed page URL, rendered facts, issue evidence, and whether the finding is actionable or guarded.</p>
+        </article>
+        <article class="panel proof">
+          <strong>Repair scope</strong>
+          <p>Only proven issues become queue items. Each item has a suggested fix, estimated effort, confidence, and acceptance check.</p>
+        </article>
+        <article class="panel proof">
+          <strong>Rerun standard</strong>
+          <p>After a change ships, the same audit path checks whether the issue is fixed, still open, new, or regressed.</p>
+        </article>
+      </section>
+      <section>
+        <h2>What this sample does not claim</h2>
+        <p>This is a public proof page, not a public anonymous audit. Full reports run inside the private beta after secure email access and, for deeper crawls, site verification. The demo does not promise rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility. It shows the product standard: prove the issue, avoid false positives, ask for approval, then rerun the same measurement after the fix.</p>
+      </section>
       <p><a class="cta" href="${origin}/">Request access</a></p>
-      <p><a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a></p>
+      <p><a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a> · <a href="${origin}/support">Support and refunds</a></p>
     </main>
   </body>
 </html>`;
@@ -390,6 +413,11 @@ function supportHtml(origin) {
     description: "Get help with SEO Fix Kit: contact support for Fix Pack delivery, billing, and refund questions, or security reports. We reply from support@seofixkit.com.",
     body: `
       <p>Email <a href="mailto:support@seofixkit.com">support@seofixkit.com</a> for any question, billing issue, or problem — including when an expected email never arrived. You can also reply to any SEO Fix Kit email; we use that thread to verify account ownership.</p>
+
+      <h2>What to include</h2>
+      <p>For the fastest answer, include the account email, audited domain, report link or report id, checkout email if different, and the exact repair queue item you are asking about. If the question is about a rerun, include what changed on the site and when it shipped. If the question is about billing, include the Dodo receipt email, payment date, and whether the Fix Pack repair pass has already started.</p>
+
+      <h2>Fix Pack support</h2>
       <ul>
         <li>Fix Pack covers one proof-backed repair pass for one report plus one rerun after fixes.</li>
         <li>No ranking, traffic, or revenue promise is made.</li>
@@ -397,8 +425,17 @@ function supportHtml(origin) {
         <li>Refunds: full refund on request within 14 days of payment if the repair pass has not started. After work starts or delivery, requests are reviewed against the Dodo payment record, report proof, and fulfillment state.</li>
         <li>Security or abuse reports should include the affected URL, account email, and timestamp.</li>
       </ul>
-      <p>Last updated: June 12, 2026.</p>
-      <p><a href="${origin}/privacy">Privacy</a> · <a href="${origin}/terms">Terms</a></p>
+
+      <h2>Delivery expectations</h2>
+      <p>The paid beta is deliberately narrow. We review the saved report, confirm which findings are supported by proof, prepare repair proposals, and keep delivery notes tied to that report. Some fixes are handled as human-readable implementation guidance, some as safe draft actions, and some may be marked unsupported when the product cannot safely execute them yet. We do not log into private CMS accounts, publish changes, merge code, or call provider admin APIs from the browser.</p>
+
+      <h2>Security and abuse</h2>
+      <p>Security reports should include the affected route, account email if relevant, timestamp, browser details, and clear reproduction steps. Do not send secrets, private keys, passwords, payment card numbers, or production credentials by email. If you believe a report exposes data from a site or account you do not own, stop using the data and contact support immediately so we can investigate and lock down the affected report.</p>
+
+      <h2>Ownership and deletion</h2>
+      <p>SEO Fix Kit is for sites you own or are authorized to audit. We may pause audits, delete reports, or revoke access when ownership is unclear, the target appears abusive, or the crawl could overload a third-party site. To request deletion or a copy of beta data, email from the account address or reply to a SEO Fix Kit email thread so ownership can be verified.</p>
+      <p>Last updated: June 19, 2026.</p>
+      <p><a href="${origin}/privacy">Privacy</a> · <a href="${origin}/terms">Terms</a> · <a href="${origin}/methodology">Methodology</a> · <a href="${origin}/packages">Packages</a></p>
     `
   });
 }

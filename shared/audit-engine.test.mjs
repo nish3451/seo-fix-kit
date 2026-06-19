@@ -4,7 +4,146 @@ import { createAuditEngine } from "./audit-engine.js";
 import { buildBacklinkAudit } from "./backlink-audit.js";
 import { buildCrawlInventory } from "./crawl-inventory.js";
 import { buildLocalSeoAudit } from "./local-seo-audit.js";
+import { buildResourceWaterfall, resourceWaterfallFindings } from "./resource-waterfall.js";
 import { fetchPublicUrl } from "./url-safety.js";
+
+test("resource waterfall honors explicit non-blocking browser status", () => {
+  const waterfall = buildResourceWaterfall({
+    url: "https://public.example/",
+    rendered: {
+      finalUrl: "https://public.example/",
+      navigationTiming: { domContentLoadedMs: 900 },
+      resourceTimings: [
+        {
+          name: "https://public.example/assets/app.css",
+          initiatorType: "link",
+          renderBlockingStatus: "blocking",
+          startTime: 10,
+          duration: 120,
+          transferSize: 30_000
+        },
+        {
+          name: "https://public.example/assets/app.js",
+          initiatorType: "script",
+          renderBlockingStatus: "non-blocking",
+          startTime: 20,
+          duration: 430,
+          transferSize: 220_000
+        },
+        {
+          name: "https://static.cloudflareinsights.com/beacon.min.js",
+          initiatorType: "script",
+          renderBlockingStatus: "non-blocking",
+          startTime: 30,
+          duration: 60,
+          transferSize: 12_000
+        }
+      ],
+      resourceTimingsTotal: 3
+    }
+  });
+
+  assert.equal(waterfall.summary.renderBlockingCandidates, 1);
+  assert.deepEqual(
+    waterfall.renderBlockingCandidates.map((resource) => resource.url),
+    ["https://public.example/assets/app.css"]
+  );
+  assert.equal(resourceWaterfallFindings(waterfall).some((finding) => finding.title.includes("Render-blocking")), false);
+});
+
+test("resource waterfall keeps fallback render-blocking detection without browser status", () => {
+  const waterfall = buildResourceWaterfall({
+    url: "https://public.example/",
+    rendered: {
+      finalUrl: "https://public.example/",
+      navigationTiming: { domContentLoadedMs: 900 },
+      resourceTimings: [
+        {
+          name: "https://public.example/assets/app.css",
+          initiatorType: "link",
+          startTime: 10,
+          duration: 120,
+          transferSize: 30_000
+        },
+        {
+          name: "https://public.example/assets/app.js",
+          initiatorType: "script",
+          startTime: 20,
+          duration: 430,
+          transferSize: 220_000
+        }
+      ],
+      resourceTimingsTotal: 2
+    }
+  });
+
+  assert.equal(waterfall.summary.renderBlockingCandidates, 2);
+  assert.equal(resourceWaterfallFindings(waterfall).some((finding) => finding.title.includes("Render-blocking")), true);
+});
+
+test("resource waterfall applies fallback detection for unknown browser status", () => {
+  const waterfall = buildResourceWaterfall({
+    url: "https://public.example/",
+    rendered: {
+      finalUrl: "https://public.example/",
+      navigationTiming: { domContentLoadedMs: 900 },
+      resourceTimings: [
+        {
+          name: "https://public.example/assets/unknown-status.css",
+          initiatorType: "link",
+          renderBlockingStatus: "maybe-blocking",
+          startTime: 10,
+          duration: 120,
+          transferSize: 30_000
+        },
+        {
+          name: "https://public.example/assets/unknown-status.js",
+          initiatorType: "script",
+          renderBlockingStatus: "future-status",
+          startTime: 20,
+          duration: 430,
+          transferSize: 220_000
+        }
+      ],
+      resourceTimingsTotal: 2
+    }
+  });
+
+  assert.equal(waterfall.summary.renderBlockingCandidates, 2);
+  assert.equal(resourceWaterfallFindings(waterfall).some((finding) => finding.title.includes("Render-blocking")), true);
+});
+
+test("unavailable PageSpeed stays a proof note instead of repair work", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () => fakeBrowser("https://public.example/"),
+    fetchImpl: async () => new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" }
+    })
+  });
+
+  const report = await engine.auditUrl("https://public.example/", {
+    maxPages: 1,
+    pageSpeed: true,
+    pageSpeedFetcher: async () => {
+      throw new Error("PageSpeed Insights returned HTTP 429.");
+    }
+  });
+
+  assert.equal(report.performance.status, "unavailable");
+  assert.match(report.performance.reason, /HTTP 429/);
+  assert.match(report.repairBrief, /PageSpeed Insights returned HTTP 429/);
+  const findingText = report.findings
+    .map((finding) => `${finding.title}\n${finding.why || ""}\n${finding.evidence || ""}\n${finding.fix || ""}`)
+    .join("\n");
+  const repairText = report.repairPlan
+    .map((item) => `${item.title}\n${item.proof || ""}\n${item.fix || ""}\n${item.acceptance || ""}`)
+    .join("\n");
+  assert.deepEqual(report.findings.filter((finding) => finding.type === "performance"), []);
+  assert.deepEqual(report.repairPlan.filter((item) => item.workType === "performance"), []);
+  assert.doesNotMatch(findingText, /PageSpeed data unavailable|PageSpeed Insights returned HTTP 429/i);
+  assert.doesNotMatch(repairText, /PageSpeed data unavailable|PageSpeed Insights returned HTTP 429/i);
+});
 
 test("audit discovery fetch blocks private-DNS redirect targets before fetch", async () => {
   const fetched = [];
