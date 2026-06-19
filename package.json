@@ -39,7 +39,7 @@
   "devDependencies": {
     "@cloudflare/puppeteer": "^1.1.0",
     "esbuild": "0.28.1",
-    "wrangler": "4.100.0"
+    "wrangler": "^4.102.0"
   },
   "overrides": {
     "esbuild": "0.28.1",
