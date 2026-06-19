@@ -34,10 +34,71 @@
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "WebSite",
-        "name": "SEO Fix Kit",
-        "url": "https://seofixkit.com/",
-        "description": "Request a secure email access link for evidence-backed SEO audits and developer repair briefs."
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://seofixkit.com/#organization",
+            "name": "SEO Fix Kit",
+            "url": "https://seofixkit.com/",
+            "email": "support@seofixkit.com"
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://seofixkit.com/#website",
+            "name": "SEO Fix Kit",
+            "url": "https://seofixkit.com/",
+            "publisher": { "@id": "https://seofixkit.com/#organization" },
+            "description": "Request a secure email access link for evidence-backed SEO audits, proof-backed repair queues, and developer repair briefs."
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://seofixkit.com/#software",
+            "name": "SEO Fix Kit",
+            "applicationCategory": "SEO software",
+            "operatingSystem": "Web",
+            "url": "https://seofixkit.com/",
+            "provider": { "@id": "https://seofixkit.com/#organization" },
+            "description": "Private-beta SEO repair software that turns rendered proof into safe repair queues, approval records, and rerun checks."
+          },
+          {
+            "@type": "FAQPage",
+            "@id": "https://seofixkit.com/#faq",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "What happens after I enter a URL?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "You get a rate-limited private audit. A one-page Lite check can run before verification; verified sites unlock deeper self-serve crawls, imports, saved reports, monitoring controls, and owner-scoped repair queues."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "What does the paid Fix Pack include?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "The live paid offer is one proof-backed repair pass tied to one saved report, plus one rerun after fixes. Dodo shows the checkout price before payment."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "How is AI or GEO readiness handled?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "AI Answer Readiness is proof-derived from rendered content, schema, canonical and internal-link clarity, sitemap context, question-led sections, and optional llms.txt boundaries. It is not live answer-engine sampling or AI citation monitoring."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "What is not live yet?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "SEO Fix Kit does not auto-publish content, call CMS admin APIs, open GitHub pull requests, sell recurring repair-agent subscriptions, or guarantee rankings, traffic, indexing, AI citations, or revenue."
+                }
+              }
+            ]
+          }
+        ]
       }
     </script>
   </head>

@@ -61,3 +61,12 @@ test("static public skill and sitemap files keep buyer-facing boundaries", () =>
   assert.doesNotMatch(skill, /provides live AI-engine visibility tracking/i);
   assert.doesNotMatch(`${skill}\n${sitemap}`, /fixture|127\.0\.0\.1|localhost|private\.example/i);
 });
+
+test("Cloudflare asset routing sends public proof pages through the Worker", () => {
+  const wrangler = JSON.parse(readFileSync(new URL("../../wrangler.jsonc", import.meta.url), "utf8"));
+  const runWorkerFirst = new Set(wrangler.assets?.run_worker_first || []);
+
+  for (const path of ["/demo", "/methodology", "/packages", "/support", "/terms", "/privacy"]) {
+    assert.equal(runWorkerFirst.has(path), true, `${path} must be served by the Worker before SPA assets`);
+  }
+});
