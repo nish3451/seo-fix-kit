@@ -16,6 +16,7 @@ import { resolvesToPrivateAddress } from "../../shared/url-safety.js";
 import { auditAuthorizationStatus, betaAccessResponse, betaAccessStatus } from "../lib/auth.js";
 import { runD1BatchChunks } from "../lib/db.js";
 import { json, jsonNoStore } from "../lib/http.js";
+import { monitoringAccessForOwner } from "../lib/offers.js";
 import {
   REPORT_RETENTION_DAYS,
   saveAuditReport,
@@ -185,7 +186,8 @@ async function listAuditSchedules(request, env) {
 
   return jsonNoStore({
     ok: true,
-    schedules: (rows.results || []).map(auditScheduleResponse)
+    schedules: (rows.results || []).map(auditScheduleResponse),
+    monitoring: await monitoringAccessForOwner(env, access.ownerEmail, (rows.results || []).length)
   });
 }
 
@@ -240,11 +242,14 @@ async function createAuditSchedule(request, env) {
   )
     .bind(access.ownerEmail)
     .first();
-  if (Number(count?.count || 0) >= 5) {
+  const activeSchedules = Number(count?.count || 0);
+  const monitoring = await monitoringAccessForOwner(env, access.ownerEmail, activeSchedules);
+  if (activeSchedules >= monitoring.limit) {
     return jsonNoStore(
       {
-        error: "You already have 5 active monitors. Pause one before adding another.",
-        code: "AUDIT_SCHEDULE_LIMIT"
+        error: `You already have ${monitoring.limit} active monitors. Pause one before adding another.`,
+        code: "MONITORING_ENTITLEMENT_LIMIT",
+        monitoring
       },
       429
     );
@@ -252,6 +257,16 @@ async function createAuditSchedule(request, env) {
 
   const now = new Date().toISOString();
   const intervalDays = clampScheduleInterval(body.intervalDays || 7);
+  if (intervalDays < Number(monitoring.cadenceDays || 7)) {
+    return jsonNoStore(
+      {
+        error: `This monitoring entitlement allows audits every ${monitoring.cadenceDays} days or slower.`,
+        code: "MONITORING_CADENCE_LIMIT",
+        monitoring
+      },
+      429
+    );
+  }
   const schedule = {
     id: crypto.randomUUID(),
     owner_email: access.ownerEmail,
@@ -300,7 +315,15 @@ async function createAuditSchedule(request, env) {
     )
     .run();
 
-  return jsonNoStore({ ok: true, schedule: auditScheduleResponse(schedule) });
+  return jsonNoStore({
+    ok: true,
+    schedule: auditScheduleResponse(schedule),
+    monitoring: {
+      ...monitoring,
+      activeCount: activeSchedules + 1,
+      remaining: Math.max(0, monitoring.limit - activeSchedules - 1)
+    }
+  });
 }
 
 async function deleteAuditSchedule(request, env) {

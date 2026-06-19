@@ -100,7 +100,7 @@ The implementation starts with the queue and action-record loop. CMS/GitHub acti
 ### U2. Repair Queue Data Model
 
 - **Goal:** Persist repair queue and agent action state separately from immutable report JSON.
-- **Files:** `migrations/0026_agent_repair_queue.sql`, `worker/routes/reports.js`, `worker/lib/serializers.js`, `shared/audit-engine.js`, `shared/repair-queue.js` (new).
+- **Files:** `migrations/0028_agent_repair_queue.sql`, `worker/routes/reports.js`, `worker/lib/serializers.js`, `shared/audit-engine.js`, `shared/repair-queue.js` (new).
 - **Approach:** Add owner-scoped queue/action tables that reference report IDs and issue IDs, preserve current `issue_collaboration` behavior, and derive default queue rows from report findings/repair plans when none exist. Use stable issue IDs from the current findings and store proof/action snapshots so later report mutations do not erase action history.
 - **Test scenarios:** Existing reports get derived queue rows; saved statuses survive reload; queue rows cannot be read by another owner; expired/deleted reports do not leak action data; issue-collaboration status still works.
 - **Verification:** Add focused Worker route/unit coverage for queue derivation and ownership checks; run relevant smoke tests plus full project check.

@@ -45,7 +45,8 @@ import {
   getSavedReport,
   getTeamMembers,
   revokeTeamMember,
-  saveReportCollaboration
+  saveReportCollaboration,
+  updateRepairProposalApproval
 } from "./routes/reports.js";
 import {
   createRepairAction,
@@ -322,6 +323,10 @@ export default {
 
       if (url.pathname.startsWith("/api/reports/") && url.pathname.includes("/repair-actions/") && request.method === "PATCH") {
         return updateRepairAction(request, env, ctx);
+      }
+
+      if (url.pathname.includes("/repair-proposals/") && request.method === "PATCH") {
+        return updateRepairProposalApproval(request, env);
       }
 
       if (url.pathname.startsWith("/r/") && url.pathname.endsWith("/unlock") && request.method === "POST") {

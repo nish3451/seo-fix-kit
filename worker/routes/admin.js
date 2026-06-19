@@ -219,6 +219,12 @@ async function getAdminSummary(request, env) {
   ]);
   const notificationsByFixRequest = groupNotificationsByFixRequest(notificationRows.results || []);
   const eventsByFixRequest = groupEventsByFixRequest(eventRows.results || []);
+  const fixQueueRows = fixQueue.results || [];
+  const proposalSummaries = new Map(
+    await Promise.all(
+      fixQueueRows.map(async (row) => [row.id, await repairProposalSummaryForFixRequest(env, row.id)])
+    )
+  );
   const dodoConfig = dodoCheckoutConfigStatus(env);
 
   return jsonNoStore({
@@ -283,8 +289,13 @@ async function getAdminSummary(request, env) {
       expiresAt: invite.expires_at,
       createdAt: invite.created_at
     })),
-    fixQueue: (fixQueue.results || []).map((row) =>
-      fixRequestAdminResponse(row, notificationsByFixRequest.get(row.id) || [], eventsByFixRequest.get(row.id) || [])
+    fixQueue: fixQueueRows.map((row) =>
+      fixRequestAdminResponse(
+        row,
+        notificationsByFixRequest.get(row.id) || [],
+        eventsByFixRequest.get(row.id) || [],
+        proposalSummaries.get(row.id)
+      )
     )
   });
 }
@@ -377,8 +388,26 @@ async function updateFixRequestAdmin(request, env) {
     ? await validateFinalReportForFixRequest(env, existing, finalReportId)
     : { ok: true, beforeAfterSummary: null };
   if (!finalReportStatus.ok) return jsonNoStore({ error: finalReportStatus.error }, 400);
+  const proposalSummary =
+    requestedStatus === "delivered"
+      ? await repairProposalSummaryForFixRequest(env, existing.id)
+      : { status: "skipped", total: 0, approved: 0, approvedExecutable: 0, executable: 0 };
   if (requestedStatus === "delivered" && !deliveryUrl && finalReportId) {
     deliveryUrl = `${new URL(request.url).origin}/beta/reports/${encodeURIComponent(finalReportId)}`;
+  }
+  if (requestedStatus === "delivered" && proposalSummary.status === "unavailable") {
+    return jsonNoStore({ error: "Delivery cannot be marked complete until repair proposal state can be verified." }, 503);
+  }
+  if (
+    requestedStatus === "delivered" &&
+    proposalSummary.status === "ready" &&
+    proposalSummary.executable > 0 &&
+    proposalSummary.approvedExecutable < 1
+  ) {
+    return jsonNoStore(
+      { error: "Delivery needs at least one owner-approved repair proposal before it can be marked delivered." },
+      400
+    );
   }
   if (requestedStatus === "delivered" && (!deliveryUrl || !finalReportId || !customerNote)) {
     return jsonNoStore(
@@ -427,6 +456,13 @@ async function updateFixRequestAdmin(request, env) {
       id
     )
     .run();
+  await syncRepairProposalDeliveryState(env, {
+    fixRequestId: id,
+    status: requestedStatus,
+    deliveryUrl,
+    finalReportId,
+    now
+  });
   await logFixRequestEvent(env, {
     fixRequestId: id,
     event: "admin_status_update",
@@ -485,11 +521,83 @@ async function updateFixRequestAdmin(request, env) {
 
   return jsonNoStore({
     ok: true,
-    request: fixRequestAdminResponse(updated, notifications.results || [], events.results || [])
+    request: fixRequestAdminResponse(
+      updated,
+      notifications.results || [],
+      events.results || [],
+      await repairProposalSummaryForFixRequest(env, id)
+    )
   });
 }
 
-function fixRequestAdminResponse(row, notifications = [], events = [], now = new Date().toISOString()) {
+async function repairProposalSummaryForFixRequest(env, fixRequestId) {
+  if (!env.WAITLIST_DB || !fixRequestId) {
+    return { status: "skipped", total: 0, approved: 0, approvedExecutable: 0, dismissed: 0, executable: 0, delivered: 0 };
+  }
+  try {
+    const row = await env.WAITLIST_DB.prepare(
+      `SELECT
+         COUNT(*) AS total,
+         SUM(CASE WHEN approval_status = 'approved' THEN 1 ELSE 0 END) AS approved,
+         SUM(CASE WHEN approval_status = 'approved' AND execution_mode != 'unsupported' THEN 1 ELSE 0 END) AS approved_executable,
+         SUM(CASE WHEN approval_status = 'dismissed' THEN 1 ELSE 0 END) AS dismissed,
+         SUM(CASE WHEN execution_mode != 'unsupported' THEN 1 ELSE 0 END) AS executable,
+         SUM(CASE WHEN delivery_status = 'delivered' THEN 1 ELSE 0 END) AS delivered
+       FROM repair_proposals
+       WHERE fix_request_id = ?`
+    )
+      .bind(fixRequestId)
+      .first();
+    return {
+      status: "ready",
+      total: Number(row?.total || 0),
+      approved: Number(row?.approved || 0),
+      approvedExecutable: Number(row?.approved_executable || 0),
+      dismissed: Number(row?.dismissed || 0),
+      executable: Number(row?.executable || 0),
+      delivered: Number(row?.delivered || 0)
+    };
+  } catch {
+    return { status: "unavailable", total: 0, approved: 0, approvedExecutable: 0, dismissed: 0, executable: 0, delivered: 0 };
+  }
+}
+
+async function syncRepairProposalDeliveryState(env, { fixRequestId, status, deliveryUrl, finalReportId, now }) {
+  if (!env.WAITLIST_DB || !fixRequestId || !["in_progress", "delivered"].includes(status)) return;
+  try {
+    if (status === "in_progress") {
+      await env.WAITLIST_DB.prepare(
+        `UPDATE repair_proposals
+         SET delivery_status = 'in_progress',
+             updated_at = ?
+         WHERE fix_request_id = ?
+           AND approval_status = 'approved'
+           AND execution_mode != 'unsupported'
+           AND delivery_status = 'draft'`
+      )
+        .bind(now, fixRequestId)
+        .run();
+      return;
+    }
+    await env.WAITLIST_DB.prepare(
+      `UPDATE repair_proposals
+       SET delivery_status = 'delivered',
+           delivery_url = ?,
+           final_report_id = ?,
+           delivered_at = ?,
+           updated_at = ?
+       WHERE fix_request_id = ?
+         AND approval_status = 'approved'
+         AND execution_mode != 'unsupported'`
+    )
+      .bind(deliveryUrl || null, finalReportId || null, now, now, fixRequestId)
+      .run();
+  } catch {
+    // Existing environments without proposal tables should keep fulfillment usable.
+  }
+}
+
+function fixRequestAdminResponse(row, notifications = [], events = [], proposalSummary = null, now = new Date().toISOString()) {
   return {
     ...fixRequestResponse(row, now),
     reportId: row.report_id,
@@ -507,6 +615,15 @@ function fixRequestAdminResponse(row, notifications = [], events = [], now = new
     deliveryNotificationError: row.delivery_notification_error || "",
     reportPath: `/beta/reports/${row.report_id}`,
     briefPath: `/api/reports/${row.report_id}/brief.md`,
+    repairProposalSummary: proposalSummary || {
+      status: "unavailable",
+      total: 0,
+      approved: 0,
+      approvedExecutable: 0,
+      dismissed: 0,
+      executable: 0,
+      delivered: 0
+    },
     notifications: notifications.map((notification) => ({
       event: notification.event || "",
       recipientType: notification.recipient_type,
@@ -710,6 +827,7 @@ export {
   createInvite,
   exportLeadsCsv,
   getAdminSummary,
+  repairProposalSummaryForFixRequest,
   sendDailyOpsDigest,
   sendUrgentOpsAlerts,
   updateFixRequestAdmin

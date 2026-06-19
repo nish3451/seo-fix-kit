@@ -16,6 +16,18 @@ import {
   isEmailConfigured,
   normalizeFixRequestStatus
 } from "../shared/fulfillment.js";
+import {
+  OFFER_KEYS,
+  agencyWorkspaceAccessFromEntitlements,
+  monitoringAccessFromEntitlements,
+  offerCatalog,
+  repairSprintEligibilityFromProposals,
+  sellableOffers
+} from "../shared/offers.js";
+import { repairProposalSummaryForFixRequest } from "../worker/routes/admin.js";
+import { jsonForStorage } from "../worker/routes/billing.js";
+import { repairProposalResponse } from "../worker/lib/serializers.js";
+import { repairProposalApprovalWindowStatus } from "../worker/routes/reports.js";
 
 const secret = "test_webhook_secret";
 const payload = JSON.stringify({
@@ -171,6 +183,84 @@ const digest = buildOpsDigestEmail({
 });
 assert.equal(digest.subject.includes("2 paid open"), true);
 
+const proposal = repairProposalResponse({
+  id: "proposal_123",
+  fix_request_id: "fix_123",
+  report_id: "report_123",
+  owner_email: "buyer@example.com",
+  issue_id: "meta-description",
+  issue_title: "Missing meta description",
+  target_url: "https://example.com/",
+  target_host: "example.com",
+  execution_mode: "generated_proposal",
+  approval_status: "pending",
+  delivery_status: "draft",
+  generated_title: "Add a clear page summary",
+  generated_summary: "Add a concise meta description that matches the page.",
+  proof_json: JSON.stringify({ evidence: "No meta description was found." }),
+  proposal_json: JSON.stringify({ field: "meta.description", value: "Practical SEO repair for example.com." }),
+  acceptance_json: JSON.stringify(["Meta description is present on rerun"]),
+  admin_note: "Private admin note must not leave the server."
+});
+assert.equal(proposal.executionModeLabel, "Generated proposal");
+assert.equal(proposal.proof.evidence, "No meta description was found.");
+assert.deepEqual(proposal.acceptance, ["Meta description is present on rerun"]);
+assert.equal(Object.hasOwn(proposal, "admin_note"), false);
+assert.equal(Object.hasOwn(proposal, "adminNote"), false);
+
+const offers = offerCatalog({ fixPackCheckoutReady: true });
+assert.equal(offers.find((offer) => offer.key === OFFER_KEYS.FIX_PACK).checkoutLive, true);
+assert.equal(offers.find((offer) => offer.key === OFFER_KEYS.MONITORING).checkoutLive, false);
+assert.equal(offers.find((offer) => offer.key === OFFER_KEYS.SEO_GEO_AGENT).checkoutState, "paused");
+assert.equal(sellableOffers(offers).length, 1);
+assert.equal(monitoringAccessFromEntitlements([], 2).status, "beta_allowance");
+assert.equal(monitoringAccessFromEntitlements([], 2).remaining, 3);
+assert.equal(
+  monitoringAccessFromEntitlements([
+    {
+      offer_key: OFFER_KEYS.MONITORING,
+      status: "active",
+      limits_json: JSON.stringify({ monitoredSites: 10, cadenceDays: 7 })
+    }
+  ], 4).limit,
+  10
+);
+assert.equal(
+  repairSprintEligibilityFromProposals([{ executionMode: "generated_proposal", approvalStatus: "pending" }]).status,
+  "needs_owner_approval"
+);
+assert.equal(
+  repairSprintEligibilityFromProposals([{ executionMode: "generated_proposal", approvalStatus: "approved" }]).status,
+  "approval_ready"
+);
+assert.equal(
+  repairSprintEligibilityFromProposals([{ executionMode: "unsupported", approvalStatus: "approved" }]).status,
+  "unsupported"
+);
+const proposalSummary = await repairProposalSummaryForFixRequest(fakeProposalSummaryEnv(), "fix_123");
+assert.equal(proposalSummary.approved, 2);
+assert.equal(proposalSummary.approvedExecutable, 1);
+assert.equal(proposalSummary.executable, 2);
+assert.equal(repairProposalApprovalWindowStatus("paid").ok, true);
+assert.equal(repairProposalApprovalWindowStatus("in_progress").ok, true);
+assert.equal(repairProposalApprovalWindowStatus("delivered").ok, false);
+assert.equal(repairProposalApprovalWindowStatus("refunded").ok, false);
+assert.equal(repairProposalApprovalWindowStatus("disputed").ok, false);
+const storedProposalJson = jsonForStorage({ snippet: "\"".repeat(5000), fix: "Use complete JSON only." }, 4000, { truncated: true });
+assert.equal(storedProposalJson.length <= 4000, true);
+assert.equal(JSON.parse(storedProposalJson).fix, "Use complete JSON only.");
+assert.equal(agencyWorkspaceAccessFromEntitlements([], { teamSeats: 2 }).limits.teamSeats, 10);
+assert.equal(
+  agencyWorkspaceAccessFromEntitlements([
+    {
+      offer_key: OFFER_KEYS.AGENCY_WORKSPACE,
+      status: "active",
+      limits_json: JSON.stringify({ teamSeats: 25, clientLinksPerReport: 20 })
+    }
+  ]).limits.clientLinksPerReport,
+  20
+);
+
 console.log(JSON.stringify({ ok: true, checked: "dodo payment and fulfillment helpers" }));
 
 async function sign({ payload, webhookId, webhookTimestamp, secret }) {
@@ -191,4 +281,36 @@ async function sign({ payload, webhookId, webhookTimestamp, secret }) {
     binary += String.fromCharCode(byte);
   });
   return btoa(binary);
+}
+
+function fakeProposalSummaryEnv() {
+  const rows = [
+    { fix_request_id: "fix_123", approval_status: "approved", delivery_status: "draft", execution_mode: "unsupported" },
+    { fix_request_id: "fix_123", approval_status: "approved", delivery_status: "draft", execution_mode: "generated_proposal" },
+    { fix_request_id: "fix_123", approval_status: "pending", delivery_status: "draft", execution_mode: "manual_task" }
+  ];
+  return {
+    WAITLIST_DB: {
+      prepare(sql) {
+        assert.equal(sql.includes("approved_executable"), true);
+        return {
+          bind(fixRequestId) {
+            const scoped = rows.filter((row) => row.fix_request_id === fixRequestId);
+            return {
+              first: async () => ({
+                total: scoped.length,
+                approved: scoped.filter((row) => row.approval_status === "approved").length,
+                approved_executable: scoped.filter(
+                  (row) => row.approval_status === "approved" && row.execution_mode !== "unsupported"
+                ).length,
+                dismissed: scoped.filter((row) => row.approval_status === "dismissed").length,
+                executable: scoped.filter((row) => row.execution_mode !== "unsupported").length,
+                delivered: scoped.filter((row) => row.delivery_status === "delivered").length
+              })
+            };
+          }
+        };
+      }
+    }
+  };
 }

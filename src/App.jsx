@@ -882,6 +882,7 @@ function CustomerDashboard({
   const repairItems = repairAgent.nextItems || [];
   const sites = accountData?.sites || [];
   const schedules = accountData?.schedules || [];
+  const monitoring = accountData?.monitoring || {};
   const verifiedSites = sites.filter((site) => site.status === "verified");
   const pendingSites = sites.filter((site) => site.status !== "verified");
 
@@ -897,10 +898,17 @@ function CustomerDashboard({
         <Metric label="Running" value={metrics.runningAudits || 0} />
         <Metric label="Fix Packs" value={metrics.fixRequests || 0} />
         <Metric label="Verified sites" value={metrics.verifiedSites || verifiedSites.length || 0} />
-        <Metric label="Monitors" value={metrics.monitors || schedules.length || 0} />
+        <Metric label="Monitors" value={`${metrics.monitors || schedules.length || 0}/${metrics.monitorLimit || monitoring.limit || 5}`} />
         <Metric label="Open repairs" value={metrics.openRepairs || repairCounts.active || 0} />
         <Metric label="Drafts" value={metrics.draftedActions || repairCounts.awaitingApproval || 0} />
         <Metric label="Regressed" value={metrics.regressedRepairs || 0} />
+      </section>
+      <section className="account-panel monitoring-offer-panel">
+        <div className="section-heading">
+          <p className="beta-eyebrow">Proof Monitoring</p>
+          <h3>{monitoring.status === "active" ? "Monitoring entitlement active" : "Beta monitoring allowance"}</h3>
+        </div>
+        <p>{monitoring.message || "Weekly monitoring watches verified sites and reports proof deltas without claiming to fix issues."}</p>
       </section>
       <RepairAgentFeed items={repairItems} nextAction={primaryAction} reports={reports} />
       <div className="site-verification-panel">
@@ -1332,6 +1340,8 @@ function ReportView({ report }) {
   const platformSeoAudit = report.platformSeoAudit || report.platform_seo_audit || null;
   const aiAnswerReadiness = report.aiAnswerReadiness || report.ai_answer_readiness || null;
   const growthOpportunities = report.growthOpportunities || report.growth_opportunities || null;
+  const geoReadiness = report.geoReadiness || report.geo_readiness || null;
+  const remediationBrief = report.remediationBrief || report.remediation_brief || null;
   const pageSummaries = report.pageSummaries || summarizePages(report.pages || [], report.findings || [], report.url);
   const shareUrl = report.reportUrl || `${window.location.origin}${report.reportPath || window.location.pathname}`;
   const topThree = topFixes.slice(0, 3);
@@ -1380,6 +1390,14 @@ function ReportView({ report }) {
         <FixRequestStatusPanel fixRequest={report.fixRequest} checkoutReturned={checkoutReturned} />
       )}
 
+      {(report.repairProposals || []).length > 0 && (
+        <RepairProposalPanel
+          initialProposals={report.repairProposals || []}
+          repairSprint={report.repairSprint || null}
+          reportId={report.id}
+        />
+      )}
+
       <section className="metric-strip" aria-label="Audit summary">
         <Metric label="Pages" value={`${formatCount(report.summary?.pagesScanned || 0)}/${formatCount(report.summary?.maxPages || DEFAULT_CRAWL_PAGES)}`} />
         <Metric label="Critical" value={report.summary?.critical || 0} />
@@ -1398,6 +1416,8 @@ function ReportView({ report }) {
 
       {["ready", "first_run"].includes(reportDelta?.status) && <ReportDeltaPanel delta={reportDelta} />}
 
+      {remediationBrief && <RemediationBriefPanel brief={remediationBrief} reportId={report.id} />}
+
       {backlinkAudit?.status === "ready" && <BacklinkAuditPanel audit={backlinkAudit} />}
 
       {localSeoAudit?.status === "ready" && <LocalSeoAuditPanel audit={localSeoAudit} />}
@@ -1409,6 +1429,8 @@ function ReportView({ report }) {
       {aiAnswerReadiness?.status === "ready" && <AiAnswerReadinessPanel audit={aiAnswerReadiness} />}
 
       {growthOpportunities?.status === "ready" && <GrowthOpportunitiesPanel growth={growthOpportunities} />}
+
+      {geoReadiness?.status === "ready" && <GeoReadinessPanel audit={geoReadiness} />}
 
       {report.performance && <PerformancePanel performance={report.performance} />}
 
@@ -1563,6 +1585,58 @@ function ReportDeltaPanel({ delta }) {
           <DeltaIssueColumn title="Fixed since last audit" empty="No proven issues disappeared yet." issues={fixedIssues} tone="fixed" />
           <DeltaIssueColumn title="New since last audit" empty="No new proven issues appeared." issues={newIssues} tone="new" />
         </div>
+      )}
+    </section>
+  );
+}
+
+function RemediationBriefPanel({ brief, reportId }) {
+  const queue = brief.priorityQueue || [];
+  const history = brief.proofHistory || {};
+  return (
+    <section className="remediation-brief-panel" aria-label="Agent remediation brief">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Agent repair brief</p>
+        <h2>{queue.length ? "Turn proven issues into a repair queue" : "No priority repair queue"}</h2>
+        <p>{brief.support?.safeHandoff || "Use the report proof and acceptance checks before closing repairs."}</p>
+      </div>
+      <div className="remediation-brief-grid">
+        <div className="remediation-next-actions">
+          <strong>Next actions</strong>
+          <ol>
+            {(brief.nextActions || []).map((action) => (
+              <li key={action}>{action}</li>
+            ))}
+          </ol>
+        </div>
+        <div className="remediation-proof-history">
+          <Metric label="Fixed" value={history.fixedIssues || 0} />
+          <Metric label="New" value={history.newIssues || 0} />
+          <Metric label="Persistent" value={history.persistentIssues || 0} />
+        </div>
+      </div>
+      {queue.length ? (
+        <div className="remediation-queue">
+          {queue.slice(0, 4).map((item) => (
+            <article key={item.id}>
+              <span className={`status-pill ${item.severity}`}>{item.severity}</span>
+              <h3>{item.title}</h3>
+              <p>{item.proof || item.fix}</p>
+              <ul>
+                {(item.acceptanceChecks || []).slice(0, 2).map((check) => (
+                  <li key={check}>{check}</li>
+                ))}
+              </ul>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="quiet-note">Keep monitoring and rerun after meaningful site changes.</p>
+      )}
+      {reportId && (
+        <a className="action-link" href={`/api/reports/${encodeURIComponent(reportId)}/remediation-brief.json`}>
+          Download remediation JSON
+        </a>
       )}
     </section>
   );
@@ -2294,6 +2368,45 @@ function GrowthOpportunitiesPanel({ growth }) {
   );
 }
 
+function GeoReadinessPanel({ audit }) {
+  const checks = audit.checks || {};
+  const summary = audit.summary || {};
+  const repairs = audit.repairOpportunities || [];
+  const topRepair = repairs[0];
+
+  return (
+    <section className="geo-readiness-panel">
+      <div className="section-heading">
+        <p className="beta-eyebrow">SEO/GEO readiness</p>
+        <h2>Repair signals for answer-ready search surfaces.</h2>
+        <p>{audit.guidance?.llmsTxt || "AI-search readiness starts with crawlable content, entity clarity, and truthful schema."}</p>
+      </div>
+      <div className="geo-readiness-metrics" aria-label="SEO and GEO readiness summary">
+        <Metric label="Checks" value={`${summary.passed || 0}/${summary.total || 0}`} />
+        <Metric label="Repairs" value={summary.repairOpportunityCount || repairs.length} />
+        <Metric label="Crawlable" value={checks.crawlableContent ? "Yes" : "Needs work"} />
+        <Metric label="Schema" value={checks.usefulSchema ? "Useful" : "Missing"} />
+      </div>
+      {topRepair && (
+        <article className="geo-readiness-priority">
+          <span>{topRepair.severity}</span>
+          <strong>{topRepair.title}</strong>
+          <p>{topRepair.proof}</p>
+          <small>{topRepair.estimatedEffort || "30-90 min"} - {topRepair.workType || "content"}</small>
+        </article>
+      )}
+      <div className="geo-check-grid">
+        {Object.entries(checks).map(([key, passed]) => (
+          <article className={`geo-check ${passed ? "passed" : "needs-work"}`} key={key}>
+            <span>{passed ? "Ready" : "Needs work"}</span>
+            <strong>{geoCheckLabel(key)}</strong>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function growthTypeLabel(type = "") {
   const labels = {
     comparison_outline: "Comparison",
@@ -2305,7 +2418,19 @@ function growthTypeLabel(type = "") {
   return labels[type] || "Draft";
 }
 
+function geoCheckLabel(key) {
+  const labels = {
+    crawlableContent: "Crawlable content",
+    entityClarity: "Entity clarity",
+    answerReadySections: "Answer-ready sections",
+    usefulSchema: "Useful schema",
+    internalContext: "Internal context"
+  };
+  return labels[key] || key;
+}
+
 function ClientReportPanel({ report }) {
+  const agencyWorkspace = report.agencyWorkspace || {};
   const [branding, setBranding] = useState({
     agencyName: "",
     logoUrl: "",
@@ -2457,6 +2582,23 @@ function ClientReportPanel({ report }) {
         <p className="beta-eyebrow">Client reports</p>
         <h2>White-label report links</h2>
         {message && <p className={`form-message ${status}`}>{message}</p>}
+      </div>
+      <div className={`agency-workspace-strip ${agencyWorkspace.status || "beta_allowance"}`}>
+        <div>
+          <span className="status-pill">Agency Workspace</span>
+          <strong>{agencyWorkspace.status === "active" ? "Entitlement active" : "Beta allowance"}</strong>
+        </div>
+        <p>
+          {agencyWorkspace.message ||
+            "White-label proof, client links, report domains, and team assignment are beta-gated until Agency Workspace checkout is live."}
+        </p>
+        {agencyWorkspace.limits && (
+          <div className="agency-limit-list">
+            <span>{agencyWorkspace.limits.clientLinksPerReport || 10} links/report</span>
+            <span>{agencyWorkspace.limits.teamSeats || 10} seats</span>
+            <span>{agencyWorkspace.limits.reportDomains || 1} domain</span>
+          </div>
+        )}
       </div>
 
       <div className="client-report-grid">
@@ -3452,6 +3594,144 @@ function FixRequestStatusPanel({ fixRequest, checkoutReturned }) {
   );
 }
 
+function RepairProposalPanel({ reportId, initialProposals = [], repairSprint = null }) {
+  const [proposals, setProposals] = useState(initialProposals);
+  const [savingId, setSavingId] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    setProposals(initialProposals);
+  }, [initialProposals]);
+
+  async function updateProposal(proposal, action) {
+    setSavingId(proposal.id);
+    setMessage("");
+    const result = await patchRepairProposalApproval(reportId, proposal.id, { action });
+    setSavingId("");
+    if (!result.ok) {
+      setMessage(result.error || "Could not update repair proposal.");
+      return;
+    }
+    setProposals((current) => current.map((item) => (item.id === proposal.id ? result.proposal : item)));
+    setMessage(action === "approve" ? "Repair approved." : "Repair dismissed.");
+  }
+
+  const approvedCount = proposals.filter((proposal) => proposal.approvalStatus === "approved").length;
+  const executableCount = proposals.filter((proposal) => proposal.executionMode !== "unsupported").length;
+  const currentRepairSprint = repairSprint
+    ? {
+        ...repairSprint,
+        approved: approvedCount,
+        executable: executableCount,
+        status: executableCount
+          ? approvedCount
+            ? repairSprint.hasPaidRequest
+              ? "active"
+              : "approval_ready"
+            : "needs_owner_approval"
+          : "unsupported",
+        message: executableCount
+          ? approvedCount
+            ? repairSprint.hasPaidRequest
+              ? "Repair Sprint execution can use the paid Fix Pack fulfillment path for this report."
+              : "Proposal approval is ready; a distinct Repair Sprint checkout remains gated until product billing is wired."
+            : "Approve at least one executable proposal before packaging this as a Repair Sprint."
+          : "This report does not have enough executable proposal proof for a Repair Sprint."
+      }
+    : null;
+
+  return (
+    <section className="repair-proposal-panel">
+      <div className="section-heading">
+        <div>
+          <p className="beta-eyebrow">Repair execution</p>
+          <h2>Approve the scoped fixes.</h2>
+        </div>
+        <div className="proposal-summary">
+          <span>{approvedCount} approved</span>
+          <span>{executableCount} executable</span>
+          <span>{proposals.length} total</span>
+        </div>
+      </div>
+      {currentRepairSprint && (
+        <div className={`repair-sprint-strip ${currentRepairSprint.status}`}>
+          <div>
+            <span className="status-pill">Repair Sprint</span>
+            <strong>{currentRepairSprint.priceRange}</strong>
+          </div>
+          <p>{currentRepairSprint.message}</p>
+        </div>
+      )}
+      {message && <p className={`form-message ${message.includes("Could") ? "error" : "success"}`}>{message}</p>}
+      <div className="repair-proposal-list">
+        {proposals.map((proposal) => (
+          <article className={`repair-proposal-card ${proposal.approvalStatus}`} key={proposal.id}>
+            <div className="proposal-card-main">
+              <div>
+                <span className="status-pill">{proposal.executionModeLabel || proposal.executionMode}</span>
+                <span className="status-pill">{proposalStatusLabel(proposal.approvalStatus)}</span>
+                {proposal.deliveryStatus && <span className="status-pill">{proposalStatusLabel(proposal.deliveryStatus)}</span>}
+                <h3>{proposal.generatedTitle || proposal.issueTitle}</h3>
+                <p>{proposal.generatedSummary || proposal.proposal?.fix}</p>
+              </div>
+              <div className="proposal-actions">
+                <button
+                  className="action-link paid-action"
+                  disabled={savingId === proposal.id || proposal.approvalStatus === "approved" || proposal.executionMode === "unsupported"}
+                  onClick={() => updateProposal(proposal, "approve")}
+                  type="button"
+                >
+                  {savingId === proposal.id ? "Saving" : "Approve"}
+                </button>
+                <button
+                  className="action-link"
+                  disabled={savingId === proposal.id || proposal.approvalStatus === "dismissed"}
+                  onClick={() => updateProposal(proposal, "dismiss")}
+                  type="button"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+            <dl className="proposal-proof">
+              {proposal.proof?.evidence && (
+                <div>
+                  <dt>Proof</dt>
+                  <dd>{proposal.proof.evidence}</dd>
+                </div>
+              )}
+              {proposal.acceptance?.length > 0 && (
+                <div>
+                  <dt>Acceptance</dt>
+                  <dd>{proposal.acceptance[0]}</dd>
+                </div>
+              )}
+              {proposal.proposal?.snippet && (
+                <div>
+                  <dt>Snippet</dt>
+                  <dd><code>{proposal.proposal.snippet}</code></dd>
+                </div>
+              )}
+            </dl>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function proposalStatusLabel(status = "") {
+  const labels = {
+    pending: "Pending",
+    approved: "Approved",
+    dismissed: "Dismissed",
+    draft: "Draft",
+    in_progress: "In progress",
+    delivered: "Delivered"
+  };
+  return labels[status] || status || "Pending";
+}
+
 function checkoutMessage(status, checkoutReturned) {
   if (status === "paid") return "Payment is confirmed. Your repair pass is queued.";
   if (status === "in_progress") return "The repair pass is in progress. Delivery notes will appear here.";
@@ -4110,6 +4390,8 @@ function BillingPortal({ ownerEmail }) {
         </div>
       </section>
 
+      <OfferLadder offers={billing?.offers || []} />
+
       <section className="billing-panel billing-list-panel">
         <div className="section-heading">
           <p className="beta-eyebrow">Requests</p>
@@ -4173,6 +4455,36 @@ function BillingPortal({ ownerEmail }) {
           {!payments.length && <p className="quiet-note">No paid Dodo records for this beta account yet.</p>}
         </div>
       </section>
+    </section>
+  );
+}
+
+function OfferLadder({ offers = [] }) {
+  if (!offers.length) return null;
+  return (
+    <section className="billing-panel offer-ladder">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Offer ladder</p>
+        <h2>Current and gated products</h2>
+      </div>
+      <div className="offer-card-grid">
+        {offers.map((offer) => (
+          <article className={`offer-card ${offer.stage}`} key={offer.key}>
+            <div>
+              <span className="status-pill">{offer.statusLabel}</span>
+              <h3>{offer.name}</h3>
+              <strong>{offer.priceRange}</strong>
+              <p>{offer.description}</p>
+            </div>
+            <p className="quiet-note">{offer.availability}</p>
+            <div className="offer-requirements">
+              {(offer.requirements || []).slice(0, 4).map((requirement) => (
+                <span key={requirement}>{requirement}</span>
+              ))}
+            </div>
+          </article>
+        ))}
+      </div>
     </section>
   );
 }
@@ -4403,6 +4715,7 @@ function FixPackQueue({ adminToken, emailConfigured, requests, opsHealth, status
       <div className="fix-queue-list">
         {requests.map((request) => {
           const draft = draftFor(request);
+          const proposalSummary = request.repairProposalSummary || {};
           return (
             <article className={`fix-queue-card ${request.status}`} key={request.id}>
               <div className="fix-queue-main">
@@ -4412,6 +4725,12 @@ function FixPackQueue({ adminToken, emailConfigured, requests, opsHealth, status
                   <h3>{request.targetHost || request.targetUrl}</h3>
                   <p>{request.ownerEmail}</p>
                   <p>{request.issueCount || 0} findings · score {request.score ?? "unknown"}</p>
+                  {proposalSummary.status === "ready" && (
+                    <p>
+                      {proposalSummary.approved || 0}/{proposalSummary.executable || 0} executable proposals approved
+                      {proposalSummary.delivered ? ` · ${proposalSummary.delivered} delivered` : ""}
+                    </p>
+                  )}
                 </div>
                 <div className="queue-links">
                   <a href={request.reportPath}>Report</a>
@@ -5045,6 +5364,27 @@ async function requestFixQuote(reportId, selectedRepair = null) {
     };
   } catch (error) {
     return { ok: false, error: error.message || "Checkout could not open." };
+  }
+}
+
+async function patchRepairProposalApproval(reportId, proposalId, body) {
+  try {
+    const response = await fetch(
+      `/api/reports/${encodeURIComponent(reportId)}/repair-proposals/${encodeURIComponent(proposalId)}`,
+      {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body)
+      }
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok !== true) {
+      return { ok: false, error: payload.error || "Could not update repair proposal." };
+    }
+    return payload;
+  } catch (error) {
+    return { ok: false, error: error.message || "Could not update repair proposal." };
   }
 }
 

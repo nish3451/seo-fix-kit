@@ -11,6 +11,7 @@ import {
   betaAccessStatus
 } from "../lib/auth.js";
 import { repairTableAll } from "../lib/repair-tables.js";
+import { agencyWorkspaceAccessForOwner, monitoringAccessForOwner, offerCatalogForOwner } from "../lib/offers.js";
 import {
   auditJobResponse,
   auditScheduleResponse,
@@ -127,6 +128,9 @@ async function getAccountSummary(request, env) {
     ),
     unavailable: repairAgentUnavailable
   };
+  const offers = await offerCatalogForOwner(env, access.ownerEmail);
+  const monitoring = await monitoringAccessForOwner(env, access.ownerEmail, schedules.length);
+  const agencyWorkspace = await agencyWorkspaceAccessForOwner(env, access.ownerEmail);
 
   return jsonNoStore({
     ok: true,
@@ -141,6 +145,7 @@ async function getAccountSummary(request, env) {
       runningAudits: recentAuditJobs.filter((job) => ["queued", "running"].includes(job.status)).length,
       verifiedSites,
       monitors: schedules.length,
+      monitorLimit: monitoring.limit,
       repairItems: repairAgent.counts.total,
       openRepairs: repairAgent.counts.active,
       draftedActions: repairAgent.counts.awaitingApproval,
@@ -154,6 +159,9 @@ async function getAccountSummary(request, env) {
     schedules,
     fixRequests: requests,
     repairAgent,
+    offers,
+    monitoring,
+    agencyWorkspace,
     nextActions: accountNextActions(recentReports, requests, sites, recentAuditJobs, repairAgent)
   });
 }

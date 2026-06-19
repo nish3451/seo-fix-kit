@@ -28,9 +28,11 @@ import {
   isEmailConfigured,
   normalizeFixRequestStatus
 } from "../../shared/fulfillment.js";
+import { buildRepairProposalsFromReport } from "../../shared/repair-execution.js";
 import { betaAccessResponse, betaAccessStatus } from "../lib/auth.js";
 import { EMAIL_PROVIDER, sendWorkerEmail } from "../lib/email.js";
 import { json, jsonNoStore, secureHeaders } from "../lib/http.js";
+import { offerCatalogForOwner } from "../lib/offers.js";
 import { preserveFixRequestReports, reportJsonForRow } from "../lib/report-data.js";
 import { isRepairTablesMissingError } from "../lib/repair-tables.js";
 import { ensureRepairQueueRows } from "../lib/repair-agent-actions.js";
@@ -91,14 +93,19 @@ async function requestFixPack(request, env) {
   }
   if (row.expires_at && row.expires_at <= new Date().toISOString()) return json({ error: "Report expired." }, 404);
 
+  const summary = parseJson(row.summary_json, {});
+  const report = parseJson(await reportJsonForRow(env, row), {});
   const now = new Date().toISOString();
+  const note = cleanText(body.note || "", 1000);
+  const isTest = Boolean(body.testMode || body.isTest) && access.accessMode === "founder-override";
   const existingFixRequest = await latestFixRequestForReport(env, row.id, access.ownerEmail);
+  const skippedProposalSeed = { status: "skipped", total: 0, created: 0, executable: 0 };
 
-  if (PAID_LIKE_FIX_REQUEST_STATUSES.has(existingFixRequest?.status)) {
+  if (existingFixRequest?.status === "delivered") {
     return jsonNoStore({
       ok: true,
       mode: existingFixRequest.status,
-      request: fixRequestResponse(existingFixRequest, now),
+      request: fixRequestWithProposalSummary(existingFixRequest, skippedProposalSeed, now),
       offer: FIX_PACK_OFFER,
       selectedRepair: null
     });
@@ -111,17 +118,24 @@ async function requestFixPack(request, env) {
       checkoutAvailable: false,
       message:
         "This Fix Pack was refunded or disputed, so checkout is closed for this report. Email support@seofixkit.com to restart a repair.",
-      request: fixRequestResponse(existingFixRequest, now),
+      request: fixRequestWithProposalSummary(existingFixRequest, skippedProposalSeed, now),
       offer: FIX_PACK_OFFER,
       selectedRepair: null
     });
   }
 
-  const report = parseJson(await reportJsonForRow(env, row), {});
-  const summary = parseJson(row.summary_json, report.summary || {});
+  if (PAID_LIKE_FIX_REQUEST_STATUSES.has(existingFixRequest?.status)) {
+    const proposalSeed = await seedRepairProposalsForFixRequest(env, report, existingFixRequest, row, access, now);
+    return jsonNoStore({
+      ok: true,
+      mode: existingFixRequest.status,
+      request: fixRequestWithProposalSummary(existingFixRequest, proposalSeed, now),
+      offer: FIX_PACK_OFFER,
+      selectedRepair: null
+    });
+  }
+
   const repairContext = await fixPackRepairContext(env, access, row.id, report, body);
-  const note = cleanText(body.note || "", 1000);
-  const isTest = Boolean(body.testMode || body.isTest) && access.accessMode === "founder-override";
 
   if (repairContext.unavailable) {
     return jsonNoStore({
@@ -169,7 +183,7 @@ async function requestFixPack(request, env) {
       ok: true,
       mode: "checkout",
       checkoutUrl: fixRequest.checkout_url,
-      request: fixRequestResponse(fixRequest, now),
+      request: fixRequestWithProposalSummary(fixRequest, skippedProposalSeed, now),
       offer: FIX_PACK_OFFER,
       selectedRepair: repairContext.selectedRepair
     });
@@ -181,7 +195,7 @@ async function requestFixPack(request, env) {
       mode: "request",
       checkoutAvailable: false,
       message: "Fix request saved. Checkout is paused until payment and webhook config pass.",
-      request: fixRequestResponse(fixRequest, now),
+      request: fixRequestWithProposalSummary(fixRequest, skippedProposalSeed, now),
       offer: FIX_PACK_OFFER,
       selectedRepair: repairContext.selectedRepair
     });
@@ -207,7 +221,7 @@ async function requestFixPack(request, env) {
       {
         error: error?.message || "Dodo checkout could not be created.",
         code: error?.code || "DODO_CHECKOUT_ERROR",
-        request: fixRequestResponse(fixRequest, now),
+        request: fixRequestWithProposalSummary(fixRequest, skippedProposalSeed, now),
         offer: FIX_PACK_OFFER,
         selectedRepair: repairContext.selectedRepair
       },
@@ -242,7 +256,7 @@ async function requestFixPack(request, env) {
     mode: "checkout",
     checkoutUrl: checkout.checkoutUrl,
     request: {
-      ...fixRequestResponse(fixRequest, checkoutCreatedAt),
+      ...fixRequestWithProposalSummary(fixRequest, skippedProposalSeed, checkoutCreatedAt),
       status: "checkout_created",
       checkoutSessionId: checkout.checkoutSessionId,
       offer: FIX_PACK_OFFER,
@@ -331,6 +345,9 @@ async function getBillingSummary(request, env) {
   const now = new Date().toISOString();
   const dodoConfig = dodoCheckoutConfigStatus(env);
   const pricing = await billingPricingState(request, env, access, dodoConfig);
+  const offers = await offerCatalogForOwner(env, access.ownerEmail, {
+    fixPackCheckoutReady: dodoConfig.checkoutReady
+  });
   const rows = await env.WAITLIST_DB.prepare(
     `SELECT *
      FROM fix_requests
@@ -370,6 +387,7 @@ async function getBillingSummary(request, env) {
       checkoutNote: "Start checkout from a report with proven fixes so payment stays tied to a repair brief."
     },
     pricing,
+    offers,
     subscriptionState: {
       status: "not_live",
       label: "No recurring subscription",
@@ -542,6 +560,132 @@ function checkoutRepairTargetMatches(fixRequest = {}, selectedRepair = null) {
   return stored.queueItemId === current.queueItemId &&
     stored.issueId === current.issueId &&
     stored.status === current.status;
+}
+
+async function seedRepairProposalsForFixRequest(env, report, fixRequest, reportRow, access, now) {
+  if (!env.WAITLIST_DB || !fixRequest?.id || !report?.url) {
+    return { status: "skipped", total: 0, created: 0, executable: 0 };
+  }
+  const proposals = buildRepairProposalsFromReport(report, {
+    fixRequestId: fixRequest.id,
+    ownerEmail: access.ownerEmail,
+    reportId: reportRow.id,
+    targetUrl: reportRow.url,
+    targetHost: reportRow.target_host || safeHostname(reportRow.url),
+    limit: 25
+  });
+  if (!proposals.length) return { status: "ready", total: 0, created: 0, executable: 0 };
+
+  try {
+    const existing = await env.WAITLIST_DB.prepare(
+      `SELECT issue_id
+       FROM repair_proposals
+       WHERE fix_request_id = ?`
+    )
+      .bind(fixRequest.id)
+      .all();
+    const existingIssueIds = new Set((existing.results || []).map((row) => row.issue_id));
+    let created = 0;
+    for (const proposal of proposals) {
+      if (existingIssueIds.has(proposal.issueId)) continue;
+      const result = await env.WAITLIST_DB.prepare(
+        `INSERT OR IGNORE INTO repair_proposals
+          (id, fix_request_id, report_id, owner_email, issue_id, issue_title, target_url, target_host,
+           severity, source, priority, execution_mode, approval_status, delivery_status, generated_title,
+           generated_summary, proof_json, proposal_json, acceptance_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+        .bind(
+          crypto.randomUUID(),
+          fixRequest.id,
+          reportRow.id,
+          access.ownerEmail,
+          proposal.issueId,
+          proposal.issueTitle,
+          proposal.targetUrl || reportRow.url,
+          proposal.targetHost || reportRow.target_host || safeHostname(reportRow.url),
+          proposal.severity,
+          proposal.source,
+          proposal.priority,
+          proposal.executionMode,
+          proposal.approvalStatus,
+          proposal.deliveryStatus,
+          proposal.generatedTitle,
+          proposal.generatedSummary,
+          jsonForStorage(proposal.proof || {}, 4000, {}),
+          jsonForStorage(proposal.proposal || {}, 4000, { truncated: true }),
+          jsonForStorage(proposal.acceptance || [], 2000, []),
+          now,
+          now
+        )
+        .run();
+      created += Number(result?.meta?.changes || 0);
+    }
+    return {
+      status: "ready",
+      total: proposals.length,
+      created,
+      executable: proposals.filter((proposal) => proposal.executionMode !== "unsupported").length
+    };
+  } catch {
+    return { status: "unavailable", total: 0, created: 0, executable: 0 };
+  }
+}
+
+async function seedRepairProposalsForPaidFixRequest(env, fixRequest, now) {
+  if (!env.WAITLIST_DB || !fixRequest?.id || !fixRequest?.report_id || !fixRequest?.owner_email) {
+    return { status: "skipped", total: 0, created: 0, executable: 0 };
+  }
+  if (!["paid", "in_progress"].includes(fixRequest.status || "")) {
+    return { status: "skipped", total: 0, created: 0, executable: 0 };
+  }
+  try {
+    const reportRow = await env.WAITLIST_DB.prepare(
+      `SELECT id, url, target_host, report_json
+       FROM audit_reports
+       WHERE id = ?
+       LIMIT 1`
+    )
+      .bind(fixRequest.report_id)
+      .first();
+    const report = parseJson(await reportJsonForRow(env, reportRow || {}), {});
+    return seedRepairProposalsForFixRequest(
+      env,
+      report,
+      fixRequest,
+      reportRow || { id: fixRequest.report_id, url: fixRequest.target_url || "", target_host: fixRequest.target_host || "" },
+      { ownerEmail: fixRequest.owner_email },
+      now
+    );
+  } catch {
+    return { status: "unavailable", total: 0, created: 0, executable: 0 };
+  }
+}
+
+function fixRequestWithProposalSummary(fixRequest, proposalSeed, now) {
+  return {
+    ...fixRequestResponse(fixRequest, now),
+    repairProposalSummary: proposalSeed
+  };
+}
+
+function jsonForStorage(value, maxLength, fallback) {
+  const initial = JSON.stringify(value ?? fallback);
+  if (initial.length <= maxLength) return initial;
+  for (const maxStringLength of [3000, 2000, 1000, 500, 200, 80]) {
+    const compacted = JSON.stringify(compactJsonStrings(value ?? fallback, maxStringLength));
+    if (compacted.length <= maxLength) return compacted;
+  }
+  return JSON.stringify(fallback);
+}
+
+function compactJsonStrings(value, maxStringLength) {
+  if (typeof value === "string") return value.slice(0, maxStringLength);
+  if (Array.isArray(value)) return value.map((item) => compactJsonStrings(item, maxStringLength));
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, compactJsonStrings(item, maxStringLength)])
+  );
 }
 
 function billingPaymentResponse(row) {
@@ -1012,6 +1156,7 @@ async function processDodoPaymentWebhook(env, eventType, payment, webhookId = ""
     const updated = await env.WAITLIST_DB.prepare("SELECT * FROM fix_requests WHERE id = ? LIMIT 1")
       .bind(fixRequest.id)
       .first();
+    await seedRepairProposalsForPaidFixRequest(env, updated || { ...fixRequest, status: "paid" }, now);
     await preserveFixRequestReports(env, updated || fixRequest);
     return {
       ok: true,
@@ -1620,6 +1765,7 @@ export {
   handleDodoWebhook,
   hasSentFixRequestNotification,
   isAllowedAdminStatusTransition,
+  jsonForStorage,
   logFixRequestEvent,
   logFixRequestNotification,
   markDodoWebhookProcessed,
@@ -1637,6 +1783,7 @@ export {
   reserveDodoWebhookEvent,
   sendFixPackPaymentEmail,
   sendFixPackStatusEmail,
+  seedRepairProposalsForFixRequest,
   textValue,
   validateFinalReportForFixRequest
 };

@@ -42,6 +42,10 @@ import {
   keywordRankAuditBriefLines
 } from "./keyword-rank-audit.js";
 import {
+  buildGeoReadinessAudit,
+  geoReadinessBriefLines
+} from "./geo-readiness.js";
+import {
   buildLocalSeoAudit,
   localSeoAuditBriefLines
 } from "./local-seo-audit.js";
@@ -310,6 +314,13 @@ export function createAuditEngine({
       report.growthOpportunities = growthOpportunities;
     }
 
+    const geoReadiness = buildGeoReadinessAudit(report);
+    if (geoReadiness.status === "ready") {
+      report.geoReadiness = geoReadiness;
+      repairPlan = mergeRepairPlans(repairPlan, geoReadiness.repairOpportunities);
+      report.repairPlan = repairPlan;
+    }
+
     report.repairBrief = buildRepairBrief({
       startUrl,
       score,
@@ -327,7 +338,8 @@ export function createAuditEngine({
       keywordRankAudit: report.keywordRankAudit,
       platformSeoAudit: report.platformSeoAudit,
       aiAnswerReadiness: report.aiAnswerReadiness,
-      growthOpportunities: report.growthOpportunities
+      growthOpportunities: report.growthOpportunities,
+      geoReadiness: report.geoReadiness
     });
 
     return report;
@@ -1769,7 +1781,7 @@ function mergeRepairPlans(basePlan = [], extraItems = []) {
   }));
 }
 
-function buildRepairBrief({ startUrl, score, summary, pages, findings, repairPlan, performance, competitorBenchmark, crawlInventory, renderedCrawlScale, crawlIntelligence, backlinkAudit, localSeoAudit, keywordRankAudit, platformSeoAudit, aiAnswerReadiness, growthOpportunities }) {
+function buildRepairBrief({ startUrl, score, summary, pages, findings, repairPlan, performance, competitorBenchmark, crawlInventory, renderedCrawlScale, crawlIntelligence, backlinkAudit, localSeoAudit, keywordRankAudit, platformSeoAudit, aiAnswerReadiness, growthOpportunities, geoReadiness }) {
   const lines = [
     "# SEO Fix Kit repair brief",
     "",
@@ -1852,6 +1864,7 @@ function buildRepairBrief({ startUrl, score, summary, pages, findings, repairPla
   lines.push(...platformSeoAuditBriefLines(platformSeoAudit));
   lines.push(...aiAnswerReadinessBriefLines(aiAnswerReadiness));
   lines.push(...growthOpportunitiesBriefLines(growthOpportunities));
+  lines.push(...geoReadinessBriefLines(geoReadiness));
 
   lines.push("Re-run SEO Fix Kit after shipping changes and keep only fixes that match visible page content.");
   return lines.join("\n");

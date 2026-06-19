@@ -23,8 +23,12 @@ Live product claims:
 - Reports include a private repair queue with proof, acceptance checks, status, safe draft action records, and approval state.
 - The account dashboard includes a repair-agent feed that ranks open repairs, drafted actions, applied items needing rerun proof, and monitor regressions.
 - Developer API issue/report responses include safe repair_queue status and repair-action lifecycle webhooks.
+- Reports include SEO/GEO readiness checks for crawlable answer content, entity clarity, useful schema, internal context, and optional llms.txt boundaries.
 - Dodo is the source of truth for visible Fix Pack pricing and checkout.
-- Paid Fix Pack fulfillment includes status, delivery notes, and one rerun after fixes.
+- Paid Fix Pack fulfillment includes owner-approved repair proposals, status, delivery notes, and one rerun after fixes.
+- The private billing portal lists the staged offer ladder for monitoring, Repair Sprint, SEO/GEO repair agent, and agency workspace, but monthly checkout remains entitlement-gated and not live.
+- Repair Sprint eligibility can be shown from approved proposal state, but distinct Repair Sprint checkout is not live yet.
+- Agency Workspace features run under beta limits; paid Agency Workspace checkout is not live yet.
 
 Current product boundary:
 - Public methodology and package pages describe the live proof loop, limits, and package ladder; they are not a public anonymous audit.
@@ -35,6 +39,8 @@ Current product boundary:
 - Does not provide live keyword volume providers, traffic estimates, or continuous rank tracking yet.
 - Does not provide live AI-engine visibility tracking, AI citation monitoring, or answer-engine sampling. AI Answer Readiness is site-proof only.
 - Does not auto-publish growth content, create CMS drafts, open pull requests, or promise rankings/traffic from growth briefs.
+- Does not sell live monthly monitoring, recurring repair agent, or agency workspace subscriptions until entitlement billing is wired.
+- Does not claim llms.txt is required for Google Search or Google generative search surfaces.
 - Does not scrape private Google Business Profile data or discover every citation automatically.
 - Does not log into WordPress, Shopify, WooCommerce, Magento, or private CMS/plugin admin settings.
 - Does not publish CMS changes, open GitHub pull requests, or call provider admin APIs from the browser.

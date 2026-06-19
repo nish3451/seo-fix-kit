@@ -82,6 +82,7 @@ import {
   appendReportDeltaBrief,
   buildReportDelta
 } from "../shared/report-delta.js";
+import { buildRemediationBrief } from "../shared/remediation-brief.js";
 import {
   LARGE_RENDERED_CRAWL_MAX_RETRIES,
   claimNextLargeRenderedCrawlBatch,
@@ -1927,6 +1928,22 @@ app.get("/api/reports/:id/brief.md", (req, res) => {
     .send(report.repairBrief || "# SEO Fix Kit repair brief\n");
 });
 
+app.get("/api/reports/:id/remediation-brief.json", (req, res) => {
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res.status(401).set("cache-control", "no-store").json({ error: "Private beta session required." });
+    return;
+  }
+  const report = auditReports.get(req.params.id);
+  if (!report || (report.owner?.email && report.owner.email !== access.ownerEmail)) {
+    res.status(404).set("cache-control", "no-store").json({ error: "Report not found." });
+    return;
+  }
+  res
+    .set({ "cache-control": "no-store", "x-robots-tag": "noindex, nofollow" })
+    .json(buildRemediationBrief(report));
+});
+
 app.get("/api/reports/:id/client.pdf", async (req, res) => {
   const access = localBetaAccess(req);
   if (!access.ok) {
@@ -1966,6 +1983,7 @@ app.get("/api/reports/:id", (req, res) => {
   }
   const fixRequest = fixRequests.find((request) => request.reportId === report.id && request.ownerEmail === access.ownerEmail);
   if (fixRequest) report.fixRequest = localFixRequestResponse(fixRequest);
+  report.remediationBrief = buildRemediationBrief(report);
   res
     .set({ "cache-control": "no-store", "x-robots-tag": "noindex, nofollow" })
     .json(report);
