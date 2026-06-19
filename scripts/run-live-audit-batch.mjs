@@ -70,6 +70,9 @@ async function main() {
       const report = await audit(target.url, cookie);
       entry.status = "audited";
       entry.report = summarizeReport(report);
+      if (fixPackProofEnabled()) {
+        entry.fixPack = await proveFixPackForReport(report, cookie);
+      }
     } catch (error) {
       entry.status = "failed";
       entry.reason = error.message || "Audit failed.";
@@ -220,6 +223,59 @@ async function audit(url, cookie, options = {}) {
   throw new Error("Audit response did not include a completed report or queued job.");
 }
 
+async function proveFixPackForReport(report, cookie, options = {}) {
+  const summary = summarizeReport(report);
+  if (!summary.findings) {
+    return {
+      status: "skipped",
+      reason: "No actionable findings; Fix Pack proof was not requested."
+    };
+  }
+  return requestFixPack(report.id, cookie, options);
+}
+
+async function requestFixPack(reportId, cookie, options = {}) {
+  const baseUrl = options.baseUrl || BASE_URL;
+  const fetcher = options.fetcher || fetch;
+  const response = await fetchWithTimeout(`${baseUrl}/api/beta/fix-request`, {
+    method: "POST",
+    headers: {
+      cookie,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({ reportId })
+  }, options.timeoutMs || AUDIT_TIMEOUT_MS, fetcher);
+  const payload = await response.json().catch(() => ({}));
+  return summarizeFixPackProof(payload, response.status, response.ok);
+}
+
+function summarizeFixPackProof(payload = {}, httpStatus = 0, responseOk = false) {
+  const checkoutHost = safeUrl(payload.checkoutUrl)?.hostname || "";
+  return {
+    ok: responseOk && payload.ok === true,
+    status: payload.mode || (responseOk ? "ok" : "failed"),
+    httpStatus,
+    checkoutAvailable: payload.checkoutAvailable ?? Boolean(payload.checkoutUrl),
+    checkoutUrlPresent: Boolean(payload.checkoutUrl),
+    checkoutHost,
+    request: payload.request ? {
+      id: payload.request.id || "",
+      status: payload.request.status || "",
+      checkoutSessionIdPresent: Boolean(payload.request.checkoutSessionId),
+      checkoutCreatedAt: payload.request.checkoutCreatedAt || "",
+      proposalSummary: payload.request.repairProposalSummary || null
+    } : null,
+    selectedRepair: payload.selectedRepair ? {
+      id: payload.selectedRepair.id || "",
+      title: payload.selectedRepair.title || "",
+      severity: payload.selectedRepair.severity || ""
+    } : null,
+    code: payload.code || "",
+    message: payload.message || "",
+    error: payload.error || ""
+  };
+}
+
 function isAuditReportPayload(payload = {}) {
   const report = payload.report || payload;
   return Boolean(report?.id && Array.isArray(report.findings) && Array.isArray(report.pages));
@@ -271,6 +327,14 @@ async function fetchJson(url, options, fetcher, timeoutMs) {
 
 function resolveUrl(value, baseUrl) {
   return new URL(value, baseUrl).href;
+}
+
+function safeUrl(value = "") {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
 }
 
 function sleep(ms) {
@@ -383,6 +447,10 @@ function decodeHtml(value) {
     .replace(/&#39;/g, "'");
 }
 
+function fixPackProofEnabled() {
+  return /^(1|true|yes)$/i.test(process.env.SEOFIXKIT_FIX_PACK_PROOF || "");
+}
+
 function renderMarkdown(batch) {
   const audited = batch.targets.filter((target) => target.status === "audited");
   const failed = batch.targets.filter((target) => target.status === "failed");
@@ -419,6 +487,16 @@ ${audited
 - Findings: ${target.report.findings}
 - Guarded false positives: ${target.report.guardedFalsePositives}
 - Report: ${target.report.reportUrl}
+${target.fixPack ? `
+Fix Pack proof:
+- Status: ${target.fixPack.status}
+- Checkout available: ${target.fixPack.checkoutAvailable ? "yes" : "no"}
+- Checkout URL returned: ${target.fixPack.checkoutUrlPresent ? "yes" : "no"}
+- Checkout host: ${target.fixPack.checkoutHost || "n/a"}
+- Request: ${target.fixPack.request?.id || "n/a"} (${target.fixPack.request?.status || "n/a"})
+- Selected repair: ${target.fixPack.selectedRepair?.title || "n/a"}
+- Note: ${target.fixPack.reason || target.fixPack.error || target.fixPack.message || "n/a"}
+` : ""}
 
 Top issues:
 ${target.report.topIssues
@@ -463,7 +541,10 @@ export {
   audit,
   fetchWithTimeout,
   isAuditReportPayload,
+  proveFixPackForReport,
   recommendOffer,
+  requestFixPack,
   resolveUrl,
+  summarizeFixPackProof,
   waitForQueuedAuditReport
 };
