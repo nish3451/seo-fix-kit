@@ -307,7 +307,9 @@ function buildRepairOpportunities(waterfall) {
 }
 
 function isRenderBlockingCandidate(resource, navigation = {}) {
-  if (resource.renderBlockingStatus === "blocking") return true;
+  const renderBlockingStatus = String(resource.renderBlockingStatus || "").toLowerCase();
+  if (renderBlockingStatus === "blocking") return true;
+  if (renderBlockingStatus === "non-blocking") return false;
   if (!["script", "stylesheet"].includes(resource.type)) return false;
   const cutoff = positiveNumber(navigation.domContentLoadedMs) ||
     positiveNumber(navigation.loadEventMs) ||

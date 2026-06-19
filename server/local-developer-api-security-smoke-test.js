@@ -60,7 +60,7 @@ try {
   assert.match(publicRobots, new RegExp(`Sitemap: ${origin.replaceAll(".", "\\.")}/sitemap\\.xml`));
   const publicSitemap = await (await fetch(`${origin}/sitemap.xml`)).text();
   assert.match(publicSitemap, new RegExp(`${origin.replaceAll(".", "\\.")}/methodology`));
-  assert.match(publicSitemap, new RegExp(`${origin.replaceAll(".", "\\.")}/llms\\.txt`));
+  assert.doesNotMatch(publicSitemap, /\/llms\.txt/);
   assert.doesNotMatch(publicSitemap, /\/fixture\/rendered-page/);
   const fixtureRobots = await (await fetch(`${origin}/fixture/robots.txt`)).text();
   assert.match(fixtureRobots, new RegExp(`Sitemap: ${origin.replaceAll(".", "\\.")}/fixture/sitemap\\.xml`));
