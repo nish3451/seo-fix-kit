@@ -1,5 +1,7 @@
 import { escapeHtml } from "../../shared/audit-engine.js";
 
+const FIX_PACK_PUBLIC_PRICE = "$99.00 one-time";
+
 function llmsText(origin) {
   return `# SEO Fix Kit
 
@@ -250,7 +252,7 @@ function packagesHtml(origin) {
     description: "The current SEO Fix Kit package ladder, including free beta audits, one-time Fix Pack checkout, and clearly marked roadmap packages.",
     eyebrow: "Package ladder",
     heading: "Start with proof. Pay only when there is work to do.",
-    lead: "The live paid offer is intentionally narrow: one proof-backed repair pass tied to one report, plus one rerun after fixes. Dodo checkout is the source of truth for the visible price.",
+    lead: `The live paid offer is intentionally narrow: one proof-backed repair pass tied to one report, plus one rerun after fixes. Current beta price is ${FIX_PACK_PUBLIC_PRICE}; Dodo checkout remains the final price source at payment time.`,
     body: `
       <section class="package-grid" aria-label="SEO Fix Kit package ladder">
         <article class="package-card live">
@@ -267,9 +269,11 @@ function packagesHtml(origin) {
         <article class="package-card live">
           <span>Live checkout when eligible</span>
           <h2>SEO Fix Pack</h2>
+          <p class="package-price"><strong>${FIX_PACK_PUBLIC_PRICE}</strong><br />For one eligible report in beta; Dodo checkout is final at payment time.</p>
           <p>One proof-backed repair pass tied to the report queue, plus one rerun after fixes. Offered only from a report with real fixes.</p>
           <ul>
-            <li>Dodo shows the actual checkout price</li>
+            <li>Public price is visible before checkout</li>
+            <li>Dodo shows the final checkout price</li>
             <li>No ranking or traffic guarantee</li>
             <li>Refund guard if payment succeeds but the queue cannot start</li>
           </ul>
@@ -339,6 +343,8 @@ ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })
       .panel.proof, .package-card.live { border-color: rgba(152,240,204,.28); }
       .panel strong, .package-card span { color: #98f0cc; font-size: 12px; font-weight: 860; text-transform: uppercase; }
       .package-card h2 { margin: 0; }
+      .package-price { border-left: 3px solid #dcc062; color: #fbf8ef; margin: 2px 0; padding-left: 12px; }
+      .package-price strong { color: #dcc062; font-size: 22px; }
       .package-card a { align-items: center; border: 1px solid rgba(152,240,204,.32); border-radius: 8px; display: inline-flex; justify-content: center; min-height: 44px; padding: 0 14px; width: fit-content; }
       .check-list { display: grid; gap: 12px; list-style: none; padding-left: 0; }
       .check-list li { background: rgba(7,13,10,.58); border: 1px solid rgba(251,248,239,.1); border-radius: 8px; padding: 14px 16px; }

@@ -33,7 +33,8 @@ test("public proof pages expose methodology and package ladder without overclaim
   assert.match(methodology, /draft-only growth briefs/);
   assert.match(methodology, /No hidden site writes/);
   assert.match(packages, /SEO Fix Pack/);
-  assert.match(packages, /Dodo shows the actual checkout price/);
+  assert.match(packages, /\$99\.00 one-time/);
+  assert.match(packages, /Dodo shows the final checkout price/);
   assert.match(packages, /Roadmap/);
   assert.doesNotMatch(combined, /completed 50K rendered validation/i);
   assert.doesNotMatch(combined, /guaranteed rankings/i);
