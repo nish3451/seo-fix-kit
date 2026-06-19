@@ -146,6 +146,8 @@ Fix Pack checkout can carry the selected repair queue issue in request/checkout 
 
 The private `/beta/billing` portal follows the BillingSDK self-serve billing pattern, but the implementation keeps Dodo calls inside the Worker. The official BillingSDK React transport currently adds generic client hooks around a separate API surface, so this repo uses the same customer-portal shape without moving Dodo provider logic or secrets into the browser.
 
+For production rehearsals, the live audit batch runner can run a test-only Fix Pack webhook drill by setting `SEOFIXKIT_FIX_PACK_PROOF=1` and `SEOFIXKIT_FIX_PACK_WEBHOOK_DRILL=1`. The drill requires a founder-override session, creates only an `is_test` Fix Pack request, signs a Dodo-shaped webhook, and proves the Worker can process that test request without printing secrets, checkout URLs, or session ids. It does not prove a real card payment, Dodo-originated webhook delivery, or customer repair delivery.
+
 Cloudflare vars in `wrangler.jsonc` hold the public Dodo brand/product identifiers and environment mode:
 
 - `DODO_SEOFIXKIT_BRAND_ID`

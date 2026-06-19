@@ -145,6 +145,7 @@ export function extractDodoPayment(payment = {}) {
     metadataRepairIssueId: firstText(metadata.repair_issue_id, metadata.repairIssueId, metadata.issue_id, metadata.issueId),
     metadataRepairQueueItemId: firstText(metadata.repair_queue_item_id, metadata.repairQueueItemId, metadata.queue_item_id, metadata.queueItemId),
     metadataRepairTitle: firstText(metadata.repair_title, metadata.repairTitle),
+    metadataWebhookDrill: truthyText(metadata.seofixkit_webhook_drill, metadata.webhook_drill, metadata.webhookDrill),
     businessId: firstText(payment.business_id, payment.businessId),
     brandId: firstText(payment.brand_id, payment.brandId),
     customerEmail: normalizeEmailText(customer.email || payment.customer_email || payment.customerEmail),
@@ -207,6 +208,10 @@ function firstText(...values) {
     if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
   }
   return "";
+}
+
+function truthyText(...values) {
+  return /^(1|true|yes|drill)$/i.test(firstText(...values));
 }
 
 function objectOrEmpty(value) {

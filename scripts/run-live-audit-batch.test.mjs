@@ -206,6 +206,140 @@ test("Fix Pack proof stores checkout boundary without raw checkout URL", async (
   assert.doesNotMatch(JSON.stringify(result), /private-token|checkout_session_private|https:\/\/checkout/);
 });
 
+test("Fix Pack webhook drill runs only through a sanitized test checkout proof", async () => {
+  const calls = [];
+  const result = await proveFixPackForReport(sampleReport("finding-report"), "beta=1", {
+    baseUrl: "https://seofixkit.test",
+    ownerEmail: "owner@example.com",
+    testMode: true,
+    webhookDrill: true,
+    webhookSecret: "test_webhook_secret",
+    dodoConfig: {
+      productId: "pdt_fix_pack",
+      brandId: "brand-1"
+    },
+    fetcher: async (rawUrl, options = {}) => {
+      const url = new URL(rawUrl);
+      const body = JSON.parse(options.body || "{}");
+      calls.push({
+        pathname: url.pathname,
+        body,
+        headers: Object.fromEntries(Object.entries(options.headers || {}).filter(([key]) =>
+          ["webhook-id", "webhook-timestamp", "webhook-signature"].includes(key)
+        ))
+      });
+      if (url.pathname === "/api/beta/fix-request" && body.testMode) {
+        const paid = calls.filter((call) => call.pathname === "/api/webhooks/dodo").length > 0;
+        return jsonResponse({
+          ok: true,
+          mode: paid ? "paid" : "checkout",
+          checkoutUrl: "https://checkout.dodopayments.example/pay/private-test-token",
+          request: {
+            id: "fix_test_123",
+            status: paid ? "paid" : "checkout_created",
+            isTest: true,
+            checkoutSessionId: "checkout_session_private_test",
+            checkoutCreatedAt: "2026-06-20T00:00:00.000Z",
+            repairProposalSummary: paid
+              ? { status: "ready", total: 2, created: 2, executable: 2 }
+              : { status: "skipped", total: 0 }
+          },
+          selectedRepair: {
+            queueItemId: "queue-123",
+            issueId: "issue-123",
+            title: "Missing title",
+            severity: "critical",
+            status: "approved"
+          }
+        });
+      }
+      if (url.pathname === "/api/webhooks/dodo") {
+        assert.equal(body.type, "payment.succeeded");
+        assert.equal(body.data.metadata.seofixkit_webhook_drill, "1");
+        assert.equal(body.data.metadata.fix_request_id, "fix_test_123");
+        assert.equal(body.data.customer.email, "owner@example.com");
+        assert.equal(body.data.metadata.repair_queue_item_id, "queue-123");
+        assert.equal(body.data.metadata.repair_issue_id, "issue-123");
+        assert.equal(options.headers["webhook-id"].startsWith("evt_sfk_drill_"), true);
+        assert.match(options.headers["webhook-signature"], /^v1,/);
+        return jsonResponse({
+          received: true,
+          status: "processed",
+          paid: true,
+          fixRequestId: "fix_test_123"
+        });
+      }
+      return jsonResponse({ error: "not found" }, 404);
+    }
+  });
+
+  assert.equal(result.status, "checkout");
+  assert.equal(result.request.id, "fix_test_123");
+  assert.equal(result.request.checkoutSessionIdPresent, true);
+  assert.equal(result.webhookDrill.status, "processed");
+  assert.equal(result.webhookDrill.paid, true);
+  assert.equal(result.webhookDrill.afterWebhook.request.status, "paid");
+  assert.deepEqual(result.webhookDrill.afterWebhook.request.proposalSummary, {
+    status: "ready",
+    total: 2,
+    created: 2,
+    executable: 2
+  });
+  assert.deepEqual(calls.map((call) => call.pathname), [
+    "/api/beta/fix-request",
+    "/api/webhooks/dodo",
+    "/api/beta/fix-request"
+  ]);
+  assert.deepEqual(calls[0].body, { reportId: "finding-report", testMode: true });
+  assert.doesNotMatch(
+    JSON.stringify(result),
+    /private-test-token|checkout_session_private_test|test_webhook_secret|webhook-signature|https:\/\/checkout/
+  );
+});
+
+test("Fix Pack webhook drill skips non-test checkout proof", async () => {
+  const calls = [];
+  const result = await proveFixPackForReport(sampleReport("finding-report"), "beta=1", {
+    baseUrl: "https://seofixkit.test",
+    webhookDrill: true,
+    webhookSecret: "test_webhook_secret",
+    dodoConfig: {
+      productId: "pdt_fix_pack",
+      brandId: "brand-1"
+    },
+    fetcher: async (rawUrl, options = {}) => {
+      const url = new URL(rawUrl);
+      calls.push(url.pathname);
+      if (url.pathname === "/api/beta/fix-request") {
+        return jsonResponse({
+          ok: true,
+          mode: "checkout",
+          checkoutUrl: "https://checkout.dodopayments.example/pay/private-real-token",
+          request: {
+            id: "fix_real_123",
+            status: "checkout_created",
+            isTest: false,
+            checkoutSessionId: "checkout_session_private_real",
+            checkoutCreatedAt: "2026-06-20T00:00:00.000Z"
+          },
+          selectedRepair: {
+            queueItemId: "queue-123",
+            issueId: "issue-123",
+            title: "Missing title",
+            severity: "critical",
+            status: "approved"
+          }
+        });
+      }
+      return jsonResponse({ error: "should not call webhook" }, 500);
+    }
+  });
+
+  assert.equal(result.webhookDrill.status, "skipped");
+  assert.match(result.webhookDrill.reason, /test-mode/);
+  assert.deepEqual(calls, ["/api/beta/fix-request"]);
+});
+
 function sampleReport(id) {
   return {
     id,

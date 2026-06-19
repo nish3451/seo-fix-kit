@@ -12,6 +12,8 @@ const PREFLIGHT_TIMEOUT_MS = Number(process.env.SEOFIXKIT_PREFLIGHT_TIMEOUT_MS |
 const AUDIT_TIMEOUT_MS = Number(process.env.SEOFIXKIT_AUDIT_TIMEOUT_MS || 180000);
 const AUDIT_POLL_INTERVAL_MS = Number(process.env.SEOFIXKIT_AUDIT_POLL_INTERVAL_MS || 5000);
 const AUDIT_POLL_TIMEOUT_MS = Number(process.env.SEOFIXKIT_AUDIT_POLL_TIMEOUT_MS || 10 * 60 * 1000);
+const DRILL_AMOUNT_MINOR = Number(process.env.SEOFIXKIT_FIX_PACK_DRILL_AMOUNT_MINOR || 9900);
+const DRILL_CURRENCY = String(process.env.SEOFIXKIT_FIX_PACK_DRILL_CURRENCY || "USD").toUpperCase();
 
 const runId = new Date().toISOString().replace(/[:.]/g, "-");
 
@@ -20,8 +22,12 @@ if (isDirectRun()) {
 }
 
 async function main() {
+  if (fixPackWebhookDrillEnabled() && !fixPackProofEnabled()) {
+    throw new Error("SEOFIXKIT_FIX_PACK_WEBHOOK_DRILL requires SEOFIXKIT_FIX_PACK_PROOF=1.");
+  }
   const ownerEmail = `nish.audit.${Date.now()}@seofixkit.com`;
-  const adminToken = readAdminToken();
+  const useTestMode = fixPackTestModeEnabled();
+  const adminToken = useTestMode ? "" : readAdminToken();
   const targets = JSON.parse(await readFile(TARGETS_PATH, "utf8"));
 
   await mkdir(OUT_DIR, { recursive: true });
@@ -37,8 +43,9 @@ async function main() {
     recommendation: null
   };
 
-  const invite = await createInvite(ownerEmail, adminToken);
-  const cookie = await login(ownerEmail, invite.code);
+  const cookie = useTestMode
+    ? await login(ownerEmail, readFounderPassword())
+    : await createInvite(ownerEmail, adminToken).then((invite) => login(ownerEmail, invite.code));
 
   for (const target of targets) {
     console.error(`[audit-batch] checking ${target.project}: ${target.url}`);
@@ -71,7 +78,11 @@ async function main() {
       entry.status = "audited";
       entry.report = summarizeReport(report);
       if (fixPackProofEnabled()) {
-        entry.fixPack = await proveFixPackForReport(report, cookie);
+        entry.fixPack = await proveFixPackForReport(report, cookie, {
+          ownerEmail,
+          testMode: useTestMode,
+          webhookDrill: fixPackWebhookDrillEnabled()
+        });
       }
     } catch (error) {
       entry.status = "failed";
@@ -128,6 +139,28 @@ function readAdminToken() {
   } catch {
     throw new Error(
       "Missing admin token. Set SEOFIXKIT_ADMIN_TOKEN or store seofixkit-admin-token in Keychain."
+    );
+  }
+}
+
+function readFounderPassword() {
+  const envPassword = process.env.SEOFIXKIT_FOUNDER_PASSWORD || process.env.BETA_ACCESS_PASSWORD;
+  if (envPassword) return envPassword.trim();
+
+  try {
+    return execFileSync("security", [
+      "find-generic-password",
+      "-a",
+      "nish",
+      "-s",
+      "seofixkit-founder-password",
+      "-w"
+    ])
+      .toString("utf8")
+      .trim();
+  } catch {
+    throw new Error(
+      "Missing founder password for test-mode proof. Set SEOFIXKIT_FOUNDER_PASSWORD or store seofixkit-founder-password in Keychain."
     );
   }
 }
@@ -237,16 +270,27 @@ async function proveFixPackForReport(report, cookie, options = {}) {
 async function requestFixPack(reportId, cookie, options = {}) {
   const baseUrl = options.baseUrl || BASE_URL;
   const fetcher = options.fetcher || fetch;
+  const body = { reportId };
+  if (options.testMode) body.testMode = true;
   const response = await fetchWithTimeout(`${baseUrl}/api/beta/fix-request`, {
     method: "POST",
     headers: {
       cookie,
       "content-type": "application/json"
     },
-    body: JSON.stringify({ reportId })
+    body: JSON.stringify(body)
   }, options.timeoutMs || AUDIT_TIMEOUT_MS, fetcher);
   const payload = await response.json().catch(() => ({}));
-  return summarizeFixPackProof(payload, response.status, response.ok);
+  const summary = summarizeFixPackProof(payload, response.status, response.ok);
+  if (options.webhookDrill) {
+    summary.webhookDrill = await runFixPackWebhookDrill(payload, cookie, {
+      ...options,
+      baseUrl,
+      fetcher,
+      reportId
+    });
+  }
+  return summary;
 }
 
 function summarizeFixPackProof(payload = {}, httpStatus = 0, responseOk = false) {
@@ -267,12 +311,197 @@ function summarizeFixPackProof(payload = {}, httpStatus = 0, responseOk = false)
     } : null,
     selectedRepair: payload.selectedRepair ? {
       id: payload.selectedRepair.id || "",
+      queueItemId: payload.selectedRepair.queueItemId || "",
+      issueId: payload.selectedRepair.issueId || "",
       title: payload.selectedRepair.title || "",
       severity: payload.selectedRepair.severity || ""
     } : null,
     code: payload.code || "",
     message: payload.message || "",
     error: payload.error || ""
+  };
+}
+
+async function runFixPackWebhookDrill(payload = {}, cookie = "", options = {}) {
+  const request = payload.request || {};
+  const selectedRepair = payload.selectedRepair || {};
+  if (!request.isTest) {
+    return {
+      status: "skipped",
+      reason: "Fix Pack webhook drill only runs against test-mode requests."
+    };
+  }
+  if (payload.mode !== "checkout" || !request.id || !request.checkoutSessionId) {
+    return {
+      status: "skipped",
+      reason: "Fix Pack webhook drill needs a checkout-created test request."
+    };
+  }
+  if (!selectedRepair.queueItemId || !selectedRepair.issueId) {
+    return {
+      status: "skipped",
+      reason: "Fix Pack webhook drill needs selected repair metadata."
+    };
+  }
+
+  const baseUrl = options.baseUrl || BASE_URL;
+  const dodoConfig = options.dodoConfig || await readDodoPublicConfig();
+  const webhookSecret = options.webhookSecret || readDodoWebhookSecret();
+  const event = buildDodoWebhookDrillEvent({
+    request,
+    selectedRepair,
+    reportId: options.reportId,
+    ownerEmail: options.ownerEmail,
+    dodoConfig
+  });
+  const webhook = await postDodoWebhookDrill({
+    baseUrl,
+    event,
+    webhookSecret,
+    fetcher: options.fetcher || fetch,
+    timeoutMs: options.timeoutMs || AUDIT_TIMEOUT_MS
+  });
+  const afterWebhook = webhook.received
+    ? await requestFixPack(options.reportId, cookie, {
+      ...options,
+      webhookDrill: false,
+      testMode: true
+    })
+    : null;
+
+  return {
+    ...webhook,
+    afterWebhook: afterWebhook ? {
+      status: afterWebhook.status,
+      request: afterWebhook.request ? {
+        id: afterWebhook.request.id,
+        status: afterWebhook.request.status,
+        proposalSummary: afterWebhook.request.proposalSummary
+      } : null
+    } : null
+  };
+}
+
+function buildDodoWebhookDrillEvent({ request = {}, selectedRepair = {}, reportId = "", ownerEmail = "", dodoConfig = {} }) {
+  if (!dodoConfig.productId || !dodoConfig.brandId) {
+    throw new Error("Missing Dodo public product or brand id for webhook drill.");
+  }
+  return {
+    type: "payment.succeeded",
+    data: {
+      payment_id: `sfk_drill_${crypto.randomUUID()}`,
+      checkout_session_id: request.checkoutSessionId,
+      brand_id: dodoConfig.brandId,
+      status: "succeeded",
+      currency: DRILL_CURRENCY,
+      total_amount: DRILL_AMOUNT_MINOR,
+      customer: { email: ownerEmail || process.env.SEOFIXKIT_OWNER_EMAIL || "" },
+      product_cart: [{ product_id: dodoConfig.productId, quantity: 1 }],
+      metadata: {
+        product_key: "seofixkit_fix_pack",
+        fix_request_id: request.id,
+        report_id: reportId,
+        test_mode: "1",
+        seofixkit_webhook_drill: "1",
+        repair_issue_id: selectedRepair.issueId || "",
+        repair_queue_item_id: selectedRepair.queueItemId || "",
+        repair_title: selectedRepair.title || "",
+        repair_status: selectedRepair.status || ""
+      }
+    }
+  };
+}
+
+async function postDodoWebhookDrill({ baseUrl, event, webhookSecret, fetcher = fetch, timeoutMs = AUDIT_TIMEOUT_MS }) {
+  const payload = JSON.stringify(event);
+  const webhookId = `evt_sfk_drill_${Date.now()}_${crypto.randomUUID()}`;
+  const webhookTimestamp = String(Math.floor(Date.now() / 1000));
+  const webhookSignature = `v1,${await signDodoWebhookPayload({ payload, webhookId, webhookTimestamp, secret: webhookSecret })}`;
+  const response = await fetchWithTimeout(`${baseUrl}/api/webhooks/dodo`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "webhook-id": webhookId,
+      "webhook-timestamp": webhookTimestamp,
+      "webhook-signature": webhookSignature
+    },
+    body: payload
+  }, timeoutMs, fetcher);
+  const body = await response.json().catch(() => ({}));
+  return {
+    status: response.ok && body.received ? "processed" : "failed",
+    httpStatus: response.status,
+    received: Boolean(body.received),
+    paid: Boolean(body.paid),
+    duplicate: Boolean(body.duplicate),
+    fixRequestId: body.fixRequestId || event.data.metadata.fix_request_id || "",
+    webhookIdPresent: true,
+    reason: body.reason || "",
+    error: body.error || ""
+  };
+}
+
+async function signDodoWebhookPayload({ payload, webhookId, webhookTimestamp, secret }) {
+  if (!payload || !webhookId || !webhookTimestamp || !secret) {
+    throw new Error("Missing webhook signing input for Fix Pack drill.");
+  }
+  const key = await crypto.subtle.importKey(
+    "raw",
+    decodeDodoWebhookSecret(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const digest = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(`${webhookId}.${webhookTimestamp}.${payload}`)
+  );
+  return Buffer.from(digest).toString("base64");
+}
+
+function decodeDodoWebhookSecret(secret) {
+  const normalized = String(secret || "").trim().replace(/^whsec_/, "");
+  try {
+    return Uint8Array.from(atob(normalized), (char) => char.charCodeAt(0));
+  } catch {
+    return new TextEncoder().encode(secret);
+  }
+}
+
+function readDodoWebhookSecret() {
+  const envSecret = process.env.SEOFIXKIT_DODO_WEBHOOK_SECRET || process.env.DODO_SEOFIXKIT_WEBHOOK_SECRET;
+  if (envSecret) return envSecret.trim();
+
+  try {
+    return execFileSync("security", [
+      "find-generic-password",
+      "-a",
+      "nish",
+      "-s",
+      "seofixkit-dodo-webhook-secret",
+      "-w"
+    ])
+      .toString("utf8")
+      .trim();
+  } catch {
+    throw new Error(
+      "Missing Dodo webhook secret for webhook drill. Set SEOFIXKIT_DODO_WEBHOOK_SECRET or store seofixkit-dodo-webhook-secret in Keychain."
+    );
+  }
+}
+
+async function readDodoPublicConfig() {
+  const envConfig = {
+    productId: process.env.DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID || "",
+    brandId: process.env.DODO_SEOFIXKIT_BRAND_ID || ""
+  };
+  if (envConfig.productId && envConfig.brandId) return envConfig;
+
+  const wrangler = JSON.parse(await readFile("wrangler.jsonc", "utf8"));
+  return {
+    productId: envConfig.productId || wrangler.vars?.DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID || "",
+    brandId: envConfig.brandId || wrangler.vars?.DODO_SEOFIXKIT_BRAND_ID || ""
   };
 }
 
@@ -448,7 +677,19 @@ function decodeHtml(value) {
 }
 
 function fixPackProofEnabled() {
-  return /^(1|true|yes)$/i.test(process.env.SEOFIXKIT_FIX_PACK_PROOF || "");
+  return envFlag("SEOFIXKIT_FIX_PACK_PROOF");
+}
+
+function fixPackTestModeEnabled() {
+  return envFlag("SEOFIXKIT_FIX_PACK_TEST_MODE") || fixPackWebhookDrillEnabled();
+}
+
+function fixPackWebhookDrillEnabled() {
+  return envFlag("SEOFIXKIT_FIX_PACK_WEBHOOK_DRILL");
+}
+
+function envFlag(name) {
+  return /^(1|true|yes)$/i.test(process.env[name] || "");
 }
 
 function renderMarkdown(batch) {
@@ -496,6 +737,10 @@ Fix Pack proof:
 - Request: ${target.fixPack.request?.id || "n/a"} (${target.fixPack.request?.status || "n/a"})
 - Selected repair: ${target.fixPack.selectedRepair?.title || "n/a"}
 - Note: ${target.fixPack.reason || target.fixPack.error || target.fixPack.message || "n/a"}
+${target.fixPack.webhookDrill ? `- Webhook drill: ${target.fixPack.webhookDrill.status} (${target.fixPack.webhookDrill.paid ? "test payment processed" : target.fixPack.webhookDrill.reason || target.fixPack.webhookDrill.error || "not paid"})
+- Post-drill request: ${target.fixPack.webhookDrill.afterWebhook?.request?.status || "n/a"}
+- Post-drill proposals: ${target.fixPack.webhookDrill.afterWebhook?.request?.proposalSummary ? JSON.stringify(target.fixPack.webhookDrill.afterWebhook.request.proposalSummary) : "n/a"}
+` : ""}
 ` : ""}
 
 Top issues:
@@ -539,12 +784,14 @@ async function fetchWithTimeout(url, options, timeoutMs, fetcher = fetch) {
 
 export {
   audit,
+  buildDodoWebhookDrillEvent,
   fetchWithTimeout,
   isAuditReportPayload,
   proveFixPackForReport,
   recommendOffer,
   requestFixPack,
   resolveUrl,
+  runFixPackWebhookDrill,
   summarizeFixPackProof,
   waitForQueuedAuditReport
 };
