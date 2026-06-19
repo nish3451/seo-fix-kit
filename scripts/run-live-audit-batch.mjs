@@ -338,6 +338,13 @@ function recommendOffer(batch) {
     };
   }
 
+  if (totalFindings === 0) {
+    return {
+      offer: "No paid offer yet",
+      reason: `${audited.length} projects produced 0 actionable findings. Do not sell a Fix Pack until a live audit proves repair work.`
+    };
+  }
+
   return {
     offer: "SEO Fix Pack",
     price: "Dodo checkout price",
@@ -456,6 +463,7 @@ export {
   audit,
   fetchWithTimeout,
   isAuditReportPayload,
+  recommendOffer,
   resolveUrl,
   waitForQueuedAuditReport
 };

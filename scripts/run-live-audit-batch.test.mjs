@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { audit } from "./run-live-audit-batch.mjs";
+import { audit, recommendOffer } from "./run-live-audit-batch.mjs";
 
 test("audit polls queued job and returns completed report", async () => {
   const calls = [];
@@ -105,6 +105,38 @@ test("audit bounds a hung status fetch by the poll timeout", async () => {
     }),
     /timed out after/
   );
+});
+
+test("batch recommendation does not sell Fix Pack when audits have no findings", () => {
+  const recommendation = recommendOffer({
+    targets: [{
+      status: "audited",
+      report: { findings: 0 }
+    }],
+    repeatedIssues: []
+  });
+
+  assert.equal(recommendation.offer, "No paid offer yet");
+  assert.match(recommendation.reason, /0 actionable findings/);
+  assert.match(recommendation.reason, /Do not sell a Fix Pack/);
+});
+
+test("batch recommendation sells Fix Pack only when proven findings exist", () => {
+  const recommendation = recommendOffer({
+    targets: [{
+      status: "audited",
+      report: { findings: 2 }
+    }],
+    repeatedIssues: [{
+      issue: "meta description",
+      count: 2,
+      projects: ["Example"]
+    }]
+  });
+
+  assert.equal(recommendation.offer, "SEO Fix Pack");
+  assert.equal(recommendation.price, "Dodo checkout price");
+  assert.match(recommendation.reason, /2 actionable findings/);
 });
 
 function sampleReport(id) {
