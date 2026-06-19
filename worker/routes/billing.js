@@ -1074,6 +1074,24 @@ async function processDodoPaymentWebhook(env, eventType, payment, webhookId = ""
   }
 
   const now = new Date().toISOString();
+  if (payment.metadataWebhookDrill && Number(fixRequest.is_test || 0) !== 1) {
+    await logFixRequestEvent(env, {
+      fixRequestId: fixRequest.id,
+      event: "payment_identity_rejected",
+      actorType: "dodo",
+      fromStatus: fixRequest.status || "new",
+      toStatus: fixRequest.status || "new",
+      reason: "webhook_drill_requires_test_request",
+      detail: { eventType, paymentId: payment.paymentId, webhookId }
+    });
+    return {
+      ok: false,
+      ignored: true,
+      status: "ignored",
+      reason: "webhook_drill_requires_test_request",
+      fixRequestId: fixRequest.id
+    };
+  }
   const identity = await dodoPaymentIdentityStatus(env, eventType, payment, fixRequest);
   if (!identity.ok) {
     await logFixRequestEvent(env, {

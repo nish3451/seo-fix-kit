@@ -1082,6 +1082,60 @@ test("Dodo payment success event preserves selected repair metadata", async () =
   assert.equal(detail.checkoutSessionId, "dodo-session-1");
 });
 
+test("Dodo webhook drill marker cannot pay a non-test Fix Pack request", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-real",
+    is_test: 0
+  }));
+
+  const payment = extractDodoPayment(paymentEventData(env, {
+    id: "payment-drill-real",
+    metadata: {
+      seofixkit_webhook_drill: "1"
+    }
+  }));
+
+  const result = await processDodoPaymentWebhook(env, "payment.succeeded", payment, "wh_drill_real");
+
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "ignored");
+  assert.equal(result.reason, "webhook_drill_requires_test_request");
+  assert.equal(env.fixRequests[0].status, "checkout_created");
+  assert.equal(env.fixRequests[0].payment_id, "");
+  const rejectedEvent = env.events.find((event) => event.event === "payment_identity_rejected");
+  assert.ok(rejectedEvent);
+  assert.equal(rejectedEvent.reason, "webhook_drill_requires_test_request");
+});
+
+test("Dodo webhook drill marker can pay only a test Fix Pack request and seed proposals", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-test",
+    is_test: 1
+  }));
+
+  const payment = extractDodoPayment(paymentEventData(env, {
+    id: "payment-drill-test",
+    metadata: {
+      seofixkit_webhook_drill: "1"
+    }
+  }));
+
+  const result = await processDodoPaymentWebhook(env, "payment.succeeded", payment, "wh_drill_test");
+
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "processed");
+  assert.equal(result.paid, true);
+  assert.equal(env.fixRequests[0].status, "paid");
+  assert.equal(env.fixRequests[0].payment_id, "payment-drill-test");
+  assert.equal(env.repairProposals.length, 1);
+  assert.equal(env.repairProposals[0].fix_request_id, "fix-request-test");
+  assert.equal(env.repairProposals[0].issue_id, "issue-1");
+  const paymentEvent = env.events.find((event) => event.event === "payment_succeeded");
+  assert.ok(paymentEvent);
+});
+
 async function fakeBillingEnv() {
   const sessionToken = "test-session";
   const tokenHash = await sha256Hex(sessionToken);
@@ -1179,6 +1233,7 @@ async function fakeBillingEnv() {
       updated_by_email: "owner@example.com"
     }],
     fixRequests: [],
+    repairProposals: [],
     events: []
   };
   env.WAITLIST_DB = {
@@ -1191,6 +1246,57 @@ async function fakeBillingEnv() {
     }
   };
   return env;
+}
+
+function checkoutFixRequest(env, overrides = {}) {
+  return {
+    id: "fix-request-1",
+    report_id: env.reportId,
+    owner_email: "owner@example.com",
+    target_url: "https://example.com/",
+    target_host: "example.com",
+    score: 81,
+    issue_count: 1,
+    status: "checkout_created",
+    note: "",
+    is_test: 0,
+    checkout_session_id: "dodo-session-1",
+    checkout_url: "https://checkout.example.com/session-1",
+    checkout_created_at: new Date().toISOString(),
+    checkout_repair_json: JSON.stringify({
+      queueItemId: "queue-1",
+      issueId: "issue-1",
+      status: "approved"
+    }),
+    product_id: "pdt_fix_pack",
+    payment_id: "",
+    paid_at: "",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    ...overrides
+  };
+}
+
+function paymentEventData(env, overrides = {}) {
+  return {
+    id: overrides.id || "payment-1",
+    checkout_session_id: overrides.checkout_session_id || "dodo-session-1",
+    status: "succeeded",
+    total_amount: 9900,
+    currency: "USD",
+    brand_id: "brand-1",
+    customer: { email: "owner@example.com" },
+    product_cart: [{ product_id: "pdt_fix_pack", quantity: 1 }],
+    metadata: {
+      product_key: "seofixkit_fix_pack",
+      fix_request_id: overrides.fixRequestId || env.fixRequests[0]?.id || "fix-request-1",
+      report_id: env.reportId,
+      repair_issue_id: "issue-1",
+      repair_queue_item_id: "queue-1",
+      repair_title: "Missing title",
+      ...(overrides.metadata || {})
+    }
+  };
 }
 
 function statement(sql, values, env) {
@@ -1247,6 +1353,10 @@ function all(sql, values, env) {
     if (env.repairTablesMissing) throw new Error("no such table: repair_agent_actions");
     const [reportId, ownerEmail] = values;
     return { results: env.actions.filter((row) => row.report_id === reportId && row.owner_email === ownerEmail) };
+  }
+  if (sql.includes("FROM repair_proposals")) {
+    const [fixRequestId] = values;
+    return { results: env.repairProposals.filter((row) => row.fix_request_id === fixRequestId) };
   }
   throw new Error(`Unexpected all SQL: ${sql}`);
 }
@@ -1320,6 +1430,35 @@ function run(sql, values, env) {
       created_at: values[9]
     });
     return { meta: { changes: 1 } };
+  }
+  if (sql.includes("INSERT OR IGNORE INTO repair_proposals")) {
+    if (!env.repairProposals.some((row) => row.fix_request_id === values[1] && row.issue_id === values[4])) {
+      env.repairProposals.push({
+        id: values[0],
+        fix_request_id: values[1],
+        report_id: values[2],
+        owner_email: values[3],
+        issue_id: values[4],
+        issue_title: values[5],
+        target_url: values[6],
+        target_host: values[7],
+        severity: values[8],
+        source: values[9],
+        priority: values[10],
+        execution_mode: values[11],
+        approval_status: values[12],
+        delivery_status: values[13],
+        generated_title: values[14],
+        generated_summary: values[15],
+        proof_json: values[16],
+        proposal_json: values[17],
+        acceptance_json: values[18],
+        created_at: values[19],
+        updated_at: values[20]
+      });
+      return { meta: { changes: 1 } };
+    }
+    return { meta: { changes: 0 } };
   }
   if (sql.includes("UPDATE fix_requests") && sql.includes("checkout_url")) {
     const row = env.fixRequests.find((row) => row.id === values[6]);
