@@ -19,10 +19,11 @@
     "test:large-crawl-security": "node server/large-crawl-security-smoke-test.js",
     "test:report-retention-security": "node server/report-retention-security-smoke-test.js",
     "test:local-developer-api-security": "node server/local-developer-api-security-smoke-test.js",
+    "test:remediation-brief": "node server/remediation-brief-smoke-test.js",
     "test:audit-batch-runner": "node --test scripts/run-live-audit-batch.test.mjs",
     "test:webhooks": "node --test worker/lib/webhooks.test.mjs",
     "test:large-crawl": "node server/large-rendered-crawl-smoke-test.js",
-    "check": "npm run test:billing && npm run test:product-truth && npm run test:audit && npm run test:large-crawl-security && npm run test:report-retention-security && npm run test:local-developer-api-security && npm run test:audit-batch-runner && npm run test:webhooks && npm run test:large-crawl && npm run build"
+    "check": "npm run test:billing && npm run test:product-truth && npm run test:audit && npm run test:large-crawl-security && npm run test:report-retention-security && npm run test:local-developer-api-security && npm run test:remediation-brief && npm run test:audit-batch-runner && npm run test:webhooks && npm run test:large-crawl && npm run build"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.0",

@@ -1,6 +1,7 @@
 import { issuePatternKey } from "../../shared/audit-engine.js";
 import { normalizeFixRequestStatus } from "../../shared/fulfillment.js";
 import { repairSprintEligibilityFromProposals } from "../../shared/offers.js";
+import { buildRemediationBrief } from "../../shared/remediation-brief.js";
 import { betaAccessResponse, betaAccessStatus } from "../lib/auth.js";
 import { json, jsonNoStore } from "../lib/http.js";
 import { agencyWorkspaceAccessForOwner } from "../lib/offers.js";
@@ -430,7 +431,12 @@ async function getSavedReport(request, env) {
   const url = new URL(request.url);
   const relative = decodeURIComponent(url.pathname.slice("/api/reports/".length));
   const wantsBrief = relative.endsWith("/brief.md");
-  const id = wantsBrief ? relative.slice(0, -"/brief.md".length) : relative;
+  const wantsRemediationBrief = relative.endsWith("/remediation-brief.json");
+  const id = wantsBrief
+    ? relative.slice(0, -"/brief.md".length)
+    : wantsRemediationBrief
+      ? relative.slice(0, -"/remediation-brief.json".length)
+      : relative;
   if (!isSafeReportId(id)) {
     return json({ error: "Report not found." }, 404);
   }
@@ -483,6 +489,10 @@ async function getSavedReport(request, env) {
     });
   }
 
+  if (wantsRemediationBrief) {
+    return jsonNoStore(buildRemediationBrief(report));
+  }
+
   const fixRequest = await env.WAITLIST_DB.prepare(
     `SELECT *
      FROM fix_requests
@@ -502,6 +512,7 @@ async function getSavedReport(request, env) {
   report.repairSprint = repairSprintEligibilityFromProposals(report.repairProposals, report.fixRequest || null);
   report.agencyWorkspace = await agencyWorkspaceAccessForOwner(env, access.ownerEmail);
 
+  report.remediationBrief = buildRemediationBrief(report);
   return jsonNoStore(report);
 }
 
