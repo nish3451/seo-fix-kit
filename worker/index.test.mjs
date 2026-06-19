@@ -121,6 +121,9 @@ test("Worker dispatch exposes public-safe deep health readiness", async () => {
   assert.match(response.headers.get("content-type") || "", /application\/json/);
   assert.equal(body.ok, true);
   assert.equal(body.status, "ready");
+  assert.equal(body.scope, "runtime_config_and_schema_readiness");
+  assert.match(body.limits.join(" "), /does not prove a real paid card transaction/i);
+  assert.match(body.limits.join(" "), /not paid offer activation claims/i);
   assert.equal(body.bindings.waitlistDb, true);
   assert.equal(body.bindings.browserRun, true);
   assert.equal(body.bindings.auditQueue, true);
