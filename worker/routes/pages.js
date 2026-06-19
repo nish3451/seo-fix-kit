@@ -51,6 +51,7 @@ Current product boundary:
 Useful routes:
 - ${origin}/
 - ${origin}/api/health
+- ${origin}/api/deep-health
 - ${origin}/llms.txt
 - ${origin}/privacy
 - ${origin}/support

@@ -51,6 +51,7 @@ test("machine-readable public surfaces list proof pages and limits", () => {
     assert.match(sitemap, new RegExp(`${origin}${path}`));
   }
   assert.match(llms, new RegExp(`${origin}/llms\\.txt`));
+  assert.match(llms, new RegExp(`${origin}/api/deep-health`));
   assert.doesNotMatch(sitemap, /\/llms\.txt/);
   assert.match(llms, /Does not provide live AI-engine visibility tracking/);
   assert.match(llms, /Does not auto-publish growth content/);

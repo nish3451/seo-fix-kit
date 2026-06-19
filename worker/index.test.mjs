@@ -112,6 +112,84 @@ test("Worker dispatch routes public pages and repair APIs", async () => {
   assert.equal(apiEnv.queueItems[0].status, "applied");
 });
 
+test("Worker dispatch exposes public-safe deep health readiness", async () => {
+  const env = await fakeWorkerEnv();
+  const response = await worker.fetch(new Request("https://seofixkit.test/api/deep-health"), env, fakeCtx());
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") || "", /application\/json/);
+  assert.equal(body.ok, true);
+  assert.equal(body.status, "ready");
+  assert.equal(body.bindings.waitlistDb, true);
+  assert.equal(body.bindings.browserRun, true);
+  assert.equal(body.bindings.auditQueue, true);
+  assert.equal(body.bindings.reportStorage, true);
+  assert.equal(body.bindings.emailNotifications, true);
+  assert.equal(body.billing.checkoutReady, true);
+  assert.equal(body.billing.webhookReady, true);
+  assert.equal(body.billing.environment, "test");
+  assert.equal(body.schema.criticalOk, true);
+  assert.equal(body.capabilities.selfServeAudit, true);
+  assert.equal(body.capabilities.fixPackCheckout, true);
+  assert.equal(body.capabilities.repairExecution, true);
+  assert.equal(body.capabilities.recurringMonitoring, true);
+  assert.equal(body.capabilities.developerApi, true);
+  assert.equal(body.capabilities.agencyWorkspace, true);
+  assert.equal(body.capabilities.largeCrawlEarlyAccess, true);
+  assert.equal(body.schema.checks.some((check) => check.key === "fixPackCheckoutTarget" && check.ok), true);
+  assert.doesNotMatch(JSON.stringify(body), /dodo-key|whsec|pdt_fix_pack|brand-1|owner@example\.com|checkoutUrl/i);
+});
+
+test("Worker deep health degrades when critical schema is missing", async () => {
+  const env = await fakeWorkerEnv();
+  env.missingHealthTables = new Set(["repair_queue_items"]);
+
+  const response = await worker.fetch(new Request("https://seofixkit.test/api/deep-health"), env, fakeCtx());
+  const body = await response.json();
+
+  assert.equal(response.status, 503);
+  assert.equal(body.ok, false);
+  assert.equal(body.status, "degraded");
+  assert.deepEqual(body.schema.failedCritical, ["repairQueueItems"]);
+  assert.equal(body.capabilities.fixPackCheckout, false);
+  assert.equal(body.capabilities.repairExecution, false);
+  assert.equal(body.schema.checks.find((check) => check.key === "repairQueueItems").error, "table missing");
+});
+
+test("Worker deep health degrades when billing schema is incomplete", async () => {
+  const env = await fakeWorkerEnv();
+  env.missingHealthTables = new Set(["dodo_webhook_events"]);
+
+  const response = await worker.fetch(new Request("https://seofixkit.test/api/deep-health"), env, fakeCtx());
+  const body = await response.json();
+
+  assert.equal(response.status, 503);
+  assert.equal(body.ok, false);
+  assert.equal(body.schema.failedCritical.includes("dodoWebhookEvents"), true);
+  assert.equal(body.capabilities.fixPackCheckout, false);
+  assert.equal(body.billing.checkoutReady, true);
+  assert.equal(body.schema.checks.find((check) => check.key === "dodoWebhookEvents").error, "table missing");
+});
+
+test("Worker deep health claims the route for HEAD and unsupported methods", async () => {
+  const env = await fakeWorkerEnv();
+
+  const headResponse = await worker.fetch(new Request("https://seofixkit.test/api/deep-health", {
+    method: "HEAD"
+  }), env, fakeCtx());
+  assert.equal(headResponse.status, 200);
+  assert.match(headResponse.headers.get("content-type") || "", /application\/json/);
+  assert.equal(await headResponse.text(), "");
+
+  const postResponse = await worker.fetch(new Request("https://seofixkit.test/api/deep-health", {
+    method: "POST"
+  }), env, fakeCtx());
+  const body = await postResponse.json();
+  assert.equal(postResponse.status, 405);
+  assert.equal(body.error, "Method not allowed.");
+});
+
 function fakeCtx() {
   return { waitUntil() {} };
 }
@@ -210,6 +288,16 @@ async function fakeWorkerEnv() {
     }],
     queueItems: [],
     actions: [],
+    BROWSER: {},
+    AUDIT_QUEUE: {},
+    REPORTS: {},
+    EMAIL: { send() {} },
+    SEOFIXKIT_EMAIL_FROM: "SEO Fix Kit <support@seofixkit.com>",
+    DODO_SEOFIXKIT_API_KEY: "dodo-key",
+    DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID: "pdt_fix_pack",
+    DODO_SEOFIXKIT_BRAND_ID: "brand-1",
+    DODO_SEOFIXKIT_ENVIRONMENT: "test",
+    DODO_SEOFIXKIT_WEBHOOK_SECRET: "whsec_test",
     ASSETS: {
       fetch: async () => new Response("asset fallback", { status: 404 })
     }
@@ -236,6 +324,21 @@ function statement(sql, values, env) {
 }
 
 function first(sql, values, env) {
+  if (sql.includes("SELECT checkout_repair_json FROM fix_requests")) {
+    if (env.missingCheckoutRepairColumn) throw new Error("no such column: checkout_repair_json");
+    if (env.missingHealthTables?.has("fix_requests")) throw new Error("no such table: fix_requests");
+    return { checkout_repair_json: "" };
+  }
+  if (!values.length && /^SELECT\b/i.test(sql) && /\bLIMIT\s+1\b/i.test(sql)) {
+    const table = (sql.match(/FROM\s+([a-z_]+)/i) || [])[1] || "";
+    if (env.missingHealthTables?.has(table)) throw new Error(`no such table: ${table}`);
+    return { ok: 1 };
+  }
+  if (sql.includes("SELECT 1 AS ok FROM ")) {
+    const table = (sql.match(/FROM\s+([a-z_]+)/i) || [])[1] || "";
+    if (env.missingHealthTables?.has(table)) throw new Error(`no such table: ${table}`);
+    return { ok: 1 };
+  }
   if (sql.includes("SELECT id FROM repair_queue_items")) {
     return env.queueItems[0] || null;
   }

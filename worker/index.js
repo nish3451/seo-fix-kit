@@ -15,6 +15,7 @@ import {
   withPrivateHeaders,
   withSecurityHeaders
 } from "./lib/http.js";
+import { getDeepHealth } from "./routes/health.js";
 import { isSafeUuid } from "./lib/text.js";
 import { createAdminSession, revokeAdminSession } from "./lib/auth.js";
 import { cleanupExpiredRows } from "./lib/db.js";
@@ -171,6 +172,10 @@ export default {
           emailNotifications: isEmailConfigured(env),
           version: VERSION
         });
+      }
+
+      if (url.pathname === "/api/deep-health") {
+        return getDeepHealth(request, env);
       }
 
       if (url.pathname === "/api/waitlist" && request.method === "POST") {

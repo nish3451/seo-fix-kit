@@ -5,6 +5,7 @@ SEO Fix Kit is a private-beta SEO audit and paid Fix Pack workflow.
 ## Live Boundary
 
 - Request access at https://seofixkit.com/.
+- Public health surfaces are https://seofixkit.com/api/health and https://seofixkit.com/api/deep-health. Deep health reports safe readiness booleans only, not secrets, provider ids, checkout URLs, customer data, or table counts.
 - Public proof pages: https://seofixkit.com/demo, https://seofixkit.com/methodology, https://seofixkit.com/packages, https://seofixkit.com/support, and https://seofixkit.com/terms.
 - Use SEO Fix Kit only for sites you own or are authorized to audit.
 - Private audits create proof-backed reports from rendered page evidence.
