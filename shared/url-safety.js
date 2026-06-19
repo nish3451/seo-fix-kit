@@ -37,12 +37,18 @@ export function isPrivateHost(value = "") {
 export async function fetchPublicUrl(fetcher, url, init = {}, options = {}) {
   const maxRedirects = Math.min(Math.max(Number(options.maxRedirects || DEFAULT_MAX_REDIRECTS), 0), 10);
   const allowPrivate = Boolean(options.allowPrivate);
+  const privateAddressResolver = !allowPrivate && typeof options.privateAddressResolver === "function"
+    ? options.privateAddressResolver
+    : null;
   let currentUrl = url;
   const redirectChain = [];
 
   for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
     const currentStatus = httpUrlStatus(currentUrl, { allowPrivate });
     if (!currentStatus.ok) throw new Error(currentStatus.error);
+    if (privateAddressResolver && await privateAddressResolver(new URL(currentStatus.url).hostname)) {
+      throw new Error("This URL points at a private or internal address and cannot be audited.");
+    }
 
     const response = await fetcher(currentStatus.url, {
       ...init,

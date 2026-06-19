@@ -1,6 +1,7 @@
 import { publicAuditUrlStatus } from "../../shared/audit-engine.js";
 import { buildCrawlInventory } from "../../shared/crawl-inventory.js";
 import { largeCrawlProofWriteStatus } from "../../shared/large-crawl-proof-writer.js";
+import { resolvesToPrivateAddress } from "../../shared/url-safety.js";
 import {
   LARGE_RENDERED_CRAWL_MAX_RETRIES,
   claimNextLargeRenderedCrawlBatch,
@@ -102,7 +103,8 @@ async function createLargeRenderedCrawlForAccess(request, env, access, body = {}
     includeUrls: true,
     maxUrls: Math.min(normalized.targetPages, LARGE_RENDERED_CRAWL_SYNC_FRONTIER_LIMIT),
     maxSitemaps: 25,
-    fetcher: fetch
+    fetcher: fetch,
+    privateAddressResolver: resolvesToPrivateAddress
   });
   const created = createLargeRenderedCrawlJob({
     ownerEmail: access.ownerEmail,
@@ -692,7 +694,8 @@ async function ingestRemainingLargeRenderedCrawlFrontier(env, jobId, normalized 
     const inventory = await buildCrawlInventory(normalized.targetUrl, {
       includeUrls: true,
       maxUrls: normalized.targetPages,
-      fetcher: fetch
+      fetcher: fetch,
+      privateAddressResolver: resolvesToPrivateAddress
     });
     const full = createLargeRenderedCrawlJob({
       id: jobId,

@@ -1,6 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { CRAWL_DEPTH_TIERS, DEFAULT_CRAWL_PAGES, SELF_SERVE_MAX_CRAWL_PAGES } from "../shared/crawl-depth.js";
 import { RENDERED_CRAWL_TARGETS } from "../shared/rendered-crawl-scale.js";
+import { developerWebhookRequest } from "./developer-webhooks.js";
+import {
+  fixPackCheckoutBody,
+  fixPackCheckoutDisabled,
+  fixPackCheckoutErrorOutcome,
+  fixPackCheckoutOutcome,
+  fixPackRepairTarget
+} from "./fix-pack-checkout.js";
+import {
+  repairActionApplyPatch,
+  repairActionApprovalPatch,
+  repairActionIgnorePatch,
+  repairActionRerunPatch,
+  repairActionUpdateRequest
+} from "./repair-action-requests.js";
 
 const BETA_SESSION_KEY = "seofixkit_beta_unlocked";
 const BETA_EMAIL_KEY = "seofixkit_beta_email";
@@ -81,6 +96,11 @@ function WaitlistPage() {
           price before payment — one proof-backed repair pass plus one rerun, only
           offered when real fixes exist.
         </p>
+        <nav className="public-proof-links" aria-label="Public proof pages">
+          <a href="/demo">Sample proof report</a>
+          <a href="/methodology">Methodology and limits</a>
+          <a href="/packages">Package ladder</a>
+        </nav>
 
         <form className="waitlist-form" onSubmit={joinWaitlist}>
           <label htmlFor="email">Email address</label>
@@ -137,13 +157,13 @@ function WaitlistPage() {
             <span>Do nothing. The finding is a false positive.</span>
           </div>
         </div>
-        <a className="proof-link" href="/demo">
-          View proof demo
-        </a>
       </section>
 
       <footer className="site-footer">
         <span>Audit it. Prove it. Fix it.</span>
+        <a href="/demo">Demo</a>
+        <a href="/methodology">Methodology</a>
+        <a href="/packages">Packages</a>
         <a href="/support">Support</a>
         <a href="/terms">Terms</a>
         <a href="/privacy">Privacy</a>
@@ -862,6 +882,10 @@ function CustomerDashboard({
   const auditJobs = accountData?.recentAuditJobs || [];
   const fixRequests = accountData?.fixRequests || [];
   const nextActions = accountData?.nextActions || [];
+  const primaryAction = nextActions[0] || null;
+  const repairAgent = accountData?.repairAgent || {};
+  const repairCounts = repairAgent.counts || {};
+  const repairItems = repairAgent.nextItems || [];
   const sites = accountData?.sites || [];
   const schedules = accountData?.schedules || [];
   const monitoring = accountData?.monitoring || {};
@@ -881,6 +905,9 @@ function CustomerDashboard({
         <Metric label="Fix Packs" value={metrics.fixRequests || 0} />
         <Metric label="Verified sites" value={metrics.verifiedSites || verifiedSites.length || 0} />
         <Metric label="Monitors" value={`${metrics.monitors || schedules.length || 0}/${metrics.monitorLimit || monitoring.limit || 5}`} />
+        <Metric label="Open repairs" value={metrics.openRepairs || repairCounts.active || 0} />
+        <Metric label="Drafts" value={metrics.draftedActions || repairCounts.awaitingApproval || 0} />
+        <Metric label="Regressed" value={metrics.regressedRepairs || 0} />
       </section>
       <section className="account-panel monitoring-offer-panel">
         <div className="section-heading">
@@ -889,6 +916,7 @@ function CustomerDashboard({
         </div>
         <p>{monitoring.message || "Weekly monitoring watches verified sites and reports proof deltas without claiming to fix issues."}</p>
       </section>
+      <RepairAgentFeed items={repairItems} nextAction={primaryAction} reports={reports} />
       <div className="site-verification-panel">
         <div>
           <p className="beta-eyebrow">Site verification</p>
@@ -1020,9 +1048,10 @@ function CustomerDashboard({
         <div className="account-panel">
           <div className="section-heading">
             <p className="beta-eyebrow">Next</p>
-            <h3>{nextActions[0]?.label || "Start with a page that matters"}</h3>
+            <h3>{primaryAction?.label || "Start with a page that matters"}</h3>
           </div>
-          <p>{nextActions[0]?.detail || "Paste your homepage, pricing page, or highest-value product page."}</p>
+          <p>{primaryAction?.detail || "Paste your homepage, pricing page, or highest-value product page."}</p>
+          {primaryAction?.href && <a className="action-link" href={primaryAction.href}>Open next action</a>}
         </div>
         <div className="account-panel">
           <div className="section-heading">
@@ -1072,6 +1101,50 @@ function CustomerDashboard({
         webhookSecret={webhookSecret}
         webhookUrl={webhookUrl}
       />
+    </section>
+  );
+}
+
+function RepairAgentFeed({ items = [], nextAction = null, reports = [] }) {
+  const hasReports = reports.length > 0;
+  return (
+    <section className="repair-agent-panel" aria-label="Repair agent feed">
+      <div className="repair-agent-heading">
+        <div>
+          <p className="beta-eyebrow">Repair agent</p>
+          <h3>{items.length ? nextAction?.label || "Proof-backed next actions" : "Waiting for repair proof"}</h3>
+          <p>
+            {items.length
+              ? nextAction?.detail || "Review the highest-priority repair work across your saved reports."
+              : hasReports
+                ? "Open a report with proven issues to start the repair queue."
+                : "Run the first audit to create a queue."}
+          </p>
+        </div>
+        {nextAction?.href && <a className="action-link" href={nextAction.href}>Open action</a>}
+      </div>
+      <div className="repair-agent-list">
+        {items.slice(0, 4).map((item) => (
+          <a className={`repair-agent-card ${item.status || "open"}`} href={item.reportPath || nextAction?.href || "/beta"} key={item.id}>
+            <div className="repair-agent-card-head">
+              <span className={`status-pill ${item.severity || "notice"}`}>{item.severity || "notice"}</span>
+              <span className="status-pill">{repairStatusLabel(item.status)}</span>
+            </div>
+            <h4>{item.nextActionLabel || item.title}</h4>
+            <p>{item.nextActionDetail || item.proof || item.acceptance}</p>
+            <div className="repair-agent-meta">
+              <span>{item.targetHost || "Saved report"}</span>
+              <span>{repairActionModeLabel(item.actionMode)}</span>
+            </div>
+          </a>
+        ))}
+        {!items.length && (
+          <div className="repair-agent-empty">
+            <strong>{hasReports ? "No active repair queue yet." : "No reports yet."}</strong>
+            <span>{hasReports ? "Latest reports and drafts will appear here once issues are queued." : "Verify a site and run an audit first."}</span>
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -1271,6 +1344,8 @@ function ReportView({ report }) {
   const localSeoAudit = report.localSeoAudit || null;
   const keywordRankAudit = report.keywordRankAudit || report.keyword_rank_audit || null;
   const platformSeoAudit = report.platformSeoAudit || report.platform_seo_audit || null;
+  const aiAnswerReadiness = report.aiAnswerReadiness || report.ai_answer_readiness || null;
+  const growthOpportunities = report.growthOpportunities || report.growth_opportunities || null;
   const geoReadiness = report.geoReadiness || report.geo_readiness || null;
   const remediationBrief = report.remediationBrief || report.remediation_brief || null;
   const pageSummaries = report.pageSummaries || summarizePages(report.pages || [], report.findings || [], report.url);
@@ -1356,6 +1431,10 @@ function ReportView({ report }) {
       {keywordRankAudit?.status === "ready" && <KeywordRankAuditPanel audit={keywordRankAudit} />}
 
       {platformSeoAudit?.status === "ready" && <PlatformSeoAuditPanel audit={platformSeoAudit} />}
+
+      {aiAnswerReadiness?.status === "ready" && <AiAnswerReadinessPanel audit={aiAnswerReadiness} />}
+
+      {growthOpportunities?.status === "ready" && <GrowthOpportunitiesPanel growth={growthOpportunities} />}
 
       {geoReadiness?.status === "ready" && <GeoReadinessPanel audit={geoReadiness} />}
 
@@ -2138,6 +2217,163 @@ function PlatformSeoAuditPanel({ audit }) {
   );
 }
 
+function AiAnswerReadinessPanel({ audit }) {
+  const summary = audit.summary || {};
+  const checks = audit.checks || {};
+  const repairs = audit.repairOpportunities || [];
+  const highestPriority = repairs[0];
+  const lowContentPages = checks.contentDepth?.lowContentPages || [];
+  const schemaMissingPages = checks.structuredData?.missingPages || [];
+  const sourcePages = [
+    ...(checks.sourceClarity?.missingCanonicalPages || []),
+    ...(checks.sourceClarity?.isolatedPages || [])
+  ];
+
+  return (
+    <section className="ai-readiness-panel">
+      <div className="section-heading">
+        <p className="beta-eyebrow">AI Answer Readiness</p>
+        <h2>
+          {summary.repairOpportunityCount
+            ? `${summary.repairOpportunityCount} proof-derived readiness ${summary.repairOpportunityCount === 1 ? "repair" : "repairs"} found.`
+            : "Rendered proof is ready for machine-readable answers."}
+        </h2>
+        <p>Site-proof checks for extractable content, helpful schema, canonical/source clarity, answer structure, and optional llms.txt. This is not AI visibility tracking or citation monitoring.</p>
+      </div>
+
+      <div className="ai-readiness-metrics" aria-label="AI Answer Readiness summary">
+        <Metric label="Readiness" value={`${summary.readinessScore || 0}/100`} />
+        <Metric label="Enough text" value={`${summary.pagesWithEnoughText || 0}/${summary.pagesChecked || 0}`} />
+        <Metric label="Schema pages" value={summary.pagesWithHelpfulSchema || 0} />
+        <Metric label="Question structure" value={summary.pagesWithQuestionStructure || 0} />
+        <Metric label="llms.txt" value={summary.llmsTxtStatus === "reachable" ? "Yes" : "No"} />
+      </div>
+
+      {highestPriority && (
+        <article className="ai-readiness-priority">
+          <span>{highestPriority.severity}</span>
+          <strong>{highestPriority.title}</strong>
+          <p>{highestPriority.proof}</p>
+          <small>{highestPriority.estimatedEffort || "30-90 min"} - {highestPriority.workType || "content"}</small>
+        </article>
+      )}
+
+      <div className="ai-readiness-grid">
+        {lowContentPages.slice(0, 3).map((page) => (
+          <AiReadinessRow
+            key={`content-${page.url}`}
+            state="lost"
+            label="Extractable text"
+            title={page.label || page.url}
+            detail={`${page.wordCount || 0} rendered words`}
+            proof="Add visible proof, examples, FAQs, comparisons, and next steps."
+          />
+        ))}
+        {schemaMissingPages.slice(0, 3).map((page) => (
+          <AiReadinessRow
+            key={`schema-${page.url}`}
+            state="lost"
+            label="Helpful schema"
+            title={page.label || page.url}
+            detail={page.title || "No helpful schema proven"}
+            proof="Add truthful schema only when it matches visible content."
+          />
+        ))}
+        {sourcePages.slice(0, 3).map((page, index) => (
+          <AiReadinessRow
+            key={`source-${page.url}-${page.label}-${index}`}
+            state="lost"
+            label="Source clarity"
+            title={page.label || page.url}
+            detail={page.title || "Canonical or internal links need review"}
+            proof="Keep one preferred URL and rendered links to related context."
+          />
+        ))}
+        {summary.llmsTxtStatus === "reachable" ? (
+          <AiReadinessRow
+            state="live"
+            label="llms.txt"
+            title="Optional context file reachable"
+            detail="Public agent context"
+            proof="This supports public context discovery but does not prove AI visibility."
+          />
+        ) : (
+          <AiReadinessRow
+            state="lost"
+            label="llms.txt"
+            title="Optional context file not reachable"
+            detail="Advisory"
+            proof="This is not a ranking, visibility, or citation failure."
+          />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function AiReadinessRow({ state = "lost", label, title, detail, proof }) {
+  return (
+    <article className={`ai-readiness-row is-${state}`}>
+      <div>
+        <span>{label}</span>
+        <strong>{title}</strong>
+        <small>{detail}</small>
+      </div>
+      <p>{proof}</p>
+    </article>
+  );
+}
+
+function GrowthOpportunitiesPanel({ growth }) {
+  const summary = growth.summary || {};
+  const opportunities = growth.opportunities || [];
+  const topOpportunity = opportunities[0];
+
+  return (
+    <section className="growth-opportunities-panel">
+      <div className="section-heading">
+        <p className="beta-eyebrow">Draft-only growth</p>
+        <h2>
+          {summary.opportunityCount
+            ? `${summary.opportunityCount} proof-backed growth ${summary.opportunityCount === 1 ? "brief" : "briefs"} ready.`
+            : "No growth briefs were created from this report."}
+        </h2>
+        <p>Drafts from verified keyword, competitor, AI-readiness, or crawl gaps. These do not publish content, open pull requests, or promise rankings, traffic, citations, or revenue.</p>
+      </div>
+
+      <div className="growth-opportunities-metrics" aria-label="Growth opportunity summary">
+        <Metric label="Keyword" value={summary.keywordBacked || 0} />
+        <Metric label="Competitor" value={summary.competitorBacked || 0} />
+        <Metric label="AI-ready" value={summary.aiReadinessBacked || 0} />
+        <Metric label="Crawl" value={summary.crawlBacked || 0} />
+        <Metric label="Mode" value="Draft" />
+      </div>
+
+      {topOpportunity && (
+        <article className="growth-opportunities-priority">
+          <span>{growthTypeLabel(topOpportunity.type)}</span>
+          <strong>{topOpportunity.title}</strong>
+          <p>{topOpportunity.proof}</p>
+          <small>{topOpportunity.estimatedEffort || "30-90 min"} - {topOpportunity.workType || "content"}</small>
+        </article>
+      )}
+
+      <div className="growth-opportunities-grid">
+        {opportunities.slice(0, 6).map((item) => (
+          <article className="growth-opportunities-row is-live" key={item.id || item.title}>
+            <div>
+              <span>{growthTypeLabel(item.type)}</span>
+              <strong>{item.draftBrief?.summary || item.suggestedAction || item.title}</strong>
+              <small>{item.sourceKind || "proof"} - draft only</small>
+            </div>
+            <p>{item.draftBrief?.sections?.length ? item.draftBrief.sections.join(" | ") : item.guardrail || item.proof}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function GeoReadinessPanel({ audit }) {
   const checks = audit.checks || {};
   const summary = audit.summary || {};
@@ -2175,6 +2411,17 @@ function GeoReadinessPanel({ audit }) {
       </div>
     </section>
   );
+}
+
+function growthTypeLabel(type = "") {
+  const labels = {
+    comparison_outline: "Comparison",
+    faq_block: "FAQ brief",
+    free_tool_idea: "Free tool",
+    internal_link_hub: "Hub",
+    page_refresh: "Page refresh"
+  };
+  return labels[type] || "Draft";
 }
 
 function geoCheckLabel(key) {
@@ -2539,7 +2786,9 @@ function TeamRepairBoard({ report }) {
   const [members, setMembers] = useState([]);
   const [issues, setIssues] = useState([]);
   const [draftMember, setDraftMember] = useState({ email: "", name: "", role: "editor" });
+  const [statusFilter, setStatusFilter] = useState("active");
   const [savingIssueId, setSavingIssueId] = useState("");
+  const [actingIssueId, setActingIssueId] = useState("");
   const [status, setStatus] = useState("idle");
   const [message, setMessage] = useState("");
 
@@ -2548,41 +2797,53 @@ function TeamRepairBoard({ report }) {
     let cancelled = false;
     setStatus("loading");
     setMessage("Loading repair board.");
-    loadReportCollaboration(report.id)
-      .then((payload) => {
+    Promise.all([
+      loadReportCollaboration(report.id),
+      loadRepairQueue(report.id)
+    ])
+      .then(([collaborationPayload, queuePayload]) => {
         if (cancelled) return;
-        setMembers(payload.members || []);
-        setIssues(payload.issues || []);
+        setMembers(collaborationPayload.members || []);
+        setIssues(mergeRepairQueueWithCollaboration(queuePayload.items || [], collaborationPayload.issues || []));
         setStatus("success");
-        setMessage("Repair board ready.");
+        setMessage("Repair queue ready.");
       })
       .catch((error) => {
         if (cancelled) return;
         setStatus("error");
-        setMessage(error.message || "Could not load repair board.");
+        setMessage(error.message || "Could not load repair queue.");
       });
     return () => {
       cancelled = true;
     };
   }, [report.id]);
 
-  const boardCounts = useMemo(() => ({
-    total: issues.length,
-    assigned: issues.filter((issue) => issue.assigneeEmail).length,
-    inProgress: issues.filter((issue) => issue.status === "in_progress").length,
-    fixed: issues.filter((issue) => issue.status === "fixed").length
-  }), [issues]);
+  const boardCounts = useMemo(() => repairBoardCounts(issues), [issues]);
+  const visibleIssues = useMemo(() => {
+    if (statusFilter === "all") return issues;
+    if (statusFilter === "active") {
+      return issues.filter((issue) => !["fixed", "ignored"].includes(issue.status));
+    }
+    return issues.filter((issue) => issue.status === statusFilter);
+  }, [issues, statusFilter]);
 
   function updateIssue(issueId, patch) {
+    const nextPatch = { ...patch };
+    if (patch.status && !["fixed", "regressed"].includes(patch.status)) {
+      nextPatch.rerunStatus = "not_run";
+    }
     setIssues((current) =>
-      current.map((issue) => (issue.issueId === issueId ? { ...issue, ...patch } : issue))
+      current.map((issue) => (issue.issueId === issueId ? { ...issue, ...nextPatch } : issue))
     );
   }
 
   async function reloadBoard(nextMessage = "Repair board updated.") {
-    const payload = await loadReportCollaboration(report.id);
-    setMembers(payload.members || []);
-    setIssues(payload.issues || []);
+    const [collaborationPayload, queuePayload] = await Promise.all([
+      loadReportCollaboration(report.id),
+      loadRepairQueue(report.id)
+    ]);
+    setMembers(collaborationPayload.members || []);
+    setIssues(mergeRepairQueueWithCollaboration(queuePayload.items || [], collaborationPayload.issues || []));
     setStatus("success");
     setMessage(nextMessage);
   }
@@ -2616,40 +2877,135 @@ function TeamRepairBoard({ report }) {
   async function onIssueSave(issue) {
     setSavingIssueId(issue.issueId);
     setStatus("loading");
-    setMessage("Saving issue update.");
+    setMessage("Saving repair item.");
     try {
-      const payload = await saveReportCollaboration(report.id, {
-        items: [{
-          issueId: issue.issueId,
-          status: issue.status,
-          assigneeEmail: issue.assigneeEmail,
-          note: issue.note
-        }]
-      });
-      setMembers(payload.members || []);
-      setIssues(payload.issues || []);
-      setStatus("success");
-      setMessage("Issue update saved.");
+      const queueItem = {
+        issueId: issue.issueId,
+        actionMode: issue.actionMode
+      };
+      if (manualRepairQueueStatus(issue.status)) {
+        queueItem.status = issue.status;
+        queueItem.rerunStatus = "not_run";
+        queueItem.lastRerunReportId = "";
+      }
+      const writes = [
+        saveRepairQueue(report.id, {
+          items: [queueItem]
+        })
+      ];
+      if (issue.sourceKind !== "repair_plan") {
+        writes.push(saveReportCollaboration(report.id, {
+          items: [{
+            issueId: issue.issueId,
+            status: collaborationStatusForQueueStatus(issue.status),
+            assigneeEmail: issue.assigneeEmail,
+            note: issue.note
+          }]
+        }));
+      }
+      await Promise.all(writes);
+      await reloadBoard("Repair item saved.");
     } catch (error) {
       setStatus("error");
-      setMessage(error.message || "Could not save issue update.");
+      setMessage(error.message || "Could not save repair item.");
     } finally {
       setSavingIssueId("");
     }
   }
 
+  async function onActionDraft(issue) {
+    setActingIssueId(issue.issueId);
+    setStatus("loading");
+    setMessage("Drafting agent action.");
+    try {
+      const payload = await createRepairAction(report.id, {
+        issueId: issue.issueId,
+        actionMode: issue.actionMode || "self_serve",
+        actionType: actionTypeForMode(issue.actionMode),
+        proposedChange: issue.proposedChange || ""
+      });
+      if (payload.queue?.items) {
+        const collaborationPayload = await loadReportCollaboration(report.id);
+        setIssues(mergeRepairQueueWithCollaboration(payload.queue.items, collaborationPayload.issues || []));
+      } else {
+        await reloadBoard("Agent action drafted.");
+      }
+      setStatus("success");
+      setMessage("Agent action drafted for review.");
+    } catch (error) {
+      setStatus("error");
+      setMessage(error.message || "Could not draft agent action.");
+    } finally {
+      setActingIssueId("");
+    }
+  }
+
+  async function onActionUpdate(issue, patch, options = {}) {
+    if (!issue.latestAction?.id) return;
+    setActingIssueId(issue.issueId);
+    setStatus("loading");
+    setMessage(options.pendingMessage || "Updating agent action.");
+    try {
+      const payload = await updateRepairAction(report.id, issue.latestAction.id, patch);
+      if (payload.queue?.items) {
+        const collaborationPayload = await loadReportCollaboration(report.id);
+        setIssues(mergeRepairQueueWithCollaboration(payload.queue.items, collaborationPayload.issues || []));
+      } else {
+        await reloadBoard("Agent action updated.");
+      }
+      setStatus("success");
+      setMessage(options.successMessage || "Agent action updated.");
+    } catch (error) {
+      setStatus("error");
+      setMessage(error.message || "Could not update agent action.");
+    } finally {
+      setActingIssueId("");
+    }
+  }
+
+  async function onActionRerun(issue, rerunState) {
+    const rerunReportId = issue.lastRerunReportId || issue.rerunReportId || "";
+    if (!rerunReportId) {
+      setStatus("error");
+      setMessage("Enter the rerun report ID before closing proof.");
+      return;
+    }
+    await onActionUpdate(issue, repairActionRerunPatch(rerunState, rerunReportId), {
+      pendingMessage: "Attaching rerun proof.",
+      successMessage: rerunState === "fixed" ? "Repair marked fixed from rerun proof." : "Rerun proof recorded."
+    });
+  }
+
   return (
     <section className="team-repair-panel">
-      <div className="section-heading">
-        <p className="beta-eyebrow">Team collaboration</p>
-        <h2>Assign issues and track fixes</h2>
-        {message && <p className={`form-message ${status}`}>{message}</p>}
+      <div className="section-heading queue-heading">
+        <div>
+          <p className="beta-eyebrow">Repair agent</p>
+          <h2>Proof-backed queue and safe action drafts</h2>
+          {message && <p className={`form-message ${status}`}>{message}</p>}
+        </div>
+        <label className="repair-filter">
+          View
+          <select
+            onChange={(event) => setStatusFilter(event.target.value)}
+            value={statusFilter}
+          >
+            <option value="active">Active</option>
+            <option value="all">All</option>
+            <option value="drafted">Drafted</option>
+            <option value="approved">Approved</option>
+            <option value="applied">Applied</option>
+            <option value="fixed">Fixed</option>
+            <option value="ignored">Ignored</option>
+            <option value="regressed">Regressed</option>
+          </select>
+        </label>
       </div>
 
       <div className="team-board-summary">
         <Metric label="Issues" value={boardCounts.total} />
-        <Metric label="Assigned" value={boardCounts.assigned} />
-        <Metric label="In progress" value={boardCounts.inProgress} />
+        <Metric label="Drafted" value={boardCounts.drafted} />
+        <Metric label="Approved" value={boardCounts.approved} />
         <Metric label="Fixed" value={boardCounts.fixed} />
       </div>
 
@@ -2704,13 +3060,17 @@ function TeamRepairBoard({ report }) {
         </form>
 
         <div className="issue-board-list">
-          {issues.slice(0, 12).map((issue) => (
+          {visibleIssues.slice(0, 12).map((issue) => (
             <article className={`issue-board-card ${issue.status}`} key={issue.issueId}>
               <div className="issue-board-head">
                 <div>
-                  <span className={`status-pill ${issue.severity}`}>{issue.severity}</span>
+                  <div className="repair-pill-row">
+                    <span className={`status-pill ${issue.severity}`}>{issue.severity}</span>
+                    <span className={`status-pill ${issue.status}`}>{repairStatusLabel(issue.status)}</span>
+                    {issue.latestAction && <span className="status-pill">{repairApprovalLabel(issue.latestAction.approvalState)}</span>}
+                  </div>
                   <h3>{issue.title}</h3>
-                  <p>{issue.pageLabel || safeUrlLabel(issue.pageUrl)} · {issue.fix}</p>
+                  <p>{issue.pageLabel || safeUrlLabel(issue.pageUrl)} - {issue.fix}</p>
                 </div>
                 <button
                   className="action-link"
@@ -2721,52 +3081,268 @@ function TeamRepairBoard({ report }) {
                   Save
                 </button>
               </div>
+              <div className="repair-proof-block">
+                <div>
+                  <span>Proof</span>
+                  <p>{issue.proof || "Proof was stored with the report finding."}</p>
+                </div>
+                <div>
+                  <span>Acceptance</span>
+                  <p>{issue.acceptance || "Rerun the audit and confirm the finding no longer appears."}</p>
+                </div>
+                {issue.snippet && <CodeBlock code={issue.snippet} />}
+              </div>
               <div className="issue-board-controls">
                 <label>
                   Status
                   <select
-                    onChange={(event) => updateIssue(issue.issueId, { status: event.target.value })}
-                    value={issue.status || "open"}
+                    onChange={(event) => updateIssue(issue.issueId, { status: event.target.value || issue.status || "open" })}
+                    value={manualRepairQueueStatus(issue.status)}
                   >
+                    <option value="">Managed by action</option>
                     <option value="open">Open</option>
                     <option value="in_progress">In progress</option>
-                    <option value="fixed">Fixed</option>
                     <option value="ignored">Ignored</option>
                   </select>
                 </label>
                 <label>
-                  Assignee
+                  Action mode
                   <select
-                    onChange={(event) => updateIssue(issue.issueId, { assigneeEmail: event.target.value })}
-                    value={issue.assigneeEmail || ""}
+                    onChange={(event) => updateIssue(issue.issueId, { actionMode: event.target.value })}
+                    value={issue.actionMode || "self_serve"}
                   >
-                    <option value="">Unassigned</option>
-                    {members.map((member) => (
-                      <option key={member.id} value={member.email}>
-                        {member.name || member.email}
-                      </option>
-                    ))}
+                    <option value="self_serve">Self serve</option>
+                    <option value="teammate">Teammate</option>
+                    <option value="fix_pack">Fix Pack</option>
+                    <option value="cms_draft">CMS draft</option>
+                    <option value="github_pr">Future PR</option>
                   </select>
                 </label>
-                <label>
-                  Note
-                  <textarea
-                    onChange={(event) => updateIssue(issue.issueId, { note: event.target.value })}
-                    placeholder="Internal note or next repair step"
-                    value={issue.note || ""}
-                  />
-                </label>
+                {issue.sourceKind !== "repair_plan" && (
+                  <label>
+                    Assignee
+                    <select
+                      onChange={(event) => updateIssue(issue.issueId, { assigneeEmail: event.target.value })}
+                      value={issue.assigneeEmail || ""}
+                    >
+                      <option value="">Unassigned</option>
+                      {members.map((member) => (
+                        <option key={member.id} value={member.email}>
+                          {member.name || member.email}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {issue.latestAction?.executionState === "applied" && (
+                  <label>
+                    Rerun report ID
+                    <input
+                      onChange={(event) => updateIssue(issue.issueId, { lastRerunReportId: event.target.value })}
+                      placeholder="Paste rerun report ID"
+                      value={issue.lastRerunReportId || ""}
+                    />
+                  </label>
+                )}
+                {issue.sourceKind !== "repair_plan" && (
+                  <label>
+                    Note
+                    <textarea
+                      onChange={(event) => updateIssue(issue.issueId, { note: event.target.value })}
+                      placeholder="Internal note or next repair step"
+                      value={issue.note || ""}
+                    />
+                  </label>
+                )}
+              </div>
+              <div className="repair-action-strip">
+                <div>
+                  <strong>{issue.latestAction ? "Latest agent action" : "No agent action drafted"}</strong>
+                  <span>
+                    {issue.latestAction
+                      ? `${repairActionModeLabel(issue.latestAction.actionMode)} - ${repairApprovalLabel(issue.latestAction.approvalState)} - ${repairExecutionLabel(issue.latestAction.executionState)}`
+                      : "Drafts are saved for review and do not publish anything."}
+                  </span>
+                  {issue.latestAction?.proposedChange && <p>{issue.latestAction.proposedChange}</p>}
+                </div>
+                <div className="repair-action-buttons">
+                  <button
+                    className="action-link"
+                    disabled={actingIssueId === issue.issueId || status === "loading"}
+                    onClick={() => onActionDraft(issue)}
+                    type="button"
+                  >
+                    Draft action
+                  </button>
+                  {issue.latestAction?.approvalState === "drafted" && (
+                    <>
+                      <button
+                        className="action-link paid-action"
+                        disabled={actingIssueId === issue.issueId || status === "loading"}
+                        onClick={() => onActionUpdate(issue, repairActionApprovalPatch(), {
+                          pendingMessage: "Approving agent action.",
+                          successMessage: "Agent action approved."
+                        })}
+                        type="button"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        className="text-button"
+                        disabled={actingIssueId === issue.issueId || status === "loading"}
+                        onClick={() => onActionUpdate(issue, repairActionIgnorePatch(), {
+                          pendingMessage: "Ignoring agent action.",
+                          successMessage: "Agent action ignored."
+                        })}
+                        type="button"
+                      >
+                        Ignore
+                      </button>
+	                    </>
+	                  )}
+                  {issue.latestAction?.approvalState === "approved" && issue.latestAction?.executionState !== "applied" && (
+                    <button
+                      className="action-link paid-action"
+                      disabled={actingIssueId === issue.issueId || status === "loading"}
+                      onClick={() => onActionUpdate(issue, repairActionApplyPatch(), {
+                        pendingMessage: "Marking approved action applied.",
+                        successMessage: "Agent action marked applied."
+                      })}
+                      type="button"
+                    >
+                      Apply
+                    </button>
+                  )}
+                  {issue.latestAction?.executionState === "applied" && (
+                    <>
+                      <button
+                        className="action-link paid-action"
+                        disabled={actingIssueId === issue.issueId || status === "loading"}
+                        onClick={() => onActionRerun(issue, "fixed")}
+                        type="button"
+                      >
+                        Fixed
+                      </button>
+                      <button
+                        className="text-button"
+                        disabled={actingIssueId === issue.issueId || status === "loading"}
+                        onClick={() => onActionRerun(issue, "still_open")}
+                        type="button"
+                      >
+                        Still open
+                      </button>
+                      <button
+                        className="text-button"
+                        disabled={actingIssueId === issue.issueId || status === "loading"}
+                        onClick={() => onActionRerun(issue, "regressed")}
+                        type="button"
+                      >
+                        Regressed
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
               {issue.updatedAt && (
                 <p className="quiet-note">Updated {formatDate(issue.updatedAt)}{issue.updatedByEmail ? ` by ${issue.updatedByEmail}` : ""}</p>
               )}
             </article>
           ))}
-          {!issues.length && <p className="quiet-note">No repair issues to assign from this report.</p>}
+          {!visibleIssues.length && <p className="quiet-note">No repair items match this filter.</p>}
         </div>
       </div>
     </section>
   );
+}
+
+function mergeRepairQueueWithCollaboration(queueItems = [], collaborationIssues = []) {
+  const collaborationByIssue = new Map(collaborationIssues.map((issue) => [issue.issueId, issue]));
+  return queueItems.map((item) => {
+    const collaboration = collaborationByIssue.get(item.issueId) || {};
+    return {
+      ...item,
+      assigneeEmail: collaboration.assigneeEmail || "",
+      note: collaboration.note || "",
+      collaborationStatus: collaboration.status || "",
+      collaborationUpdatedAt: collaboration.updatedAt || "",
+      collaborationUpdatedByEmail: collaboration.updatedByEmail || "",
+      proposedChange: item.latestAction?.proposedChange || ""
+    };
+  });
+}
+
+function repairBoardCounts(issues = []) {
+  return issues.reduce((counts, issue) => {
+    counts.total += 1;
+    if (issue.status === "drafted") counts.drafted += 1;
+    if (issue.status === "approved") counts.approved += 1;
+    if (issue.status === "fixed") counts.fixed += 1;
+    return counts;
+  }, { total: 0, drafted: 0, approved: 0, fixed: 0 });
+}
+
+function collaborationStatusForQueueStatus(status) {
+  if (status === "fixed") return "fixed";
+  if (status === "ignored") return "ignored";
+  if (["drafted", "approved", "applied", "in_progress"].includes(status)) return "in_progress";
+  return "open";
+}
+
+function manualRepairQueueStatus(status) {
+  return ["open", "in_progress", "ignored"].includes(status) ? status : "";
+}
+
+function actionTypeForMode(mode) {
+  const types = {
+    cms_draft: "cms_draft",
+    fix_pack: "fix_pack_handoff",
+    github_pr: "github_pr_draft"
+  };
+  return types[mode] || "draft_fix";
+}
+
+function repairStatusLabel(status) {
+  const labels = {
+    open: "Open",
+    in_progress: "In progress",
+    drafted: "Drafted",
+    approved: "Approved",
+    applied: "Applied",
+    fixed: "Fixed",
+    ignored: "Ignored",
+    regressed: "Regressed"
+  };
+  return labels[status] || "Open";
+}
+
+function repairApprovalLabel(state) {
+  const labels = {
+    drafted: "Drafted",
+    approved: "Approved",
+    ignored: "Ignored"
+  };
+  return labels[state] || "Drafted";
+}
+
+function repairExecutionLabel(state) {
+  const labels = {
+    not_started: "Not started",
+    recorded: "Recorded",
+    applied: "Applied",
+    blocked: "Blocked"
+  };
+  return labels[state] || "Not started";
+}
+
+function repairActionModeLabel(mode) {
+  const labels = {
+    self_serve: "Self serve",
+    teammate: "Teammate",
+    fix_pack: "Fix Pack",
+    cms_draft: "CMS draft",
+    github_pr: "Future PR"
+  };
+  return labels[mode] || "Self serve";
 }
 
 function Metric({ label, value }) {
@@ -3630,12 +4206,35 @@ function usePricingPreview(enabled) {
 function FixQuotePanel({ report, hasPriorityFixes }) {
   const [status, setStatus] = useState("idle");
   const [message, setMessage] = useState("");
+  const [repairQueue, setRepairQueue] = useState({ status: "idle", items: [] });
   const pricing = usePricingPreview(hasPriorityFixes);
-  const checkoutDisabled =
-    !hasPriorityFixes ||
-    pricing.status !== "available" ||
-    status === "submitting" ||
-    status === "success";
+  useEffect(() => {
+    if (!hasPriorityFixes || !report.id) {
+      setRepairQueue({ status: "idle", items: [] });
+      return undefined;
+    }
+    let cancelled = false;
+    setRepairQueue((current) => ({ ...current, status: "loading" }));
+    loadRepairQueue(report.id)
+      .then((payload) => {
+        if (cancelled) return;
+        setRepairQueue({ status: "success", items: payload.items || [] });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setRepairQueue({ status: "error", items: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasPriorityFixes, report.id]);
+  const selectedRepair = fixPackRepairTarget(report, repairQueue.items);
+  const selectedRepairIsLive = selectedRepair?.source === "repair_queue";
+  const checkoutDisabled = fixPackCheckoutDisabled({
+    hasPriorityFixes,
+    pricingStatus: pricing.status,
+    status
+  });
   const priceLabel =
     pricing.status === "available"
       ? pricing.displayPrice
@@ -3665,6 +4264,17 @@ function FixQuotePanel({ report, hasPriorityFixes }) {
             ? "One proof-backed repair pass for this report, then one rerun after fixes. No ranking promises, just the proven repair queue."
             : "Keep the private report and rerun after meaningful content or template changes."}
         </p>
+        {hasPriorityFixes && selectedRepair?.title && (
+          <p className="quiet-note">
+            {selectedRepairIsLive ? "Checkout repair target" : "Top report repair"}: {selectedRepair.title}
+          </p>
+        )}
+        {hasPriorityFixes && repairQueue.status === "loading" && (
+          <p className="quiet-note">Checking the live repair queue before checkout.</p>
+        )}
+        {hasPriorityFixes && repairQueue.status === "error" && (
+          <p className="quiet-note">Checkout will ask the server for the first active repair target.</p>
+        )}
       </div>
       {hasPriorityFixes ? (
         <span className="checkout-action">
@@ -3674,15 +4284,19 @@ function FixQuotePanel({ report, hasPriorityFixes }) {
             onClick={async () => {
               setStatus("submitting");
               setMessage("");
-              const result = await requestFixQuote(report.id);
-              if (result.checkoutUrl) {
-                setStatus("success");
-                setMessage("Opening secure checkout.");
-                window.location.assign(result.checkoutUrl);
-                return;
+              try {
+                const result = await requestFixQuote(report.id, selectedRepairIsLive ? selectedRepair : null);
+                const outcome = fixPackCheckoutOutcome(result);
+                setStatus(outcome.status);
+                setMessage(outcome.message);
+                if (outcome.checkoutUrl) {
+                  window.location.assign(outcome.checkoutUrl);
+                }
+              } catch (error) {
+                const outcome = fixPackCheckoutErrorOutcome(error);
+                setStatus(outcome.status);
+                setMessage(outcome.message);
               }
-              setStatus(result.ok ? "success" : "error");
-              setMessage(result.message || result.error || (result.ok ? "Request received." : "Checkout could not open."));
             }}
             type="button"
           >
@@ -3781,7 +4395,7 @@ function BillingPortal({ ownerEmail }) {
             <p className="beta-eyebrow">Subscription</p>
             <h2>{subscription.label || "No recurring subscription"}</h2>
           </div>
-          <p>{subscription.message || "SEO Fix Kit currently sells one-time Fix Pack requests. Recurring plans are not live yet."}</p>
+          <p>{subscription.message || "SEO Fix Kit currently sells one-time Fix Pack requests. Repair Agent and Growth Add-On subscriptions remain roadmap."}</p>
           <p className="quiet-note">Provider: {billing?.provider?.name || "Dodo Payments"}</p>
         </div>
       </section>
@@ -4426,12 +5040,8 @@ async function deleteDeveloperToken(tokenId) {
 }
 
 async function postDeveloperWebhook(url) {
-  const response = await fetch("/api/developer/webhooks", {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ url, events: ["audit.completed", "audit.failed"] })
-  });
+  const request = developerWebhookRequest(url);
+  const response = await fetch(request.endpoint, request.init);
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok !== true) {
     throw new Error(payload.error || "Could not add webhook.");
@@ -4596,6 +5206,56 @@ async function saveReportCollaboration(reportId, body) {
   return payload;
 }
 
+async function loadRepairQueue(reportId) {
+  const response = await fetch(`/api/reports/${encodeURIComponent(reportId)}/repair-queue`, {
+    credentials: "same-origin",
+    headers: { accept: "application/json" }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not load repair queue.");
+  }
+  return payload;
+}
+
+async function saveRepairQueue(reportId, body) {
+  const response = await fetch(`/api/reports/${encodeURIComponent(reportId)}/repair-queue`, {
+    method: "PATCH",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not save repair queue.");
+  }
+  return payload;
+}
+
+async function createRepairAction(reportId, body) {
+  const response = await fetch(`/api/reports/${encodeURIComponent(reportId)}/repair-actions`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not draft agent action.");
+  }
+  return payload;
+}
+
+async function updateRepairAction(reportId, actionId, body) {
+  const request = repairActionUpdateRequest(reportId, actionId, body);
+  const response = await fetch(request.endpoint, request.init);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(payload.error || "Could not update agent action.");
+  }
+  return payload;
+}
+
 async function createTeamMember(member) {
   const response = await fetch("/api/team/members", {
     method: "POST",
@@ -4695,13 +5355,13 @@ async function fetchBrief(id) {
   URL.revokeObjectURL(url);
 }
 
-async function requestFixQuote(reportId) {
+async function requestFixQuote(reportId, selectedRepair = null) {
   try {
     const response = await fetch("/api/beta/fix-request", {
       method: "POST",
       credentials: "same-origin",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ reportId })
+      body: JSON.stringify(fixPackCheckoutBody(reportId, selectedRepair))
     });
     const payload = await response.json().catch(() => ({}));
     return {
@@ -4709,7 +5369,8 @@ async function requestFixQuote(reportId) {
       checkoutUrl: response.ok ? payload.checkoutUrl || "" : "",
       mode: payload.mode || "",
       message: payload.message || "",
-      error: payload.error || ""
+      error: payload.error || "",
+      selectedRepair: payload.selectedRepair || null
     };
   } catch (error) {
     return { ok: false, error: error.message || "Checkout could not open." };

@@ -10,6 +10,10 @@
 //   true only for the local dev server and smoke tests so 127.0.0.1 fixtures
 //   can be crawled, rendered, and resource-checked.
 import {
+  aiAnswerReadinessBriefLines,
+  buildAiAnswerReadiness
+} from "./ai-answer-readiness.js";
+import {
   backlinkAuditBriefLines,
   buildBacklinkAudit
 } from "./backlink-audit.js";
@@ -29,6 +33,10 @@ import {
   buildCrawlInventory,
   crawlInventoryBriefLines
 } from "./crawl-inventory.js";
+import {
+  buildGrowthOpportunities,
+  growthOpportunitiesBriefLines
+} from "./growth-opportunities.js";
 import {
   buildKeywordRankAudit,
   keywordRankAuditBriefLines
@@ -97,13 +105,17 @@ export function createAuditEngine({
   pagespeedApiKey = "",
   pagespeedDisabled = false,
   appOrigin = "",
-  allowLocalAudits = false
+  allowLocalAudits = false,
+  privateAddressResolver = null
 } = {}) {
   if (typeof launchBrowser !== "function") {
     throw new Error("createAuditEngine requires a launchBrowser() adapter.");
   }
   const fetch = (...args) => fetchImpl(...args);
   const urlGuard = allowLocalAudits ? localAuditUrlStatus : publicAuditUrlStatus;
+  const privateDnsGuard = allowLocalAudits || typeof privateAddressResolver !== "function"
+    ? null
+    : privateAddressResolver;
 
   async function auditUrl(inputUrl, options = {}) {
     const startedAt = Date.now();
@@ -120,6 +132,7 @@ export function createAuditEngine({
       origin === (options.appOrigin || appOrigin)
         ? { ok: true, status: 200, url: `${origin}/sitemap.xml`, body: rootSitemap(origin) }
         : await fetchText(`${origin}/sitemap.xml`);
+    const llmsTxt = await fetchText(`${origin}/llms.txt`);
     let browser;
     try {
       browser = await launchBrowser();
@@ -171,16 +184,16 @@ export function createAuditEngine({
       disabled: pagespeedDisabled
     });
 
-    const findings = buildFindings({
+    let findings = buildFindings({
       pages,
       startUrl,
       robots,
       sitemap,
       performance
     });
-    const score = scoreFindings(findings);
-    const pageSummaries = buildPageSummaries(pages, findings, startUrl);
-    const summary = summarize(findings, pages, maxPages);
+    let score = scoreFindings(findings);
+    let pageSummaries = buildPageSummaries(pages, findings, startUrl);
+    let summary = summarize(findings, pages, maxPages);
     let repairPlan = buildRepairPlan(findings);
     const fixPack = buildFixPack(pages[0], origin, findings);
     const report = {
@@ -198,6 +211,7 @@ export function createAuditEngine({
       pages,
       pageSummaries,
       findings,
+      llmsTxt: discoveryFileSummary(llmsTxt),
       repairPlan,
       repairBrief: "",
       fixPack
@@ -210,7 +224,8 @@ export function createAuditEngine({
       maxUrls: options.crawlInventoryMaxUrls,
       maxSitemaps: options.crawlInventoryMaxSitemaps,
       allowPrivate: allowLocalAudits && isPrivateHost(startUrl),
-      fetcher: fetch
+      fetcher: fetch,
+      privateAddressResolver: privateDnsGuard
     });
 
     const renderedCrawlScale = buildRenderedCrawlScalePlan(report, report.crawlInventory, {
@@ -239,7 +254,8 @@ export function createAuditEngine({
 
     const backlinkAudit = await buildBacklinkAudit(report, options.backlinks || options.backlinkRows || [], {
       allowPrivate: allowLocalAudits && options.allowPrivateBacklinks === true,
-      fetcher: fetch
+      fetcher: fetch,
+      privateAddressResolver: privateDnsGuard
     });
     if (backlinkAudit.status === "ready") {
       report.backlinkAudit = backlinkAudit;
@@ -249,7 +265,8 @@ export function createAuditEngine({
 
     const localSeoAudit = await buildLocalSeoAudit(report, options.localSeo || options.localSeoInput || {}, {
       allowPrivate: allowLocalAudits && options.allowPrivateLocalSeo === true,
-      fetcher: fetch
+      fetcher: fetch,
+      privateAddressResolver: privateDnsGuard
     });
     if (localSeoAudit.status === "ready") {
       report.localSeoAudit = localSeoAudit;
@@ -271,6 +288,30 @@ export function createAuditEngine({
       report.platformSeoAudit = platformSeoAudit;
       repairPlan = mergeRepairPlans(repairPlan, platformSeoAudit.repairOpportunities);
       report.repairPlan = repairPlan;
+    }
+
+    const aiAnswerReadiness = buildAiAnswerReadiness(report, {
+      llmsTxt: report.llmsTxt
+    });
+    if (aiAnswerReadiness.status === "ready") {
+      report.aiAnswerReadiness = aiAnswerReadiness;
+      if (aiAnswerReadiness.findings?.length) {
+        findings = [...findings, ...aiAnswerReadiness.findings];
+        score = scoreFindings(findings);
+        pageSummaries = buildPageSummaries(pages, findings, startUrl);
+        summary = summarize(findings, pages, maxPages);
+        report.findings = findings;
+        report.score = score;
+        report.pageSummaries = pageSummaries;
+        report.summary = summary;
+      }
+      repairPlan = mergeRepairPlans(repairPlan, aiAnswerReadiness.repairOpportunities);
+      report.repairPlan = repairPlan;
+    }
+
+    const growthOpportunities = buildGrowthOpportunities(report);
+    if (growthOpportunities.status === "ready") {
+      report.growthOpportunities = growthOpportunities;
     }
 
     const geoReadiness = buildGeoReadinessAudit(report);
@@ -296,6 +337,8 @@ export function createAuditEngine({
       localSeoAudit: report.localSeoAudit,
       keywordRankAudit: report.keywordRankAudit,
       platformSeoAudit: report.platformSeoAudit,
+      aiAnswerReadiness: report.aiAnswerReadiness,
+      growthOpportunities: report.growthOpportunities,
       geoReadiness: report.geoReadiness
     });
 
@@ -307,9 +350,14 @@ export function createAuditEngine({
     const isHtml = isHtmlResponse(staticFetch, url);
     const finalUrl = staticFetch.url || url;
     const finalUrlCheck = urlGuard(finalUrl);
-    const safeToRender = finalUrlCheck.ok;
+    const renderPrivateDnsBlocked = finalUrlCheck.ok && privateDnsGuard
+      ? await privateDnsGuard(new URL(finalUrl).hostname)
+      : false;
+    const safeToRender = finalUrlCheck.ok && !renderPrivateDnsBlocked;
     const staticFacts = extractStaticFacts(staticFetch.body || "", finalUrl, staticFetch);
-    const rendered = isHtml && safeToRender ? await extractRenderedFacts(browser, finalUrl) : staticFacts;
+    const rendered = isHtml && safeToRender
+      ? await extractRenderedFacts(browser, finalUrl, { urlGuard, privateDnsGuard })
+      : staticFacts;
     const shouldValidateResources = isHtml && consumeResourceValidationBudget(options.resourceValidationBudget);
     const resources = shouldValidateResources ? await validatePageResources(rendered) : emptyResourceChecks();
     const resourceWaterfall = buildResourceWaterfall({
@@ -322,7 +370,11 @@ export function createAuditEngine({
       url,
       finalUrl,
       redirected: stripHash(finalUrl) !== stripHash(url),
-      renderSkippedReason: isHtml && !safeToRender ? finalUrlCheck.error || "Final URL left the audited origin." : "",
+      renderSkippedReason: isHtml && !safeToRender
+        ? renderPrivateDnsBlocked
+          ? "This URL points at a private or internal address and cannot be audited."
+          : finalUrlCheck.error || "Final URL left the audited origin."
+        : "",
       status: staticFetch.status,
       ok: staticFetch.ok,
       contentType: staticFetch.contentType,
@@ -492,6 +544,19 @@ export function createAuditEngine({
       let response = null;
       const redirectChain = [];
       for (let redirectCount = 0; redirectCount <= RESOURCE_LIMITS.maxRedirects; redirectCount += 1) {
+        if (privateDnsGuard && await privateDnsGuard(new URL(currentUrl).hostname)) {
+          return {
+            ok: false,
+            status: null,
+            finalUrl: currentUrl,
+            contentType: "",
+            contentLength: 0,
+            headers: {},
+            redirectChain,
+            error: "This URL points at a private or internal address and cannot be audited."
+          };
+        }
+
         response = await fetch(currentUrl, {
           method,
           redirect: "manual",
@@ -568,6 +633,20 @@ export function createAuditEngine({
             error: status.error
           };
         }
+        if (privateDnsGuard && await privateDnsGuard(new URL(currentUrl).hostname)) {
+          return {
+            ok: false,
+            status: null,
+            url: currentUrl,
+            contentType: "",
+            body: "",
+            headers: {},
+            redirectChain,
+            responseTimeMs: Date.now() - started,
+            contentLength: 0,
+            error: "This URL points at a private or internal address and cannot be audited."
+          };
+        }
 
         response = await fetch(currentUrl, {
           redirect: "manual",
@@ -624,6 +703,20 @@ export function createAuditEngine({
   return { auditUrl };
 }
 
+function discoveryFileSummary(file = {}) {
+  const body = String(file.body || "");
+  return {
+    ok: Boolean(file.ok),
+    status: file.status ?? null,
+    url: file.url || "",
+    contentType: file.contentType || "",
+    contentLength: Number(file.contentLength || byteLength(body)),
+    bodySample: body.slice(0, 500),
+    responseTimeMs: file.responseTimeMs || null,
+    error: file.error || ""
+  };
+}
+
 // Dev/test-only guard: literal localhost targets are allowed; everything else
 // still goes through the production public-URL guard.
 function localAuditUrlStatus(value) {
@@ -646,11 +739,13 @@ function consumeResourceValidationBudget(budget) {
   return true;
 }
 
-async function extractRenderedFacts(browser, url) {
+async function extractRenderedFacts(browser, url, options = {}) {
   const page = await browser.newPage();
   const started = Date.now();
 
   try {
+    await installRenderRequestGuard(page, options);
+
     const response = await page.goto(url, {
       waitUntil: "networkidle0",
       timeout: 25_000
@@ -840,6 +935,64 @@ async function extractRenderedFacts(browser, url) {
   } finally {
     await page.close();
   }
+}
+
+async function installRenderRequestGuard(page, options = {}) {
+  if (typeof page?.route === "function") {
+    await page.route("**/*", async (route) => {
+      const request = typeof route.request === "function" ? route.request() : null;
+      const requestUrl = requestUrlFor(request);
+      if (await isAllowedRenderRequest(requestUrl, options)) {
+        await continueInterceptedRequest(route);
+        return;
+      }
+      await abortInterceptedRequest(route);
+    });
+    return;
+  }
+
+  if (typeof page?.setRequestInterception !== "function" || typeof page?.on !== "function") return;
+
+  await page.setRequestInterception(true);
+  page.on("request", async (request) => {
+    if (await isAllowedRenderRequest(requestUrlFor(request), options)) {
+      await continueInterceptedRequest(request);
+      return;
+    }
+    await abortInterceptedRequest(request);
+  });
+}
+
+function requestUrlFor(request) {
+  if (!request) return "";
+  if (typeof request.url === "function") return request.url();
+  return String(request.url || "");
+}
+
+async function isAllowedRenderRequest(requestUrl = "", options = {}) {
+  let parsed;
+  try {
+    parsed = new URL(requestUrl);
+  } catch {
+    return false;
+  }
+
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    return ["about:", "blob:", "data:"].includes(parsed.protocol);
+  }
+
+  const status = typeof options.urlGuard === "function" ? options.urlGuard(parsed.href) : publicAuditUrlStatus(parsed.href);
+  if (!status.ok) return false;
+  if (options.privateDnsGuard && await options.privateDnsGuard(parsed.hostname)) return false;
+  return true;
+}
+
+async function continueInterceptedRequest(target) {
+  if (typeof target?.continue === "function") await target.continue();
+}
+
+async function abortInterceptedRequest(target) {
+  if (typeof target?.abort === "function") await target.abort();
 }
 
 function extractStaticFacts(html, url, fetchResult = {}) {
@@ -1628,7 +1781,7 @@ function mergeRepairPlans(basePlan = [], extraItems = []) {
   }));
 }
 
-function buildRepairBrief({ startUrl, score, summary, pages, findings, repairPlan, performance, competitorBenchmark, crawlInventory, renderedCrawlScale, crawlIntelligence, backlinkAudit, localSeoAudit, keywordRankAudit, platformSeoAudit, geoReadiness }) {
+function buildRepairBrief({ startUrl, score, summary, pages, findings, repairPlan, performance, competitorBenchmark, crawlInventory, renderedCrawlScale, crawlIntelligence, backlinkAudit, localSeoAudit, keywordRankAudit, platformSeoAudit, aiAnswerReadiness, growthOpportunities, geoReadiness }) {
   const lines = [
     "# SEO Fix Kit repair brief",
     "",
@@ -1709,6 +1862,8 @@ function buildRepairBrief({ startUrl, score, summary, pages, findings, repairPla
   lines.push(...localSeoAuditBriefLines(localSeoAudit));
   lines.push(...keywordRankAuditBriefLines(keywordRankAudit));
   lines.push(...platformSeoAuditBriefLines(platformSeoAudit));
+  lines.push(...aiAnswerReadinessBriefLines(aiAnswerReadiness));
+  lines.push(...growthOpportunitiesBriefLines(growthOpportunities));
   lines.push(...geoReadinessBriefLines(geoReadiness));
 
   lines.push("Re-run SEO Fix Kit after shipping changes and keep only fixes that match visible page content.");
@@ -2673,7 +2828,7 @@ function wait(ms) {
 }
 
 export function rootSitemap(origin) {
-  const urls = ["/", "/demo", "/privacy", "/support", "/terms", "/llms.txt"];
+  const urls = ["/", "/demo", "/methodology", "/packages", "/privacy", "/support", "/terms", "/llms.txt"];
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls
     .map((path) => `<url><loc>${origin}${path}</loc></url>`)
     .join("")}</urlset>`;

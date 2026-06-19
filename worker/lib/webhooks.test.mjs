@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deliverApiWebhook, deliverApiWebhooks } from "./webhooks.js";
+import { cleanWebhookEvents, deliverApiWebhook, deliverApiWebhooks } from "./webhooks.js";
 
 test("deliverApiWebhooks retries transient failure and keeps one event row", async () => {
   const env = fakeWebhookEnv();
@@ -23,6 +23,25 @@ test("deliverApiWebhooks retries transient failure and keeps one event row", asy
   assert.equal(env.events[0].status, "delivered");
   assert.equal(env.events[0].http_status, 200);
   assert.equal(env.webhooks[0].last_delivery_status, "delivered");
+});
+
+test("cleanWebhookEvents allows repair action lifecycle events", () => {
+  assert.deepEqual(cleanWebhookEvents([
+    "audit.completed",
+    "repair_action.drafted",
+    "repair_action.approved",
+    "repair_action.applied",
+    "repair_action.fixed",
+    "repair_action.regressed",
+    "unknown.event"
+  ]), [
+    "audit.completed",
+    "repair_action.drafted",
+    "repair_action.approved",
+    "repair_action.applied",
+    "repair_action.fixed",
+    "repair_action.regressed"
+  ]);
 });
 
 test("deliverApiWebhook does not retry non-transient client errors", async () => {

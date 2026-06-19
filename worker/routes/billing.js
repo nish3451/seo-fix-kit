@@ -34,8 +34,12 @@ import { EMAIL_PROVIDER, sendWorkerEmail } from "../lib/email.js";
 import { json, jsonNoStore, secureHeaders } from "../lib/http.js";
 import { offerCatalogForOwner } from "../lib/offers.js";
 import { preserveFixRequestReports, reportJsonForRow } from "../lib/report-data.js";
+import { isRepairTablesMissingError } from "../lib/repair-tables.js";
+import { ensureRepairQueueRows } from "../lib/repair-agent-actions.js";
 import { sha256Hex } from "../lib/security.js";
 import { billingFixRequestResponse, fixRequestResponse } from "../lib/serializers.js";
+import { cleanQueueStatus } from "../../shared/repair-queue.js";
+import { selectFixPackRepair } from "../../shared/fix-pack-repair-selection.js";
 import {
   cleanText,
   isSafeReportId,
@@ -94,53 +98,94 @@ async function requestFixPack(request, env) {
   const now = new Date().toISOString();
   const note = cleanText(body.note || "", 1000);
   const isTest = Boolean(body.testMode || body.isTest) && access.accessMode === "founder-override";
-  const fixRequest = await getOrCreateFixRequest(env, row, access, summary, note, now, { isTest });
+  const existingFixRequest = await latestFixRequestForReport(env, row.id, access.ownerEmail);
   const skippedProposalSeed = { status: "skipped", total: 0, created: 0, executable: 0 };
 
-  if (fixRequest.status === "delivered") {
+  if (existingFixRequest?.status === "delivered") {
     return jsonNoStore({
       ok: true,
-      mode: fixRequest.status,
-      request: fixRequestWithProposalSummary(fixRequest, skippedProposalSeed, now),
-      offer: FIX_PACK_OFFER
+      mode: existingFixRequest.status,
+      request: fixRequestWithProposalSummary(existingFixRequest, skippedProposalSeed, now),
+      offer: FIX_PACK_OFFER,
+      selectedRepair: null
     });
   }
 
-  if (REBUY_BLOCKED_FIX_REQUEST_STATUSES.has(fixRequest.status)) {
+  if (REBUY_BLOCKED_FIX_REQUEST_STATUSES.has(existingFixRequest?.status)) {
     return jsonNoStore({
       ok: true,
-      mode: fixRequest.status,
+      mode: existingFixRequest.status,
       checkoutAvailable: false,
       message:
         "This Fix Pack was refunded or disputed, so checkout is closed for this report. Email support@seofixkit.com to restart a repair.",
-      request: fixRequestWithProposalSummary(fixRequest, skippedProposalSeed, now),
-      offer: FIX_PACK_OFFER
+      request: fixRequestWithProposalSummary(existingFixRequest, skippedProposalSeed, now),
+      offer: FIX_PACK_OFFER,
+      selectedRepair: null
     });
   }
 
-  if (PAID_LIKE_FIX_REQUEST_STATUSES.has(fixRequest.status)) {
-    const proposalSeed = await seedRepairProposalsForFixRequest(env, report, fixRequest, row, access, now);
+  if (PAID_LIKE_FIX_REQUEST_STATUSES.has(existingFixRequest?.status)) {
+    const proposalSeed = await seedRepairProposalsForFixRequest(env, report, existingFixRequest, row, access, now);
     return jsonNoStore({
       ok: true,
-      mode: fixRequest.status,
-      request: fixRequestWithProposalSummary(fixRequest, proposalSeed, now),
-      offer: FIX_PACK_OFFER
+      mode: existingFixRequest.status,
+      request: fixRequestWithProposalSummary(existingFixRequest, proposalSeed, now),
+      offer: FIX_PACK_OFFER,
+      selectedRepair: null
     });
   }
+
+  const repairContext = await fixPackRepairContext(env, access, row.id, report, body);
+
+  if (repairContext.unavailable) {
+    return jsonNoStore({
+      error: "Repair queue storage is not ready. Retry after the repair queue migration is applied.",
+      code: "REPAIR_QUEUE_MIGRATION_MISSING",
+      checkoutAvailable: false,
+      offer: FIX_PACK_OFFER,
+      selectedRepair: null
+    }, 503);
+  }
+
+  if (repairContext.selectionConflict) {
+    return jsonNoStore({
+      error: "Selected repair is no longer available for checkout. Refresh the report and choose an active repair.",
+      code: "FIX_PACK_REPAIR_SELECTION_UNAVAILABLE",
+      checkoutAvailable: false,
+      offer: FIX_PACK_OFFER,
+      selectedRepair: null
+    }, 409);
+  }
+
+  if (!repairContext.selectedRepair) {
+    return jsonNoStore({
+      error: "No active proof-backed repair is available for checkout.",
+      checkoutAvailable: false,
+      offer: FIX_PACK_OFFER,
+      selectedRepair: null
+    }, 409);
+  }
+
+  const fixRequest = existingFixRequest || await getOrCreateFixRequest(env, row, access, summary, note, now, {
+    isTest,
+    selectedRepair: repairContext.selectedRepair
+  });
 
   const cachedCheckoutFresh =
     fixRequest.status === "checkout_created" &&
     fixRequest.checkout_url &&
     fixRequest.checkout_session_id &&
     fixRequest.checkout_created_at &&
-    fixRequest.checkout_created_at > isoSecondsFromNow(-CHECKOUT_URL_TTL_HOURS * 60 * 60);
+    fixRequest.checkout_created_at > isoSecondsFromNow(-CHECKOUT_URL_TTL_HOURS * 60 * 60) &&
+    checkoutRepairTargetMatches(fixRequest, repairContext.selectedRepair);
   if (cachedCheckoutFresh) {
     return jsonNoStore({
       ok: true,
       mode: "checkout",
       checkoutUrl: fixRequest.checkout_url,
       request: fixRequestWithProposalSummary(fixRequest, skippedProposalSeed, now),
-      offer: FIX_PACK_OFFER
+      offer: FIX_PACK_OFFER,
+      selectedRepair: repairContext.selectedRepair
     });
   }
 
@@ -151,20 +196,34 @@ async function requestFixPack(request, env) {
       checkoutAvailable: false,
       message: "Fix request saved. Checkout is paused until payment and webhook config pass.",
       request: fixRequestWithProposalSummary(fixRequest, skippedProposalSeed, now),
-      offer: FIX_PACK_OFFER
+      offer: FIX_PACK_OFFER,
+      selectedRepair: repairContext.selectedRepair
     });
+  }
+
+  const checkoutSchema = await fixPackCheckoutSchemaStatus(env);
+  if (!checkoutSchema.ok) {
+    return jsonNoStore({
+      error: "Fix Pack checkout storage is not ready. Retry after the checkout metadata migration is applied.",
+      code: "FIX_PACK_CHECKOUT_SCHEMA_MISSING",
+      checkoutAvailable: false,
+      request: fixRequestResponse(fixRequest, now),
+      offer: FIX_PACK_OFFER,
+      selectedRepair: repairContext.selectedRepair
+    }, 503);
   }
 
   let checkout;
   try {
-    checkout = await createDodoFixPackCheckout(request, env, row, fixRequest, access);
+    checkout = await createDodoFixPackCheckout(request, env, row, fixRequest, access, repairContext.selectedRepair);
   } catch (error) {
     return jsonNoStore(
       {
         error: error?.message || "Dodo checkout could not be created.",
         code: error?.code || "DODO_CHECKOUT_ERROR",
         request: fixRequestWithProposalSummary(fixRequest, skippedProposalSeed, now),
-        offer: FIX_PACK_OFFER
+        offer: FIX_PACK_OFFER,
+        selectedRepair: repairContext.selectedRepair
       },
       503
     );
@@ -177,6 +236,7 @@ async function requestFixPack(request, env) {
          checkout_url = ?,
          checkout_created_at = ?,
          product_id = ?,
+         checkout_repair_json = ?,
          updated_at = ?
      WHERE id = ?`
   )
@@ -185,6 +245,7 @@ async function requestFixPack(request, env) {
       checkout.checkoutUrl,
       checkoutCreatedAt,
       dodoProductId(env),
+      checkoutRepairTargetJson(repairContext.selectedRepair),
       checkoutCreatedAt,
       fixRequest.id
     )
@@ -201,7 +262,8 @@ async function requestFixPack(request, env) {
       offer: FIX_PACK_OFFER,
       checkoutCreatedAt
     },
-    offer: FIX_PACK_OFFER
+    offer: FIX_PACK_OFFER,
+    selectedRepair: repairContext.selectedRepair
   });
 }
 
@@ -329,7 +391,7 @@ async function getBillingSummary(request, env) {
     subscriptionState: {
       status: "not_live",
       label: "No recurring subscription",
-      message: "SEO Fix Kit currently sells one-time Fix Pack requests. Recurring plans are not live yet."
+      message: "SEO Fix Kit currently sells one-time Fix Pack requests. Repair Agent and Growth Add-On subscriptions remain roadmap."
     },
     subscriptions: [],
     requests,
@@ -363,15 +425,7 @@ async function billingPricingState(request, env, access, config) {
 }
 
 async function getOrCreateFixRequest(env, reportRow, access, summary, note, now, options = {}) {
-  const existing = await env.WAITLIST_DB.prepare(
-    `SELECT *
-     FROM fix_requests
-     WHERE report_id = ? AND owner_email = ?
-     ORDER BY created_at DESC
-     LIMIT 1`
-  )
-    .bind(reportRow.id, access.ownerEmail)
-    .first();
+  const existing = await latestFixRequestForReport(env, reportRow.id, access.ownerEmail);
   if (existing?.id) return existing;
 
   const id = crypto.randomUUID();
@@ -416,7 +470,11 @@ async function getOrCreateFixRequest(env, reportRow, access, summary, note, now,
     fromStatus: "",
     toStatus: "new",
     reason: note,
-    detail: { reportId: reportRow.id, isTest: Boolean(isTest) }
+    detail: {
+      reportId: reportRow.id,
+      isTest: Boolean(isTest),
+      selectedRepair: options.selectedRepair || null
+    }
   });
 
   return {
@@ -433,6 +491,75 @@ async function getOrCreateFixRequest(env, reportRow, access, summary, note, now,
     created_at: now,
     updated_at: now
   };
+}
+
+async function latestFixRequestForReport(env, reportId, ownerEmail) {
+  return env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM fix_requests
+     WHERE report_id = ? AND owner_email = ?
+     ORDER BY created_at DESC
+     LIMIT 1`
+  )
+    .bind(reportId, ownerEmail)
+    .first();
+}
+
+async function fixPackRepairContext(env, access, reportId, report = {}, body = {}) {
+  const { items, unavailable } = await ensureRepairQueueRows(env, access, reportId, report);
+  const selection = selectFixPackRepair(items, body);
+  return {
+    items,
+    unavailable: Boolean(unavailable),
+    selectedRepair: selection.selectedRepair,
+    selectionConflict: selection.conflict
+  };
+}
+
+async function fixPackCheckoutSchemaStatus(env) {
+  try {
+    const statement = env.WAITLIST_DB.prepare("SELECT checkout_repair_json FROM fix_requests LIMIT 1");
+    if (typeof statement.first === "function") {
+      await statement.first();
+    } else {
+      await statement.bind().first();
+    }
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error?.message || "Fix Pack checkout metadata column is missing."
+    };
+  }
+}
+
+function checkoutRepairTarget(selectedRepair = null) {
+  if (!selectedRepair) return { queueItemId: "", issueId: "", status: "" };
+  return {
+    queueItemId: cleanText(selectedRepair.queueItemId || selectedRepair.queue_item_id || "", 160),
+    issueId: cleanText(selectedRepair.issueId || selectedRepair.issue_id || "", 160),
+    status: selectedRepair.status ? cleanQueueStatus(selectedRepair.status) : ""
+  };
+}
+
+function checkoutRepairTargetJson(selectedRepair = null) {
+  return JSON.stringify(checkoutRepairTarget(selectedRepair));
+}
+
+function checkoutRepairTargetFromJson(value = "") {
+  if (!value) return null;
+  const parsed = parseJson(value, null);
+  if (!parsed || typeof parsed !== "object") return null;
+  return checkoutRepairTarget(parsed);
+}
+
+function checkoutRepairTargetMatches(fixRequest = {}, selectedRepair = null) {
+  const stored = checkoutRepairTargetFromJson(fixRequest.checkout_repair_json || "");
+  if (!stored) return false;
+  const current = checkoutRepairTarget(selectedRepair);
+  return stored.queueItemId === current.queueItemId &&
+    stored.issueId === current.issueId &&
+    stored.status === current.status;
 }
 
 async function seedRepairProposalsForFixRequest(env, report, fixRequest, reportRow, access, now) {
@@ -696,7 +823,7 @@ async function previewDodoFixPackPricing(request, env, access) {
   };
 }
 
-async function createDodoFixPackCheckout(request, env, reportRow, fixRequest, access) {
+async function createDodoFixPackCheckout(request, env, reportRow, fixRequest, access, selectedRepair = null) {
   const returnUrl = new URL(request.url);
   returnUrl.pathname = `/beta/reports/${reportRow.id}`;
   returnUrl.search = "";
@@ -713,7 +840,11 @@ async function createDodoFixPackCheckout(request, env, reportRow, fixRequest, ac
       fix_request_id: fixRequest.id,
       report_id: reportRow.id,
       target_host: reportRow.target_host || new URL(reportRow.url).hostname.toLowerCase(),
-      test_mode: fixRequest.is_test ? "1" : "0"
+      test_mode: fixRequest.is_test ? "1" : "0",
+      repair_issue_id: selectedRepair?.issueId || "",
+      repair_queue_item_id: selectedRepair?.queueItemId || "",
+      repair_title: cleanText(selectedRepair?.title || "", 120),
+      repair_status: selectedRepair?.status || ""
     }
   };
   const country = dodoCountryFromRequest(request);
@@ -943,7 +1074,7 @@ async function processDodoPaymentWebhook(env, eventType, payment, webhookId = ""
   }
 
   const now = new Date().toISOString();
-  const identity = dodoPaymentIdentityStatus(env, eventType, payment, fixRequest);
+  const identity = await dodoPaymentIdentityStatus(env, eventType, payment, fixRequest);
   if (!identity.ok) {
     await logFixRequestEvent(env, {
       fixRequestId: fixRequest.id,
@@ -961,6 +1092,11 @@ async function processDodoPaymentWebhook(env, eventType, payment, webhookId = ""
     if (payment.status && !PAID_STATUSES.has(payment.status)) {
       return { ok: false, ignored: true, status: "ignored", reason: "not_paid", fixRequestId: fixRequest.id };
     }
+    const paymentStatusReason = identity.repairTargetState && identity.repairTargetState !== "active"
+      ? `repair_target_${identity.repairTargetState}`
+      : identity.checkoutSessionState === "superseded"
+        ? "checkout_session_superseded"
+        : "";
     await env.WAITLIST_DB.prepare(
       `UPDATE fix_requests
        SET status = CASE
@@ -977,6 +1113,7 @@ async function processDodoPaymentWebhook(env, eventType, payment, webhookId = ""
            paid_at = COALESCE(paid_at, ?),
            due_at = COALESCE(due_at, ?),
            next_update_at = COALESCE(next_update_at, ?),
+           status_reason = COALESCE(NULLIF(?, ''), status_reason),
            updated_at = ?
        WHERE id = ?`
     )
@@ -991,6 +1128,7 @@ async function processDodoPaymentWebhook(env, eventType, payment, webhookId = ""
         now,
         isoDaysFromNow(FIX_PACK_DUE_DAYS),
         isoDaysFromNow(FIX_PACK_NEXT_UPDATE_DAYS),
+        paymentStatusReason,
         now,
         fixRequest.id
       )
@@ -1006,7 +1144,13 @@ async function processDodoPaymentWebhook(env, eventType, payment, webhookId = ""
         webhookId,
         amount: payment.amount,
         currency: payment.currency,
-        checkoutSessionId: payment.checkoutSessionId
+        checkoutSessionId: payment.checkoutSessionId,
+        repairIssueId: payment.metadataRepairIssueId || "",
+        repairQueueItemId: payment.metadataRepairQueueItemId || "",
+        repairTitle: payment.metadataRepairTitle || "",
+        checkoutSessionState: identity.checkoutSessionState || "current",
+        repairTargetState: identity.repairTargetState || "active",
+        repairTargetStatus: identity.repairTargetStatus || ""
       }
     });
     const updated = await env.WAITLIST_DB.prepare("SELECT * FROM fix_requests WHERE id = ? LIMIT 1")
@@ -1156,7 +1300,7 @@ async function findFixRequestForPayment(env, payment) {
   return null;
 }
 
-function dodoPaymentIdentityStatus(env, eventType, payment, fixRequest) {
+async function dodoPaymentIdentityStatus(env, eventType, payment, fixRequest) {
   if (DODO_REFUND_SUCCESS_EVENTS.has(eventType) || DODO_REFUND_FAILURE_EVENTS.has(eventType) || DODO_DISPUTE_EVENTS.has(eventType)) {
     if (!payment.paymentId || !fixRequest.payment_id || payment.paymentId !== fixRequest.payment_id) {
       return { ok: false, reason: "payment_id_mismatch" };
@@ -1184,13 +1328,29 @@ function dodoPaymentIdentityStatus(env, eventType, payment, fixRequest) {
   if (payment.metadataReportId && payment.metadataReportId !== fixRequest.report_id) {
     return { ok: false, reason: "report_id_mismatch" };
   }
+  let checkoutSessionState = "current";
   if (
     fixRequest.checkout_session_id &&
     payment.checkoutSessionId &&
-    payment.checkoutSessionId !== fixRequest.checkout_session_id &&
-    payment.metadataFixRequestId !== fixRequest.id
+    payment.checkoutSessionId !== fixRequest.checkout_session_id
   ) {
-    return { ok: false, reason: "checkout_session_mismatch" };
+    if (payment.metadataFixRequestId !== fixRequest.id || payment.metadataReportId !== fixRequest.report_id) {
+      return { ok: false, reason: "checkout_session_mismatch" };
+    }
+    checkoutSessionState = "superseded";
+  }
+  let repairTargetState = null;
+  const repairTarget = checkoutRepairTargetFromJson(fixRequest.checkout_repair_json || "");
+  if (repairTarget) {
+    if (cleanText(payment.metadataRepairQueueItemId || "", 160) !== repairTarget.queueItemId) {
+      return { ok: false, reason: "repair_target_mismatch" };
+    }
+    if (cleanText(payment.metadataRepairIssueId || "", 160) !== repairTarget.issueId) {
+      return { ok: false, reason: "repair_target_mismatch" };
+    }
+    const nextRepairTargetState = await checkoutRepairTargetFulfillmentState(env, fixRequest, repairTarget);
+    if (!nextRepairTargetState.ok) return nextRepairTargetState;
+    repairTargetState = nextRepairTargetState;
   }
   if (payment.customerEmail && normalizeEmail(payment.customerEmail) !== fixRequest.owner_email) {
     return { ok: false, reason: "customer_email_mismatch" };
@@ -1198,7 +1358,37 @@ function dodoPaymentIdentityStatus(env, eventType, payment, fixRequest) {
   if (!payment.amount || !payment.currency) {
     return { ok: false, reason: "missing_payment_amount" };
   }
-  return { ok: true };
+  return {
+    ok: true,
+    checkoutSessionState,
+    repairTargetState: repairTargetState?.state || "",
+    repairTargetStatus: repairTargetState?.status || ""
+  };
+}
+
+async function checkoutRepairTargetFulfillmentState(env, fixRequest = {}, repairTarget = {}) {
+  if (!repairTarget.queueItemId || !repairTarget.issueId) return { ok: false, reason: "repair_target_mismatch" };
+  let row = null;
+  try {
+    row = await env.WAITLIST_DB.prepare(
+      `SELECT id, issue_id, status
+       FROM repair_queue_items
+       WHERE id = ?
+         AND report_id = ?
+         AND owner_email = ?
+       LIMIT 1`
+    )
+      .bind(repairTarget.queueItemId, fixRequest.report_id, fixRequest.owner_email)
+      .first();
+  } catch (error) {
+    if (isRepairTablesMissingError(error)) return { ok: true, state: "unavailable", status: "" };
+    throw error;
+  }
+  if (!row?.id) return { ok: true, state: "missing", status: "" };
+  if (row.issue_id !== repairTarget.issueId) return { ok: false, reason: "repair_target_mismatch" };
+  const status = cleanQueueStatus(row.status);
+  if (["fixed", "ignored"].includes(status)) return { ok: true, state: "closed", status };
+  return { ok: true, state: "active", status };
 }
 
 async function markDodoWebhookProcessed(env, webhookId, status, error = "", fixRequestId = "") {

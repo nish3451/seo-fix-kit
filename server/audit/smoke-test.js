@@ -605,6 +605,22 @@ if (fixtureReport.pages.some((page) => page.url.endsWith("/llms.txt"))) {
   throw new Error("Plain-text utility files should not be audited as HTML pages.");
 }
 
+if (fixtureReport.aiAnswerReadiness?.status !== "ready") {
+  throw new Error("AI Answer Readiness was not carried through the main audit flow.");
+}
+
+if (!fixtureReport.findings.some((finding) => finding.type === "ai-answer-readiness")) {
+  throw new Error("AI Answer Readiness findings were not merged into audit findings.");
+}
+
+if (!fixtureReport.repairPlan.some((item) => item.source === "ai-answer-readiness-proof")) {
+  throw new Error("AI Answer Readiness repairs were not merged into the repair plan.");
+}
+
+if (!fixtureReport.repairBrief.includes("AI Answer Readiness")) {
+  throw new Error("AI Answer Readiness was not carried into the repair brief.");
+}
+
 const technicalReport = await auditUrl(`${fixtureUrl}technical`, { maxPages: 1 });
 const technicalTitles = technicalReport.findings.map((finding) => finding.title);
 
@@ -998,6 +1014,18 @@ if (!keywordRankReport.repairBrief.includes("Keyword/rank audit")) {
 
 if (!keywordRankReport.repairPlan.some((item) => item.source === "keyword-rank-audit")) {
   throw new Error("Keyword/rank repair plan items are missing.");
+}
+
+if (keywordRankReport.growthOpportunities?.status !== "ready") {
+  throw new Error("Growth opportunities were not carried through the main audit flow.");
+}
+
+if (!keywordRankReport.growthOpportunities.opportunities.some((item) => item.sourceKind === "keyword")) {
+  throw new Error("Keyword-backed growth opportunity is missing.");
+}
+
+if (!keywordRankReport.repairBrief.includes("Draft-only growth opportunities")) {
+  throw new Error("Growth opportunities were not carried into the repair brief.");
 }
 
 fixtureServer.close();

@@ -1,5 +1,7 @@
 import { competitorBenchmarkSummaryCopy } from "./competitor-benchmark.js";
 import { crawlIntelligenceSummaryCopy } from "./crawl-intelligence.js";
+import { aiAnswerReadinessSummaryCopy } from "./ai-answer-readiness.js";
+import { growthOpportunitiesSummaryCopy } from "./growth-opportunities.js";
 import {
   formatWaterfallBytes,
   resourceWaterfallSummaryCopy
@@ -57,7 +59,8 @@ export function buildWhiteLabelReportHtml({
   share = {},
   origin = "",
   locked = false,
-  error = ""
+  error = "",
+  includeDraftBriefs = false
 } = {}) {
   const cleanBrand = normalizeBrandingInput(branding);
   const host = safeHost(report.url || report.origin || "");
@@ -110,6 +113,10 @@ export function buildWhiteLabelReportHtml({
   const crawlIntelligence = report.crawlIntelligence || report.crawl_intelligence || null;
   const keywordRankAudit = report.keywordRankAudit || report.keyword_rank_audit || null;
   const platformSeoAudit = report.platformSeoAudit || report.platform_seo_audit || null;
+  const aiAnswerReadiness = report.aiAnswerReadiness || report.ai_answer_readiness || null;
+  const growthOpportunities = includeDraftBriefs
+    ? report.growthOpportunities || report.growth_opportunities || null
+    : null;
 
   return fullHtml({
     title,
@@ -173,6 +180,10 @@ export function buildWhiteLabelReportHtml({
         ${keywordRankAuditSection(keywordRankAudit)}
 
         ${platformSeoAuditSection(platformSeoAudit)}
+
+        ${aiAnswerReadinessSection(aiAnswerReadiness)}
+
+        ${growthOpportunitiesSection(growthOpportunities)}
 
         <section class="section">
           <div class="section-title">
@@ -462,7 +473,7 @@ function summaryCopy({ report, findings, pagesScanned }) {
 }
 
 function crawlInventorySection(inventory = {}) {
-  if (!["ready", "empty"].includes(inventory.status)) return "";
+  if (!["ready", "empty"].includes(inventory?.status)) return "";
   const summary = inventory.summary || {};
   const sampleUrls = (inventory.sampleUrls || []).slice(0, 8);
   return `
@@ -485,7 +496,7 @@ function crawlInventorySection(inventory = {}) {
 }
 
 function renderedCrawlScaleSection(plan = {}) {
-  if (plan.status !== "ready") return "";
+  if (plan?.status !== "ready") return "";
   const summary = plan.summary || {};
   const repairs = plan.repairOpportunities || [];
   return `
@@ -517,7 +528,7 @@ function renderedCrawlScaleRepairItem(item) {
 }
 
 function crawlIntelligenceSection(audit = {}) {
-  if (audit.status !== "ready") return "";
+  if (audit?.status !== "ready") return "";
   const summary = audit.summary || {};
   const repairs = (audit.repairOpportunities || []).slice(0, 5);
   return `
@@ -550,7 +561,7 @@ function crawlIntelligenceRepairItem(item) {
 }
 
 function reportDeltaSection(delta = {}) {
-  if (!["ready", "first_run"].includes(delta.status)) return "";
+  if (!["ready", "first_run"].includes(delta?.status)) return "";
   const summary = delta.summary || {};
   if (delta.status === "first_run") {
     return `
@@ -640,7 +651,7 @@ function waterfallRepairItem(item) {
 }
 
 function competitorBenchmarkSection(benchmark = {}) {
-  if (benchmark.status !== "ready" || !benchmark.competitors?.length) return "";
+  if (benchmark?.status !== "ready" || !benchmark.competitors?.length) return "";
   const repairs = (benchmark.repairOpportunities || []).slice(0, 5);
   const summary = benchmark.summary || {};
   return `
@@ -674,7 +685,7 @@ function benchmarkRepairItem(item) {
 }
 
 function backlinkAuditSection(audit = {}) {
-  if (audit.status !== "ready" || !audit.rows?.length) return "";
+  if (audit?.status !== "ready" || !audit.rows?.length) return "";
   const summary = audit.summary || {};
   const repairs = (audit.repairOpportunities || []).slice(0, 5);
   return `
@@ -707,7 +718,7 @@ function backlinkRepairItem(item) {
 }
 
 function localSeoAuditSection(audit = {}) {
-  if (audit.status !== "ready") return "";
+  if (audit?.status !== "ready") return "";
   const summary = audit.summary || {};
   const repairs = (audit.repairOpportunities || []).slice(0, 5);
   return `
@@ -730,7 +741,7 @@ function localSeoAuditSection(audit = {}) {
 }
 
 function keywordRankAuditSection(audit = {}) {
-  if (audit.status !== "ready") return "";
+  if (audit?.status !== "ready") return "";
   const summary = audit.summary || {};
   const repairs = audit.repairOpportunities || [];
   return `
@@ -762,7 +773,7 @@ function keywordRankRepairItem(item) {
 }
 
 function platformSeoAuditSection(audit = {}) {
-  if (audit.status !== "ready") return "";
+  if (audit?.status !== "ready") return "";
   const summary = audit.summary || {};
   const repairs = (audit.repairOpportunities || []).slice(0, 5);
   return `
@@ -790,6 +801,75 @@ function platformSeoRepairItem(item) {
       <strong>${escapeHtml(item.title || "Platform SEO repair")}</strong>
       <span>${escapeHtml(item.estimatedEffort || "30-90 min")} | ${escapeHtml(item.workType || "technical")}</span>
       <p>${escapeHtml(item.proof || item.fix || "Review this platform proof and rerun after fixing.")}</p>
+    </li>
+  `;
+}
+
+function aiAnswerReadinessSection(audit = {}) {
+  if (audit?.status !== "ready") return "";
+  const summary = audit.summary || {};
+  const repairs = (audit.repairOpportunities || []).slice(0, 5);
+  return `
+    <section class="section">
+      <div class="section-title">
+        <p class="eyebrow">AI Answer Readiness</p>
+        <h2>${summary.repairOpportunityCount ? `${escapeHtml(String(summary.repairOpportunityCount))} readiness ${summary.repairOpportunityCount === 1 ? "repair" : "repairs"} found` : "Readiness proof passed"}</h2>
+      </div>
+      <p>${escapeHtml(aiAnswerReadinessSummaryCopy(audit))}</p>
+      <div class="meta-grid">
+        ${metric("Readiness", `${summary.readinessScore || 0}/100`)}
+        ${metric("Enough text", `${summary.pagesWithEnoughText || 0}/${summary.pagesChecked || 0}`)}
+        ${metric("Schema pages", summary.pagesWithHelpfulSchema || 0)}
+        ${metric("Question structure", summary.pagesWithQuestionStructure || 0)}
+        ${metric("llms.txt", summary.llmsTxtStatus === "reachable" ? "Yes" : "No")}
+      </div>
+      ${repairs.length ? `<ol class="repair-list">${repairs.map(aiAnswerReadinessRepairItem).join("")}</ol>` : `<p class="muted">No AI Answer Readiness repair actions were created from this proof pass.</p>`}
+      <p class="muted">This section uses site proof only. It does not sample answer engines or monitor AI citations.</p>
+    </section>
+  `;
+}
+
+function aiAnswerReadinessRepairItem(item) {
+  return `
+    <li>
+      <strong>${escapeHtml(item.title || "AI Answer Readiness repair")}</strong>
+      <span>${escapeHtml(item.estimatedEffort || "30-90 min")} | ${escapeHtml(item.workType || "content")}</span>
+      <p>${escapeHtml(item.proof || item.fix || "Review this readiness proof and rerun after fixing.")}</p>
+    </li>
+  `;
+}
+
+function growthOpportunitiesSection(growth = {}) {
+  if (growth?.status !== "ready" || !growth.opportunities?.length) return "";
+  const summary = growth.summary || {};
+  const opportunities = (growth.opportunities || []).slice(0, 5);
+  return `
+    <section class="section">
+      <div class="section-title">
+        <p class="eyebrow">Draft-only growth</p>
+        <h2>${escapeHtml(String(summary.opportunityCount || opportunities.length))} proof-backed ${summary.opportunityCount === 1 ? "brief" : "briefs"}</h2>
+      </div>
+      <p>${escapeHtml(growthOpportunitiesSummaryCopy(growth))}</p>
+      <div class="meta-grid">
+        ${metric("Keyword", summary.keywordBacked || 0)}
+        ${metric("Competitor", summary.competitorBacked || 0)}
+        ${metric("AI-ready", summary.aiReadinessBacked || 0)}
+        ${metric("Crawl", summary.crawlBacked || 0)}
+        ${metric("Mode", "Draft")}
+      </div>
+      <ol class="repair-list">${opportunities.map(growthOpportunityItem).join("")}</ol>
+      <p class="muted">These are reviewed content briefs only. They do not publish content, open pull requests, or guarantee rankings, traffic, citations, or revenue.</p>
+    </section>
+  `;
+}
+
+function growthOpportunityItem(item) {
+  return `
+    <li>
+      <strong>${escapeHtml(item.title || "Growth brief")}</strong>
+      <span>${escapeHtml(item.estimatedEffort || "30-90 min")} | ${escapeHtml(item.type || "draft")}</span>
+      <p>${escapeHtml(item.proof || "Verified source proof is attached to this brief.")}</p>
+      <p>${escapeHtml(item.draftBrief?.summary || item.suggestedAction || "Draft a reviewed content brief from this proof.")}</p>
     </li>
   `;
 }

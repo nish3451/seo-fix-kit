@@ -2,6 +2,10 @@ import { crawlDepthSummary } from "../../shared/crawl-depth.js";
 import { fixRequestStatusLabel } from "../../shared/fulfillment.js";
 import { keywordRowsSummary } from "../../shared/keyword-rank-audit.js";
 import { localSeoInputSummary } from "../../shared/local-seo-audit.js";
+import {
+  apiRepairQueueStatusResponse,
+  apiRepairQueueSummary
+} from "../../shared/repair-queue.js";
 import { renderedCrawlTargetSummary } from "../../shared/rendered-crawl-scale.js";
 import { parseJson, safeHostname, scheduleCadenceLabel } from "./text.js";
 
@@ -96,7 +100,9 @@ function apiAuditStatus(status = "") {
   return status || "queued";
 }
 
-function apiIssueResponse(finding = {}) {
+function apiIssueResponse(finding = {}, repairQueueItem = null, options = {}) {
+  const repairQueue = repairQueueItem ? apiRepairQueueStatusResponse(repairQueueItem) : null;
+  if (repairQueue) repairQueue.unavailable = Boolean(options.repairQueueUnavailable);
   return {
     id: finding.id || "",
     severity: finding.severity || "notice",
@@ -108,11 +114,20 @@ function apiIssueResponse(finding = {}) {
     fix: finding.fix || "",
     acceptance: finding.acceptance || "",
     confidence: finding.confidence || "verified",
-    source: finding.source || ""
+    source: finding.source || "",
+    repair_queue: repairQueue
   };
 }
 
-function apiReportResponse(report = {}) {
+function apiReportResponse(report = {}, options = {}) {
+  const repairQueueItems = Array.isArray(options.repairQueueItems) ? options.repairQueueItems : [];
+  const repairQueueUnavailable = Boolean(options.repairQueueUnavailable);
+  const queueByIssue = new Map(repairQueueItems.map((item) => [item.issueId, item]));
+  const repairQueue = repairQueueItems.length
+    ? { ...apiRepairQueueSummary(repairQueueItems), unavailable: repairQueueUnavailable }
+    : repairQueueUnavailable
+      ? { ...apiRepairQueueSummary([]), unavailable: true }
+      : null;
   return {
     id: report.id || "",
     url: report.url || "",
@@ -130,8 +145,13 @@ function apiReportResponse(report = {}) {
     local_seo_audit: report.localSeoAudit || null,
     keyword_rank_audit: report.keywordRankAudit || null,
     platform_seo_audit: report.platformSeoAudit || null,
+    ai_answer_readiness: report.aiAnswerReadiness || null,
+    growth_opportunities: report.growthOpportunities || null,
     geo_readiness: report.geoReadiness || null,
-    findings: (report.findings || []).map(apiIssueResponse),
+    findings: (report.findings || []).map((finding) => apiIssueResponse(finding, queueByIssue.get(finding.id), {
+      repairQueueUnavailable
+    })),
+    repair_queue: repairQueue,
     repair_plan: report.repairPlan || [],
     repair_brief: report.repairBrief || "",
     pages: report.pages || [],

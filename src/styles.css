@@ -25,12 +25,18 @@
 
 html {
   min-width: 320px;
+  overflow-x: hidden;
 }
 
 body {
   margin: 0;
   min-width: 320px;
   background: #070908;
+  overflow-x: hidden;
+}
+
+#root {
+  overflow-x: hidden;
 }
 
 button,
@@ -85,6 +91,7 @@ a {
 .site-footer {
   align-items: center;
   display: flex;
+  gap: 16px;
   justify-content: space-between;
   left: 0;
   padding: 28px clamp(20px, 5vw, 72px);
@@ -192,6 +199,25 @@ h1 {
   line-height: 1.5;
   margin: 14px 0 0;
   max-width: 34em;
+}
+
+.public-proof-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+  max-width: 680px;
+}
+
+.public-proof-links a {
+  background: rgba(7, 13, 10, 0.58);
+  border: 1px solid rgba(152, 240, 204, 0.22);
+  border-radius: 8px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 820;
+  min-height: 42px;
+  padding: 12px 14px;
 }
 
 .waitlist-form {
@@ -310,6 +336,7 @@ h1 {
 .site-footer {
   bottom: 0;
   color: var(--ink-muted);
+  flex-wrap: wrap;
   font-size: 13px;
   padding-bottom: 26px;
 }
@@ -857,6 +884,107 @@ h1 {
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.15fr) minmax(0, 1fr);
 }
 
+.account-metrics {
+  grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
+}
+
+.repair-agent-panel {
+  background: rgba(251, 248, 239, 0.055);
+  border: 1px solid rgba(251, 248, 239, 0.12);
+  border-radius: 8px;
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+
+.repair-agent-heading {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.repair-agent-heading h3 {
+  font-size: 24px;
+  line-height: 1.12;
+  margin: 0;
+}
+
+.repair-agent-heading p {
+  color: var(--ink-soft);
+  line-height: 1.55;
+  margin-bottom: 0;
+}
+
+.repair-agent-list {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.repair-agent-card,
+.repair-agent-empty {
+  background: rgba(7, 13, 10, 0.58);
+  border: 1px solid rgba(251, 248, 239, 0.1);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+}
+
+.repair-agent-card.regressed {
+  border-color: rgba(255, 132, 132, 0.34);
+}
+
+.repair-agent-card.drafted,
+.repair-agent-card.approved {
+  border-color: rgba(214, 177, 95, 0.32);
+}
+
+.repair-agent-card.applied {
+  border-color: rgba(152, 240, 204, 0.24);
+}
+
+.repair-agent-card-head,
+.repair-agent-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.repair-agent-card h4 {
+  font-size: 17px;
+  line-height: 1.18;
+  margin: 0;
+}
+
+.repair-agent-card p {
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.repair-agent-meta {
+  border-top: 1px solid rgba(251, 248, 239, 0.1);
+  justify-content: space-between;
+  padding-top: 10px;
+}
+
+.repair-agent-meta span,
+.repair-agent-empty span {
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 720;
+  overflow-wrap: anywhere;
+}
+
+.repair-agent-empty strong {
+  font-size: 17px;
+}
+
 .site-verification-panel {
   align-items: end;
   background: rgba(251, 248, 239, 0.055);
@@ -1129,6 +1257,7 @@ h1 {
 .client-report-card,
 .team-member-card,
 .issue-board-card {
+  align-content: start;
   background: rgba(7, 13, 10, 0.42);
   border: 1px solid rgba(251, 248, 239, 0.1);
   border-radius: 8px;
@@ -1300,6 +1429,27 @@ h1 {
   text-transform: uppercase;
 }
 
+.repair-filter {
+  color: var(--ink-muted);
+  display: grid;
+  font-size: 12px;
+  font-weight: 760;
+  gap: 8px;
+  justify-self: end;
+  min-width: 180px;
+  text-transform: uppercase;
+}
+
+.repair-filter select {
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  color-scheme: dark;
+  min-height: 42px;
+  padding: 0 12px;
+}
+
 .team-member-list,
 .issue-board-list {
   display: grid;
@@ -1345,14 +1495,101 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.repair-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.repair-proof-block {
+  background: rgba(251, 248, 239, 0.045);
+  border: 1px solid rgba(251, 248, 239, 0.1);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.repair-proof-block span,
+.repair-action-strip span {
+  color: var(--ink-muted);
+  display: block;
+  font-size: 11px;
+  font-weight: 840;
+  text-transform: uppercase;
+}
+
+.repair-proof-block p,
+.repair-action-strip p {
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.repair-proof-block .code-block {
+  margin-top: 0;
+}
+
 .issue-board-controls {
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(120px, 0.7fr) minmax(140px, 0.8fr) minmax(0, 1.5fr);
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+}
+
+.issue-board-controls label:last-child {
+  grid-column: 1 / -1;
+}
+
+.repair-action-strip {
+  align-items: start;
+  border-top: 1px solid rgba(251, 248, 239, 0.1);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding-top: 12px;
+}
+
+.repair-action-strip strong {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.repair-action-buttons {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+@media (max-width: 760px) {
+  .repair-filter {
+    justify-self: stretch;
+  }
+
+  .repair-action-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .repair-action-buttons {
+    justify-content: flex-start;
+  }
 }
 
 .issue-board-card.fixed {
   border-color: rgba(152, 240, 204, 0.24);
+}
+
+.issue-board-card.drafted,
+.issue-board-card.approved,
+.issue-board-card.applied {
+  border-color: rgba(214, 177, 95, 0.28);
+}
+
+.issue-board-card.regressed {
+  border-color: rgba(255, 180, 169, 0.3);
 }
 
 .issue-board-card.ignored {
@@ -1499,6 +1736,10 @@ h1 {
 .report-layout {
   display: grid;
   gap: 16px;
+}
+
+.report-layout > * {
+  min-width: 0;
 }
 
 .score-panel {
@@ -1898,6 +2139,8 @@ h1 {
 .local-seo-panel,
 .keyword-rank-panel,
 .platform-seo-panel,
+.ai-readiness-panel,
+.growth-opportunities-panel,
 .geo-readiness-panel {
   background: rgba(251, 248, 239, 0.055);
   border: 1px solid rgba(251, 248, 239, 0.12);
@@ -1916,6 +2159,8 @@ h1 {
 .local-seo-panel .section-heading p,
 .keyword-rank-panel .section-heading p,
 .platform-seo-panel .section-heading p,
+.ai-readiness-panel .section-heading p,
+.growth-opportunities-panel .section-heading p,
 .geo-readiness-panel .section-heading p {
   color: var(--ink-soft);
 }
@@ -1929,6 +2174,8 @@ h1 {
 .local-seo-metrics,
 .keyword-rank-metrics,
 .platform-seo-metrics,
+.ai-readiness-metrics,
+.growth-opportunities-metrics,
 .geo-readiness-metrics {
   display: grid;
   gap: 1px;
@@ -1945,6 +2192,8 @@ h1 {
 .local-seo-metrics div,
 .keyword-rank-metrics div,
 .platform-seo-metrics div,
+.ai-readiness-metrics div,
+.growth-opportunities-metrics div,
 .geo-readiness-metrics div {
   background: rgba(7, 13, 10, 0.58);
   padding: 16px;
@@ -1965,6 +2214,10 @@ h1 {
 .keyword-rank-row,
 .platform-seo-priority,
 .platform-seo-row,
+.ai-readiness-priority,
+.ai-readiness-row,
+.growth-opportunities-priority,
+.growth-opportunities-row,
 .geo-readiness-priority,
 .geo-check {
   background: rgba(7, 13, 10, 0.38);
@@ -1982,6 +2235,8 @@ h1 {
 .local-seo-priority,
 .keyword-rank-priority,
 .platform-seo-priority,
+.ai-readiness-priority,
+.growth-opportunities-priority,
 .geo-readiness-priority {
   border-color: rgba(242, 183, 5, 0.28);
 }
@@ -1996,6 +2251,8 @@ h1 {
 .local-seo-grid,
 .keyword-rank-grid,
 .platform-seo-grid,
+.ai-readiness-grid,
+.growth-opportunities-grid,
 .geo-check-grid {
   display: grid;
   gap: 12px;
@@ -2092,7 +2349,9 @@ h1 {
 .crawl-intelligence-row.is-live,
 .local-seo-row.is-live,
 .keyword-rank-row.is-live,
-.platform-seo-row.is-live {
+.platform-seo-row.is-live,
+.ai-readiness-row.is-live,
+.growth-opportunities-row.is-live {
   border-color: rgba(152, 240, 204, 0.24);
 }
 
@@ -2105,7 +2364,9 @@ h1 {
 .crawl-intelligence-row.is-lost,
 .local-seo-row.is-lost,
 .keyword-rank-row.is-lost,
-.platform-seo-row.is-lost {
+.platform-seo-row.is-lost,
+.ai-readiness-row.is-lost,
+.growth-opportunities-row.is-lost {
   border-color: rgba(242, 92, 84, 0.26);
 }
 
@@ -2139,6 +2400,14 @@ h1 {
 .platform-seo-priority small,
 .platform-seo-row span,
 .platform-seo-row small,
+.ai-readiness-priority span,
+.ai-readiness-priority small,
+.ai-readiness-row span,
+.ai-readiness-row small,
+.growth-opportunities-priority span,
+.growth-opportunities-priority small,
+.growth-opportunities-row span,
+.growth-opportunities-row small,
 .geo-readiness-priority span,
 .geo-readiness-priority small,
 .geo-check span {
@@ -2182,6 +2451,16 @@ h1 {
 .platform-seo-row strong,
 .platform-seo-row p,
 .platform-seo-row small,
+.ai-readiness-priority strong,
+.ai-readiness-priority p,
+.ai-readiness-row strong,
+.ai-readiness-row p,
+.ai-readiness-row small,
+.growth-opportunities-priority strong,
+.growth-opportunities-priority p,
+.growth-opportunities-row strong,
+.growth-opportunities-row p,
+.growth-opportunities-row small,
 .geo-readiness-priority strong,
 .geo-readiness-priority p,
 .geo-readiness-priority small,
@@ -2195,6 +2474,8 @@ h1 {
 .local-seo-priority strong,
 .keyword-rank-priority strong,
 .platform-seo-priority strong,
+.ai-readiness-priority strong,
+.growth-opportunities-priority strong,
 .geo-readiness-priority strong,
 .geo-check strong {
   font-size: 18px;
@@ -2214,6 +2495,10 @@ h1 {
 .keyword-rank-row p,
 .platform-seo-priority p,
 .platform-seo-row p,
+.ai-readiness-priority p,
+.ai-readiness-row p,
+.growth-opportunities-priority p,
+.growth-opportunities-row p,
 .geo-readiness-priority p {
   color: var(--ink-soft);
   line-height: 1.5;
@@ -2731,7 +3016,16 @@ h1 {
 .proof-grid {
   display: grid;
   gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
   margin-top: 18px;
+}
+
+.findings-section > *,
+.fix-section > *,
+.guard-section > *,
+.page-table-section > *,
+.proof-grid > * {
+  min-width: 0;
 }
 
 .section-heading {
@@ -2744,6 +3038,13 @@ h1 {
 .guard-list {
   display: grid;
   gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.finding-list > *,
+.fix-list > *,
+.guard-list > * {
+  min-width: 0;
 }
 
 .guard-list {
@@ -3054,6 +3355,8 @@ h1 {
   .local-seo-grid,
   .keyword-rank-grid,
   .platform-seo-grid,
+  .ai-readiness-grid,
+  .growth-opportunities-grid,
   .geo-check-grid,
   .resource-waterfall-grid,
   .team-member-row,
@@ -3061,6 +3364,7 @@ h1 {
   .issue-board-controls,
   .onboarding-steps,
   .site-verification-panel,
+  .repair-agent-heading,
   .site-claim-card,
   .audit-schedule-card,
   .audit-job-card,
@@ -3079,6 +3383,10 @@ h1 {
   .fix-status-panel,
   .paid-panel {
     grid-template-columns: 1fr;
+  }
+
+  .repair-agent-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .paid-panel {
@@ -3103,6 +3411,8 @@ h1 {
   .local-seo-metrics,
   .keyword-rank-metrics,
   .platform-seo-metrics,
+  .ai-readiness-metrics,
+  .growth-opportunities-metrics,
   .geo-readiness-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3163,6 +3473,7 @@ h1 {
   }
 
   .metric-strip,
+  .repair-agent-list,
   .crawl-inventory-metrics,
   .report-delta-metrics {
     grid-template-columns: 1fr;
