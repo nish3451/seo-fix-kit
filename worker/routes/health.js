@@ -83,6 +83,12 @@ async function getDeepHealth(_request, env = {}) {
     runtime: "cloudflare-worker",
     version: VERSION,
     checkedAt: new Date().toISOString(),
+    scope: "runtime_config_and_schema_readiness",
+    limits: [
+      "Ready means required bindings, provider config, and D1 schema checks passed.",
+      "Ready does not prove a real paid card transaction, Dodo paid webhook delivery, completed repair delivery, or final rerun proof.",
+      "Recurring monitoring, agency workspace, large crawl, and offer entitlement checks are storage/config readiness checks, not paid offer activation claims."
+    ],
     bindings,
     billing,
     schema,
