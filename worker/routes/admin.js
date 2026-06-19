@@ -6,7 +6,8 @@ import {
   adminNotificationEmail,
   buildOpsDigestEmail,
   isEmailConfigured,
-  normalizeFixRequestStatus
+  normalizeFixRequestStatus,
+  repairDeliveryReadiness
 } from "../../shared/fulfillment.js";
 import {
   escapeHtml
@@ -598,6 +599,15 @@ async function syncRepairProposalDeliveryState(env, { fixRequestId, status, deli
 }
 
 function fixRequestAdminResponse(row, notifications = [], events = [], proposalSummary = null, now = new Date().toISOString()) {
+  const repairProposalSummary = proposalSummary || {
+    status: "unavailable",
+    total: 0,
+    approved: 0,
+    approvedExecutable: 0,
+    dismissed: 0,
+    executable: 0,
+    delivered: 0
+  };
   return {
     ...fixRequestResponse(row, now),
     reportId: row.report_id,
@@ -615,15 +625,8 @@ function fixRequestAdminResponse(row, notifications = [], events = [], proposalS
     deliveryNotificationError: row.delivery_notification_error || "",
     reportPath: `/beta/reports/${row.report_id}`,
     briefPath: `/api/reports/${row.report_id}/brief.md`,
-    repairProposalSummary: proposalSummary || {
-      status: "unavailable",
-      total: 0,
-      approved: 0,
-      approvedExecutable: 0,
-      dismissed: 0,
-      executable: 0,
-      delivered: 0
-    },
+    repairProposalSummary,
+    deliveryReadiness: repairDeliveryReadiness(row, repairProposalSummary),
     notifications: notifications.map((notification) => ({
       event: notification.event || "",
       recipientType: notification.recipient_type,
@@ -826,6 +829,7 @@ async function sendDailyOpsDigest(env) {
 export {
   createInvite,
   exportLeadsCsv,
+  fixRequestAdminResponse,
   getAdminSummary,
   repairProposalSummaryForFixRequest,
   sendDailyOpsDigest,

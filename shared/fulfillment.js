@@ -36,6 +36,87 @@ export function fixRequestStatusLabel(status) {
   return labels[normalizeFixRequestStatus(status)] || labels.new;
 }
 
+export function repairDeliveryReadiness(fixRequest = {}, proposalSummary = {}) {
+  const status = normalizeFixRequestStatus(fixRequest.status || "new");
+  const paymentConfirmed = Boolean(
+    fixRequest.paid_at ||
+    fixRequest.paidAt ||
+    fixRequest.payment_id ||
+    fixRequest.paymentId ||
+    ["paid", "in_progress", "delivered"].includes(status)
+  );
+  const proposalState = proposalSummary?.status || "skipped";
+  const proposalStateAvailable = proposalState !== "unavailable";
+  const executable = Number(proposalSummary?.executable || 0);
+  const approvedExecutable = Number(
+    proposalSummary?.approvedExecutable ||
+    proposalSummary?.approved_executable ||
+    0
+  );
+  const requiresApprovedProposal = proposalStateAvailable && executable > 0;
+  const hasApprovedExecutable = !requiresApprovedProposal || approvedExecutable > 0;
+  const hasCustomerNote = Boolean(fixRequest.customer_note || fixRequest.customerNote);
+  const hasDeliveryLink = Boolean(fixRequest.delivery_url || fixRequest.deliveryUrl);
+  const hasFinalRerunReport = Boolean(fixRequest.final_report_id || fixRequest.finalReportId);
+  const delivered = status === "delivered";
+  const deliverableStatus = ["paid", "in_progress"].includes(status);
+  const blockers = [];
+  const checks = {
+    paymentConfirmed,
+    deliverableStatus,
+    proposalStateAvailable,
+    requiresApprovedProposal,
+    hasApprovedExecutable,
+    hasCustomerNote,
+    hasDeliveryLink,
+    hasFinalRerunReport
+  };
+
+  if (delivered) {
+    return {
+      status: "delivered",
+      readyForStart: true,
+      readyForDelivery: true,
+      blockers: [],
+      checks
+    };
+  }
+
+  if (!paymentConfirmed) {
+    blockers.push(readinessBlocker("payment_unconfirmed", "Payment has not been confirmed by Dodo."));
+  }
+  if (!deliverableStatus) {
+    blockers.push(readinessBlocker("status_not_deliverable", "This request status cannot move to delivery."));
+  }
+  if (!proposalStateAvailable) {
+    blockers.push(readinessBlocker("proposal_state_unavailable", "Repair proposal state could not be verified."));
+  }
+  if (!hasApprovedExecutable) {
+    blockers.push(readinessBlocker("approved_proposal_missing", "At least one executable repair proposal needs owner approval."));
+  }
+  if (!hasCustomerNote) {
+    blockers.push(readinessBlocker("customer_note_missing", "Add a customer-facing delivery note."));
+  }
+  if (!hasDeliveryLink) {
+    blockers.push(readinessBlocker("delivery_link_missing", "Add a delivery link."));
+  }
+  if (!hasFinalRerunReport) {
+    blockers.push(readinessBlocker("final_rerun_missing", "Attach a final rerun report."));
+  }
+
+  return {
+    status: blockers.length ? "blocked" : "ready",
+    readyForStart: deliverableStatus,
+    readyForDelivery: blockers.length === 0,
+    blockers,
+    checks
+  };
+}
+
+function readinessBlocker(id, label) {
+  return { id, label };
+}
+
 export function isEmailConfigured(env) {
   const emailBindingReady = typeof env?.EMAIL?.send === "function";
   const fromEmail = normalizeEmail(senderEmail(env?.SEOFIXKIT_EMAIL_FROM || ""));

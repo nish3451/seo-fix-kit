@@ -14,7 +14,8 @@ import {
   buildStatusNotificationEmail,
   fixRequestStatusLabel,
   isEmailConfigured,
-  normalizeFixRequestStatus
+  normalizeFixRequestStatus,
+  repairDeliveryReadiness
 } from "../shared/fulfillment.js";
 import {
   OFFER_KEYS,
@@ -24,7 +25,7 @@ import {
   repairSprintEligibilityFromProposals,
   sellableOffers
 } from "../shared/offers.js";
-import { repairProposalSummaryForFixRequest } from "../worker/routes/admin.js";
+import { fixRequestAdminResponse, repairProposalSummaryForFixRequest } from "../worker/routes/admin.js";
 import { jsonForStorage } from "../worker/routes/billing.js";
 import { repairProposalResponse } from "../worker/lib/serializers.js";
 import { repairProposalApprovalWindowStatus } from "../worker/routes/reports.js";
@@ -246,6 +247,74 @@ assert.equal(repairProposalApprovalWindowStatus("in_progress").ok, true);
 assert.equal(repairProposalApprovalWindowStatus("delivered").ok, false);
 assert.equal(repairProposalApprovalWindowStatus("refunded").ok, false);
 assert.equal(repairProposalApprovalWindowStatus("disputed").ok, false);
+assert.equal(
+  repairDeliveryReadiness({ status: "checkout_created" }, { status: "ready", executable: 1, approvedExecutable: 1 }).blockers[0].id,
+  "payment_unconfirmed"
+);
+assert.equal(
+  repairDeliveryReadiness(
+    { status: "refunded", paid_at: "2026-06-20T00:00:00.000Z", payment_id: "pay_123", customer_note: "Ready", delivery_url: "https://seofixkit.com/beta/reports/final", final_report_id: "final" },
+    { status: "ready", executable: 1, approvedExecutable: 1 }
+  ).blockers.some((blocker) => blocker.id === "status_not_deliverable"),
+  true
+);
+assert.equal(
+  repairDeliveryReadiness({ status: "paid", paid_at: "2026-06-20T00:00:00.000Z" }, { status: "unavailable" })
+    .blockers
+    .some((blocker) => blocker.id === "proposal_state_unavailable"),
+  true
+);
+assert.equal(
+  repairDeliveryReadiness(
+    { status: "paid", paid_at: "2026-06-20T00:00:00.000Z", customer_note: "Ready", delivery_url: "https://seofixkit.com/beta/reports/final", final_report_id: "final" },
+    { status: "ready", executable: 2, approvedExecutable: 0 }
+  ).blockers.some((blocker) => blocker.id === "approved_proposal_missing"),
+  true
+);
+assert.equal(
+  repairDeliveryReadiness(
+    { status: "paid", paid_at: "2026-06-20T00:00:00.000Z" },
+    { status: "ready", executable: 0, approvedExecutable: 0 }
+  ).readyForDelivery,
+  false
+);
+assert.equal(
+  repairDeliveryReadiness(
+    { status: "in_progress", paid_at: "2026-06-20T00:00:00.000Z", customer_note: "Ready", delivery_url: "https://seofixkit.com/beta/reports/final", final_report_id: "final" },
+    { status: "ready", executable: 2, approvedExecutable: 1 }
+  ).readyForDelivery,
+  true
+);
+assert.equal(
+  repairDeliveryReadiness({ status: "delivered" }, { status: "ready", executable: 2, approvedExecutable: 1 }).status,
+  "delivered"
+);
+assert.equal(
+  repairDeliveryReadiness({ status: "delivered" }, { status: "ready", executable: 2, approvedExecutable: 1 }).blockers.length,
+  0
+);
+const adminFixRequest = fixRequestAdminResponse(
+  {
+    id: "fix_123",
+    report_id: "report_123",
+    owner_email: "buyer@example.com",
+    status: "paid",
+    paid_at: "2026-06-20T00:00:00.000Z",
+    customer_note: "",
+    delivery_url: "",
+    final_report_id: "",
+    target_url: "https://example.com/",
+    target_host: "example.com"
+  },
+  [],
+  [],
+  { status: "ready", total: 2, approved: 0, approvedExecutable: 0, dismissed: 0, executable: 2, delivered: 0 }
+);
+assert.equal(adminFixRequest.deliveryReadiness.readyForStart, true);
+assert.equal(
+  adminFixRequest.deliveryReadiness.blockers.some((blocker) => blocker.id === "approved_proposal_missing"),
+  true
+);
 const storedProposalJson = jsonForStorage({ snippet: "\"".repeat(5000), fix: "Use complete JSON only." }, 4000, { truncated: true });
 assert.equal(storedProposalJson.length <= 4000, true);
 assert.equal(JSON.parse(storedProposalJson).fix, "Use complete JSON only.");
