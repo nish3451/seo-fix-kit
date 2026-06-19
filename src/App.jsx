@@ -159,6 +159,76 @@ function WaitlistPage() {
         </div>
       </section>
 
+      <section className="homepage-proof-band" aria-labelledby="proof-loop-title">
+        <div className="proof-band-copy">
+          <p className="kicker">Proof-backed repair agent</p>
+          <h2 id="proof-loop-title">The audit is useful only if it leads to a safe fix.</h2>
+          <p>
+            SEO Fix Kit renders the site like a browser, compares the visible page
+            with the raw app shell, and keeps false positives out of the repair
+            queue. When a real issue is proven, the report keeps the page, source
+            evidence, suggested fix, effort, confidence, and acceptance check in one
+            place so a founder, teammate, or developer can act without guessing.
+          </p>
+        </div>
+        <div className="proof-step-grid" aria-label="Proof-backed repair steps">
+          <article>
+            <strong>1. Prove</strong>
+            <p>Run a private audit, verify site ownership for deeper crawls, and see rendered proof before paying for repairs.</p>
+          </article>
+          <article>
+            <strong>2. Approve</strong>
+            <p>Review the repair queue, ignore noise, approve safe drafts, or start the paid Fix Pack from a report with real fixes.</p>
+          </article>
+          <article>
+            <strong>3. Re-measure</strong>
+            <p>After changes ship, rerun the audit. Fresh proof marks repairs fixed, still open, new, or regressed.</p>
+          </article>
+        </div>
+      </section>
+
+      <section className="homepage-faq" aria-labelledby="homepage-faq-title">
+        <p className="kicker">Buyer questions</p>
+        <h2 id="homepage-faq-title">What can I trust SEO Fix Kit to do today?</h2>
+        <div className="faq-grid">
+          <article>
+            <h3>What happens after I enter a URL?</h3>
+            <p>
+              You get a rate-limited private audit. A one-page Lite check can run
+              before verification; verified sites unlock deeper self-serve crawls,
+              imports, saved reports, monitoring controls, and owner-scoped repair
+              queues.
+            </p>
+          </article>
+          <article>
+            <h3>What does the paid Fix Pack include?</h3>
+            <p>
+              The live paid offer is one proof-backed repair pass tied to one saved
+              report, plus one rerun after fixes. Dodo shows the checkout price, and
+              the support policy covers refund handling if payment succeeds but the
+              repair queue cannot start.
+            </p>
+          </article>
+          <article>
+            <h3>How is AI or GEO readiness handled?</h3>
+            <p>
+              AI Answer Readiness is proof-derived from rendered content, schema,
+              canonical and internal-link clarity, sitemap context, question-led
+              sections, and optional llms.txt boundaries. It is not live
+              answer-engine sampling or AI citation monitoring.
+            </p>
+          </article>
+          <article>
+            <h3>What is not live yet?</h3>
+            <p>
+              SEO Fix Kit does not auto-publish content, call CMS admin APIs, open
+              GitHub pull requests, sell recurring repair-agent subscriptions, or
+              guarantee rankings, traffic, indexing, AI citations, or revenue.
+            </p>
+          </article>
+        </div>
+      </section>
+
       <footer className="site-footer">
         <span>Audit it. Prove it. Fix it.</span>
         <a href="/demo">Demo</a>
