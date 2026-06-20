@@ -113,7 +113,8 @@ import {
   getFixPackPricingPreview,
   getPublicFixPackPricing,
   handleDodoWebhook,
-  requestFixPack
+  requestFixPack,
+  requestMonitoringCheckout
 } from "./routes/billing.js";
 import {
   apiClaimLargeRenderedCrawlBatch,
@@ -209,6 +210,10 @@ export default {
 
       if (url.pathname === "/api/beta/fix-request" && request.method === "POST") {
         return requestFixPack(request, env);
+      }
+
+      if (url.pathname === "/api/beta/monitoring-checkout" && request.method === "POST") {
+        return requestMonitoringCheckout(request, env);
       }
 
       if (url.pathname === "/api/pricing-preview" && request.method === "GET") {

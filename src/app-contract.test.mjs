@@ -9,6 +9,12 @@ import {
   fixPackCheckoutOutcome,
   fixPackRepairTarget
 } from "./fix-pack-checkout.js";
+import { safeDodoCheckoutUrl } from "./dodo-checkout-url.js";
+import {
+  monitoringCheckoutDisabled,
+  monitoringCheckoutErrorOutcome,
+  monitoringCheckoutOutcome
+} from "./monitoring-checkout.js";
 import {
   repairActionApplyPatch,
   repairActionApprovalPatch,
@@ -72,6 +78,14 @@ test("Fix Pack checkout omits immutable report-derived targets", () => {
 });
 
 test("Fix Pack checkout failures return a retryable error state", () => {
+  const validCheckout = fixPackCheckoutOutcome({ checkoutUrl: "https://checkout.dodopayments.com/fix-pack" });
+  assert.equal(validCheckout.status, "success");
+  assert.equal(validCheckout.checkoutUrl, "https://checkout.dodopayments.com/fix-pack");
+
+  const unsafeCheckout = fixPackCheckoutOutcome({ checkoutUrl: "javascript:alert(1)" });
+  assert.equal(unsafeCheckout.status, "error");
+  assert.equal(unsafeCheckout.checkoutUrl, "");
+
   const serverFailure = fixPackCheckoutOutcome({ ok: false, error: "Repair target changed. Refresh checkout." });
   assert.equal(serverFailure.status, "error");
   assert.equal(serverFailure.message, "Repair target changed. Refresh checkout.");
@@ -88,6 +102,60 @@ test("Fix Pack checkout failures return a retryable error state", () => {
     fixPackCheckoutDisabled({ hasPriorityFixes: true, pricingStatus: "available", status: thrownFailure.status }),
     false
   );
+});
+
+test("Proof Monitoring checkout only enables when subscription checkout is ready", () => {
+  assert.equal(monitoringCheckoutDisabled({ checkoutReady: false, status: "idle" }), true);
+  assert.equal(monitoringCheckoutDisabled({ checkoutReady: true, status: "idle" }), false);
+  assert.equal(monitoringCheckoutDisabled({ checkoutReady: true, status: "submitting" }), true);
+});
+
+test("Proof Monitoring checkout outcome redirects only when a safe URL exists", () => {
+  const checkout = monitoringCheckoutOutcome({
+    ok: true,
+    mode: "checkout",
+    checkoutUrl: "https://checkout.dodopayments.com/monitoring",
+    message: "Checkout opens at Dodo."
+  });
+  assert.equal(checkout.status, "redirecting");
+  assert.equal(checkout.checkoutUrl, "https://checkout.dodopayments.com/monitoring");
+
+  const customHostCheckout = monitoringCheckoutOutcome({
+    ok: true,
+    mode: "checkout",
+    checkoutUrl: "https://checkout.example.com/monitoring"
+  });
+  assert.equal(customHostCheckout.status, "redirecting");
+  assert.equal(customHostCheckout.checkoutUrl, "https://checkout.example.com/monitoring");
+
+  const unsafeCheckout = monitoringCheckoutOutcome({
+    ok: true,
+    mode: "checkout",
+    checkoutUrl: "javascript:alert(1)"
+  });
+  assert.equal(unsafeCheckout.status, "error");
+  assert.equal(unsafeCheckout.checkoutUrl, "");
+
+  const unavailable = monitoringCheckoutOutcome({
+    ok: false,
+    checkoutAvailable: false,
+    message: "Proof Monitoring checkout is paused."
+  });
+  assert.equal(unavailable.status, "unavailable");
+  assert.equal(unavailable.checkoutUrl, "");
+
+  const thrown = monitoringCheckoutErrorOutcome(new Error("Dodo monitoring checkout failed."));
+  assert.equal(thrown.status, "error");
+  assert.equal(thrown.message, "Dodo monitoring checkout failed.");
+});
+
+test("Dodo checkout URL helper accepts only HTTPS provider URLs", () => {
+  assert.equal(safeDodoCheckoutUrl("https://checkout.dodopayments.com/a"), "https://checkout.dodopayments.com/a");
+  assert.equal(safeDodoCheckoutUrl("https://pay.dodopayments.com/a"), "https://pay.dodopayments.com/a");
+  assert.equal(safeDodoCheckoutUrl("https://checkout.example.com/a"), "https://checkout.example.com/a");
+  assert.equal(safeDodoCheckoutUrl("http://checkout.dodopayments.com/a"), "");
+  assert.equal(safeDodoCheckoutUrl("javascript:alert(1)"), "");
+  assert.equal(safeDodoCheckoutUrl("/relative"), "");
 });
 
 test("repair action UI contract uses action endpoint for lifecycle changes", () => {

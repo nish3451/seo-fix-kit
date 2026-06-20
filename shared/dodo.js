@@ -32,6 +32,27 @@ export const DODO_DISPUTE_EVENTS = new Set([
   "dispute.lost"
 ]);
 
+export const DODO_SUBSCRIPTION_ACTIVE_EVENTS = new Set([
+  "subscription.active",
+  "subscription.plan_changed",
+  "subscription.updated",
+  "subscription.renewed"
+]);
+
+export const DODO_SUBSCRIPTION_INACTIVE_EVENTS = new Set([
+  "subscription.cancelled",
+  "subscription.canceled",
+  "subscription.failed",
+  "subscription.expired",
+  "subscription.on_hold",
+  "subscription.paused"
+]);
+
+export const DODO_SUBSCRIPTION_EVENTS = new Set([
+  ...DODO_SUBSCRIPTION_ACTIVE_EVENTS,
+  ...DODO_SUBSCRIPTION_INACTIVE_EVENTS
+]);
+
 export const PAID_STATUSES = new Set(["succeeded", "paid", "completed"]);
 
 export function dodoApiKey(env = {}) {
@@ -44,6 +65,14 @@ export function dodoWebhookSecret(env = {}) {
 
 export function dodoProductId(env = {}) {
   return env.DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID || "";
+}
+
+export function dodoFixPackProductId(env = {}) {
+  return dodoProductId(env);
+}
+
+export function dodoMonitoringProductId(env = {}) {
+  return env.DODO_SEOFIXKIT_PRODUCT_MONITORING_ID || "";
 }
 
 export function dodoBrandId(env = {}) {
@@ -79,9 +108,17 @@ export function dodoCountryFromRequest(request) {
 }
 
 export function dodoCheckoutConfigStatus(env = {}) {
+  return dodoProductCheckoutConfigStatus(env, dodoProductId(env));
+}
+
+export function dodoMonitoringCheckoutConfigStatus(env = {}) {
+  return dodoProductCheckoutConfigStatus(env, dodoMonitoringProductId(env));
+}
+
+export function dodoProductCheckoutConfigStatus(env = {}, productId = "") {
   const checks = {
     apiKey: Boolean(dodoApiKey(env)),
-    productId: Boolean(dodoProductId(env)),
+    productId: Boolean(productId),
     brandId: Boolean(dodoBrandId(env)),
     environment: Boolean(dodoEnvironment(env)),
     webhookSecret: Boolean(dodoWebhookSecret(env))
@@ -95,6 +132,10 @@ export function dodoCheckoutConfigStatus(env = {}) {
 
 export function hasDodoCheckoutConfig(env = {}) {
   return dodoCheckoutConfigStatus(env).checkoutReady;
+}
+
+export function hasDodoMonitoringCheckoutConfig(env = {}) {
+  return dodoMonitoringCheckoutConfigStatus(env).checkoutReady;
 }
 
 export async function verifyDodoWebhookSignature({
@@ -160,6 +201,41 @@ export function extractDodoPayment(payment = {}) {
   };
 }
 
+export function extractDodoSubscription(subscription = {}) {
+  const metadata = objectOrEmpty(subscription.metadata);
+  const productItems = extractProductItems(subscription);
+  const customer = objectOrEmpty(subscription.customer);
+  const period = objectOrEmpty(subscription.current_period || subscription.currentPeriod);
+  return {
+    subscriptionId: firstText(subscription.subscription_id, subscription.subscriptionId, subscription.id),
+    customerEmail: normalizeEmailText(customer.email || subscription.customer_email || subscription.customerEmail),
+    metadataOfferKey: firstText(metadata.offer_key, metadata.offerKey),
+    metadataOwnerEmail: normalizeEmailText(metadata.owner_email || metadata.ownerEmail),
+    metadataProductKey: firstText(metadata.product_key, metadata.productKey),
+    metadataTargetHost: firstText(metadata.target_host, metadata.targetHost),
+    metadataSiteClaimId: firstText(metadata.site_claim_id, metadata.siteClaimId),
+    metadataAuditScheduleId: firstText(metadata.audit_schedule_id, metadata.auditScheduleId),
+    businessId: firstText(subscription.business_id, subscription.businessId),
+    brandId: firstText(subscription.brand_id, subscription.brandId),
+    productIds: productItems.map((item) => item.productId).filter(Boolean),
+    productItems,
+    productQuantity: productItems.reduce((sum, item) => sum + item.quantity, 0) || (productItems.length ? 1 : 0),
+    status: String(subscription.status || "").toLowerCase(),
+    currentPeriodStart: firstText(
+      subscription.current_period_start,
+      subscription.currentPeriodStart,
+      period.start
+    ),
+    currentPeriodEnd: firstText(
+      subscription.current_period_end,
+      subscription.currentPeriodEnd,
+      period.end,
+      subscription.next_billing_date,
+      subscription.nextBillingDate
+    )
+  };
+}
+
 export function dodoProductMatches(payment, expectedProductId, options = {}) {
   if (!expectedProductId) return true;
   if (!payment.productIds.length) return Boolean(options.allowMissing);
@@ -167,13 +243,35 @@ export function dodoProductMatches(payment, expectedProductId, options = {}) {
 }
 
 function extractProductItems(payment = {}) {
-  const carts = [payment.product_cart, payment.productCart, payment.line_items, payment.items].filter(Array.isArray).flat();
-  return carts
+  const carts = [
+    payment.product_cart,
+    payment.productCart,
+    payment.products,
+    payment.line_items,
+    payment.lineItems,
+    payment.items
+  ].filter(Array.isArray).flat();
+  const directProductId = firstText(
+    payment.product_id,
+    payment.productId,
+    objectOrEmpty(payment.product).id,
+    objectOrEmpty(payment.plan).product_id,
+    objectOrEmpty(payment.plan).productId
+  );
+  const lineItems = carts
     .map((item) => ({
-      productId: firstText(item?.product_id, item?.productId, item?.id),
+      productId: firstText(item?.product_id, item?.productId, item?.id, item?.product?.id),
       quantity: Math.max(0, numberOrZero(item?.quantity || 1))
     }))
     .filter((item) => item.productId);
+  if (lineItems.length) return lineItems;
+  if (!directProductId) return [];
+  return [{
+    productId: directProductId,
+    quantity: Math.max(0, numberOrZero(
+      payment.quantity ?? payment.product_quantity ?? payment.productQuantity ?? objectOrEmpty(payment.plan).quantity ?? 1
+    ))
+  }];
 }
 
 function decodeWebhookSecret(secret) {

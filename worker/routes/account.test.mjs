@@ -51,6 +51,18 @@ test("account summary marks repair agent unavailable when repair tables are miss
   assert.equal(body.nextActions[0].id, "repair-queue-unavailable");
 });
 
+test("account summary gates monitoring offer when entitlement event schema is missing", async () => {
+  const env = fakeAccountEnv({ missingEntitlementEventsSchema: true });
+
+  const response = await getAccountSummary(sessionRequest("/api/account"), env);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+
+  const monitoringOffer = body.offers.find((offer) => offer.key === "proof_monitoring");
+  assert.equal(monitoringOffer.checkoutLive, false);
+  assert.equal(body.monitoring.checkoutLive, false);
+});
+
 test("account summary derives unmaterialized repairs from R2-backed report JSON", async () => {
   const reportJsonBody = reportJson();
   const env = fakeAccountEnv({
@@ -328,8 +340,16 @@ function fakeAccountEnv(overrides = {}) {
     schedules: overrides.schedules || [],
     queueItems: overrides.queueItems || [repairQueueRow()],
     actions: overrides.actions || [],
+    entitlements: overrides.entitlements || [],
     reportBlobs: overrides.reportBlobs || {},
-    missingRepairTables: Boolean(overrides.missingRepairTables)
+    missingRepairTables: Boolean(overrides.missingRepairTables),
+    missingEntitlementSchema: Boolean(overrides.missingEntitlementSchema),
+    missingEntitlementEventsSchema: Boolean(overrides.missingEntitlementEventsSchema),
+    DODO_SEOFIXKIT_API_KEY: "test-api-key",
+    DODO_SEOFIXKIT_PRODUCT_MONITORING_ID: "pdt_monitoring",
+    DODO_SEOFIXKIT_BRAND_ID: "brand_seofixkit",
+    DODO_SEOFIXKIT_ENVIRONMENT: "test",
+    DODO_SEOFIXKIT_WEBHOOK_SECRET: "whsec_test"
   };
   env.REPORTS = {
     get: async (key) => {
@@ -341,6 +361,9 @@ function fakeAccountEnv(overrides = {}) {
   env.WAITLIST_DB = {
     prepare(sql) {
       return {
+        first: async () => first(sql, [], env),
+        all: async () => all(sql, [], env),
+        run: async () => run(sql, [], env),
         bind(...values) {
           return statement(sql, values, env);
         }
@@ -369,6 +392,14 @@ function first(sql, values, env) {
       revoked_at: null
     };
   }
+  if (sql.includes("FROM offer_entitlements")) {
+    if (env.missingEntitlementSchema) throw new Error("no such table: offer_entitlements");
+    return env.entitlements[0] || null;
+  }
+  if (sql.includes("FROM offer_entitlement_events")) {
+    if (env.missingEntitlementEventsSchema) throw new Error("no such table: offer_entitlement_events");
+    return null;
+  }
   throw new Error(`Unexpected first SQL: ${sql}`);
 }
 
@@ -388,6 +419,10 @@ function all(sql, values, env) {
   }
   if (sql.includes("FROM audit_schedules")) {
     return { results: env.schedules.filter((row) => row.owner_email === ownerEmail && row.status === "active") };
+  }
+  if (sql.includes("FROM offer_entitlements")) {
+    if (env.missingEntitlementSchema) throw new Error("no such table: offer_entitlements");
+    return { results: env.entitlements.filter((row) => row.owner_email === ownerEmail && !row.revoked_at) };
   }
   if (sql.includes("FROM repair_queue_items")) {
     if (env.missingRepairTables) throw new Error("no such table: repair_queue_items");

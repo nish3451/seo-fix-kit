@@ -1,4 +1,4 @@
-import { dodoCheckoutConfigStatus } from "../../shared/dodo.js";
+import { dodoCheckoutConfigStatus, dodoMonitoringCheckoutConfigStatus } from "../../shared/dodo.js";
 import { isEmailConfigured } from "../../shared/fulfillment.js";
 import { VERSION } from "../../shared/audit-engine.js";
 import { jsonNoStore } from "../lib/http.js";
@@ -39,6 +39,7 @@ const SCHEMA_CHECKS = [
   { key: "repairQueueItems", label: "agent repair queue", sql: "SELECT 1 AS ok FROM repair_queue_items LIMIT 1", critical: true },
   { key: "repairAgentActions", label: "approval-safe repair actions", sql: "SELECT 1 AS ok FROM repair_agent_actions LIMIT 1", critical: true },
   { key: "offerEntitlements", label: "staged offer entitlements", sql: "SELECT 1 AS ok FROM offer_entitlements LIMIT 1", critical: false },
+  { key: "offerEntitlementEvents", label: "offer entitlement lifecycle events", sql: "SELECT 1 AS ok FROM offer_entitlement_events LIMIT 1", critical: false },
   { key: "developerTokens", label: "Developer API tokens", sql: "SELECT 1 AS ok FROM api_tokens LIMIT 1", critical: false },
   { key: "developerWebhooks", label: "Developer API webhooks", sql: "SELECT 1 AS ok FROM api_webhooks LIMIT 1", critical: false },
   { key: "whiteLabelShares", label: "white-label report links", sql: "SELECT 1 AS ok FROM report_share_links LIMIT 1", critical: false },
@@ -55,11 +56,14 @@ async function getDeepHealth(_request, env = {}) {
   const bindings = bindingStatus(env);
   const schema = await schemaStatus(env);
   const dodo = dodoCheckoutConfigStatus(env);
+  const monitoringDodo = dodoMonitoringCheckoutConfigStatus(env);
   const billing = {
     checkoutReady: dodo.checkoutReady,
     webhookReady: dodo.webhookSecret,
     apiConfigured: dodo.apiKey,
     productConfigured: dodo.productId,
+    monitoringCheckoutReady: monitoringDodo.checkoutReady,
+    monitoringProductConfigured: monitoringDodo.productId,
     brandConfigured: dodo.brandId,
     environment: dodo.environment || "missing"
   };
@@ -87,7 +91,8 @@ async function getDeepHealth(_request, env = {}) {
     limits: [
       "Ready means required bindings, provider config, and D1 schema checks passed.",
       "Ready does not prove a real paid card transaction, Dodo paid webhook delivery, completed repair delivery, or final rerun proof.",
-      "Recurring monitoring, agency workspace, large crawl, and offer entitlement checks are storage/config readiness checks, not paid offer activation claims."
+      "Proof Monitoring checkout readiness is reported separately and only becomes paid-active after subscription webhook entitlement sync.",
+      "Agency workspace, large crawl, and offer entitlement checks are storage/config readiness checks, not paid offer activation claims."
     ],
     bindings,
     billing,
@@ -188,6 +193,11 @@ function capabilityStatus({ bindings, schema, billing }) {
       hasSchema("repairQueueItems"),
     repairExecution: hasSchema("repairProposals") && hasSchema("repairQueueItems") && hasSchema("repairAgentActions"),
     recurringMonitoring: hasSchema("auditSchedules"),
+    paidProofMonitoring:
+      billing.monitoringCheckoutReady &&
+      hasSchema("auditSchedules") &&
+      hasSchema("offerEntitlements") &&
+      hasSchema("offerEntitlementEvents"),
     developerApi: hasSchema("developerTokens") && hasSchema("developerWebhooks"),
     agencyWorkspace: hasSchema("whiteLabelShares") && hasSchema("teamMembers") && hasSchema("reportDomains"),
     largeCrawlEarlyAccess: hasSchema("largeCrawlJobs")

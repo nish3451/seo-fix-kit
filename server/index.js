@@ -100,6 +100,7 @@ import {
   retryLargeRenderedCrawlFailures
 } from "../shared/large-rendered-crawl.js";
 import { largeCrawlProofWriteStatus } from "../shared/large-crawl-proof-writer.js";
+import { offerCatalog } from "../shared/offers.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -143,6 +144,12 @@ const FIX_PACK_OFFER = {
   name: "SEO Fix Pack",
   productKey: "seofixkit_fix_pack",
   description: "One proof-backed repair pass for this report plus one rerun after fixes."
+};
+const MONITORING_OFFER = {
+  name: "Proof Monitoring",
+  productKey: "seofixkit_proof_monitoring",
+  offerKey: "proof_monitoring",
+  description: "Weekly proof monitoring, report deltas, and change alerts for verified sites."
 };
 const DEMO_WATERFALL_SCRIPT = `window.__demoWaterfallScript = "${"x".repeat(340_000)}";`;
 const DEMO_WATERFALL_STYLE = `body::before{content:"${"x".repeat(70_000)}";display:none}`;
@@ -350,6 +357,32 @@ app.post("/api/beta/fix-request", (req, res) => {
   });
 });
 
+app.post("/api/beta/monitoring-checkout", (req, res) => {
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res.status(401).json({ error: "Private beta session required." });
+    return;
+  }
+  res.status(503).set("cache-control", "no-store").json({
+    ok: false,
+    code: "MONITORING_CHECKOUT_NOT_CONFIGURED",
+    error: "Proof Monitoring checkout is only available in the Cloudflare Worker after the Dodo subscription product is configured.",
+    message: "Proof Monitoring checkout is only available in the Cloudflare Worker after the Dodo subscription product is configured.",
+    checkoutAvailable: false,
+    offer: MONITORING_OFFER,
+    target: {
+      targetHost: "",
+      siteClaimId: "",
+      auditScheduleId: ""
+    },
+    monitoring: {
+      offerKey: "proof_monitoring",
+      status: "beta_allowance",
+      checkoutLive: false
+    }
+  });
+});
+
 app.get("/api/pricing-preview", (req, res) => {
   const access = localBetaAccess(req);
   if (!access.ok) {
@@ -377,6 +410,17 @@ app.get("/api/billing/summary", (req, res) => {
   const ownerFixRequests = fixRequests
     .filter((request) => request.ownerEmail === access.ownerEmail && !request.isTest)
     .sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)));
+  const localActiveMonitorCount = [...auditSchedules.values()].filter((schedule) =>
+    schedule.ownerEmail === access.ownerEmail && schedule.status === "active"
+  ).length;
+  const localEligibleSiteCount = new Set([
+    ...[...siteClaims.values()]
+      .filter((site) => site.ownerEmail === access.ownerEmail && site.status === "verified" && !site.revokedAt)
+      .map((site) => site.host),
+    ...[...auditSchedules.values()]
+      .filter((schedule) => schedule.ownerEmail === access.ownerEmail && schedule.status === "active")
+      .map((schedule) => schedule.targetHost || safeHost(schedule.targetUrl))
+  ].filter(Boolean)).size;
   res.set("cache-control", "no-store").json({
     ok: true,
     owner: {
@@ -406,10 +450,26 @@ app.get("/api/billing/summary", (req, res) => {
       missing: ["workerRuntime"],
       message: "Dodo pricing preview is only available in the Cloudflare Worker runtime."
     },
+    offers: offerCatalog({ fixPackCheckoutReady: false, monitoringCheckoutReady: false }),
     subscriptionState: {
       status: "not_live",
       label: "No recurring subscription",
-      message: "SEO Fix Kit currently sells one-time Fix Pack requests. Repair Agent and Growth Add-On subscriptions remain roadmap."
+      message: "Proof Monitoring checkout is only available in the Cloudflare Worker after the Dodo subscription product is configured."
+    },
+    monitoring: {
+      offerKey: "proof_monitoring",
+      status: "beta_allowance",
+      activeCount: localActiveMonitorCount,
+      limit: 5,
+      remaining: Math.max(0, 5 - localActiveMonitorCount),
+      cadenceDays: 7,
+      hasEligibleSite: localEligibleSiteCount > 0,
+      eligibleSiteCount: localEligibleSiteCount,
+      checkoutLive: false,
+      checkoutReady: false,
+      checkoutMissing: ["workerRuntime"],
+      message: "Private beta includes weekly proof monitoring while paid monitoring checkout is Worker-only.",
+      offer: MONITORING_OFFER
     },
     subscriptions: [],
     requests: ownerFixRequests.map(localBillingFixRequestResponse),

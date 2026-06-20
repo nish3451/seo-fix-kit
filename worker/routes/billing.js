@@ -5,6 +5,9 @@ import {
   DODO_PAYMENT_SUCCESS_EVENTS,
   DODO_REFUND_FAILURE_EVENTS,
   DODO_REFUND_SUCCESS_EVENTS,
+  DODO_SUBSCRIPTION_ACTIVE_EVENTS,
+  DODO_SUBSCRIPTION_EVENTS,
+  DODO_SUBSCRIPTION_INACTIVE_EVENTS,
   PAID_STATUSES,
   dodoAdaptiveCurrencyFeesInclusive,
   dodoApiKey,
@@ -12,11 +15,15 @@ import {
   dodoBrandId,
   dodoCheckoutConfigStatus,
   dodoCountryFromRequest,
+  dodoMonitoringCheckoutConfigStatus,
+  dodoMonitoringProductId,
   dodoProductId,
   dodoProductMatches,
   dodoWebhookSecret,
   extractDodoPayment,
+  extractDodoSubscription,
   hasDodoCheckoutConfig,
+  hasDodoMonitoringCheckoutConfig,
   verifyDodoWebhookSignature
 } from "../../shared/dodo.js";
 import {
@@ -32,7 +39,7 @@ import { buildRepairProposalsFromReport } from "../../shared/repair-execution.js
 import { betaAccessResponse, betaAccessStatus } from "../lib/auth.js";
 import { EMAIL_PROVIDER, sendWorkerEmail } from "../lib/email.js";
 import { json, jsonNoStore, secureHeaders } from "../lib/http.js";
-import { offerCatalogForOwner } from "../lib/offers.js";
+import { monitoringAccessForOwner, offerCatalogForOwner } from "../lib/offers.js";
 import { preserveFixRequestReports, reportJsonForRow } from "../lib/report-data.js";
 import { repairProposalSummariesForFixRequests } from "../lib/repair-proposal-summary.js";
 import { isRepairTablesMissingError } from "../lib/repair-tables.js";
@@ -41,8 +48,10 @@ import { sha256Hex } from "../lib/security.js";
 import { billingFixRequestResponse, fixRequestResponse } from "../lib/serializers.js";
 import { cleanQueueStatus } from "../../shared/repair-queue.js";
 import { selectFixPackRepair } from "../../shared/fix-pack-repair-selection.js";
+import { OFFER_KEYS } from "../../shared/offers.js";
 import {
   cleanText,
+  cleanReportDomain,
   isSafeReportId,
   isoDaysFromNow,
   isoSecondsFromNow,
@@ -55,6 +64,13 @@ const FIX_PACK_OFFER = {
   name: "SEO Fix Pack",
   productKey: "seofixkit_fix_pack",
   description: "One proof-backed repair pass for this report plus one rerun after fixes."
+};
+
+const MONITORING_OFFER = {
+  name: "Proof Monitoring",
+  productKey: "seofixkit_proof_monitoring",
+  offerKey: OFFER_KEYS.MONITORING,
+  description: "Weekly proof monitoring, report deltas, and change alerts for verified sites."
 };
 
 const FIX_PACK_DUE_DAYS = 5;
@@ -268,6 +284,99 @@ async function requestFixPack(request, env) {
   });
 }
 
+async function requestMonitoringCheckout(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Monitoring storage is not configured." }, 503);
+
+  const body = await request.json().catch(() => ({}));
+  const config = dodoMonitoringCheckoutConfigStatus(env);
+  if (!hasDodoMonitoringCheckoutConfig(env)) {
+    const monitoring = await monitoringAccessForOwner(env, access.ownerEmail, 0);
+    return monitoringCheckoutErrorResponse({
+      status: 503,
+      code: "MONITORING_CHECKOUT_NOT_CONFIGURED",
+      error: "Proof Monitoring checkout is paused until the Dodo subscription product and webhook config are ready.",
+      missing: dodoConfigMissing(config),
+      monitoring,
+      target: monitoringCheckoutTargetResponse()
+    });
+  }
+
+  const schema = await monitoringEntitlementSchemaStatus(env);
+  if (!schema.ok) {
+    const monitoring = await monitoringAccessForOwner(env, access.ownerEmail, 0);
+    return monitoringCheckoutErrorResponse({
+      status: 503,
+      code: "MONITORING_ENTITLEMENT_SCHEMA_MISSING",
+      error: "Monitoring entitlement storage is not ready. Retry after the offer entitlement migration is applied.",
+      monitoring,
+      target: monitoringCheckoutTargetResponse()
+    });
+  }
+
+  let context;
+  try {
+    context = await monitoringCheckoutContext(env, access, body);
+  } catch {
+    const monitoring = await monitoringAccessForOwner(env, access.ownerEmail, 0);
+    return monitoringCheckoutErrorResponse({
+      status: 503,
+      code: "MONITORING_ELIGIBILITY_UNAVAILABLE",
+      error: "Monitoring eligibility could not be checked. Retry after site and schedule storage is ready.",
+      monitoring,
+      target: monitoringCheckoutTargetResponse()
+    });
+  }
+  const monitoring = await monitoringAccessForOwner(env, access.ownerEmail, context.activeScheduleCount);
+
+  if (monitoring.status === "active") {
+    return jsonNoStore({
+      ok: true,
+      mode: "active",
+      checkoutAvailable: false,
+      message: "Proof Monitoring is already active for this workspace.",
+      monitoring,
+      offer: MONITORING_OFFER
+    });
+  }
+
+  if (!context.targetHost) {
+    return monitoringCheckoutErrorResponse({
+      status: 409,
+      code: "MONITORING_SITE_REQUIRED",
+      error: "Verify a site or create an active monitor before starting Proof Monitoring checkout.",
+      monitoring,
+      eligibleSites: context.eligibleSites,
+      target: monitoringCheckoutTargetResponse(context)
+    });
+  }
+
+  let checkout;
+  try {
+    checkout = await createDodoMonitoringCheckout(request, env, access, context);
+  } catch (error) {
+    return monitoringCheckoutErrorResponse({
+      status: 503,
+      code: error?.code || "DODO_MONITORING_CHECKOUT_ERROR",
+      error: error?.message || "Dodo monitoring checkout could not be created.",
+      monitoring,
+      target: monitoringCheckoutTargetResponse(context)
+    });
+  }
+
+  return jsonNoStore({
+    ok: true,
+    mode: "checkout",
+    checkoutUrl: checkout.checkoutUrl,
+    checkoutAvailable: true,
+    message: "Checkout opens at Dodo. Monitoring access activates after the subscription webhook is received.",
+    monitoring,
+    offer: MONITORING_OFFER,
+    target: monitoringCheckoutTargetResponse(context)
+  });
+}
+
 // Public, unauthenticated Fix Pack price for the homepage. Returns only the
 // display price (no config internals), cached for an hour to keep Dodo calls
 // off the public request path.
@@ -345,9 +454,22 @@ async function getBillingSummary(request, env) {
 
   const now = new Date().toISOString();
   const dodoConfig = dodoCheckoutConfigStatus(env);
+  const monitoringConfig = dodoMonitoringCheckoutConfigStatus(env);
+  const [monitoringEntitlementSchema, activeMonitorCount, monitoringEligibility] = await Promise.all([
+    monitoringEntitlementSchemaStatus(env),
+    activeAuditScheduleCount(env, access.ownerEmail),
+    monitoringCheckoutEligibilitySummary(env, access.ownerEmail)
+  ]);
+  const monitoringCheckoutReady = monitoringConfig.checkoutReady && monitoringEntitlementSchema.ok;
+  const effectiveMonitoringConfig = {
+    ...monitoringConfig,
+    checkoutReady: monitoringCheckoutReady
+  };
+  const monitoring = await monitoringAccessForOwner(env, access.ownerEmail, activeMonitorCount);
   const pricing = await billingPricingState(request, env, access, dodoConfig);
   const offers = await offerCatalogForOwner(env, access.ownerEmail, {
-    fixPackCheckoutReady: dodoConfig.checkoutReady
+    fixPackCheckoutReady: dodoConfig.checkoutReady,
+    monitoringCheckoutReady
   });
   const rows = await env.WAITLIST_DB.prepare(
     `SELECT *
@@ -380,7 +502,10 @@ async function getBillingSummary(request, env) {
       source: "dodo",
       environment: dodoConfig.environment || "",
       checkoutReady: dodoConfig.checkoutReady,
-      missing: dodoConfigMissing(dodoConfig)
+      missing: dodoConfigMissing(dodoConfig),
+      monitoringCheckoutReady,
+      monitoringMissing: dodoConfigMissing(monitoringConfig),
+      monitoringEntitlementSchemaReady: monitoringEntitlementSchema.ok
     },
     billingLayer: {
       name: "BillingSDK-compatible customer portal",
@@ -394,12 +519,27 @@ async function getBillingSummary(request, env) {
     },
     pricing,
     offers,
-    subscriptionState: {
-      status: "not_live",
-      label: "No recurring subscription",
-      message: "SEO Fix Kit currently sells one-time Fix Pack requests. Repair Agent and Growth Add-On subscriptions remain roadmap."
+    monitoring: {
+      ...monitoring,
+      ...monitoringEligibility,
+      checkoutReady: monitoringCheckoutReady,
+      checkoutMissing: [
+        ...dodoConfigMissing(monitoringConfig),
+        ...(monitoringEntitlementSchema.ok ? [] : ["entitlementSchema"])
+      ],
+      offer: MONITORING_OFFER
     },
-    subscriptions: [],
+    subscriptionState: billingSubscriptionState(monitoring, effectiveMonitoringConfig),
+    subscriptions: monitoring.status === "active"
+      ? [{
+        offerKey: OFFER_KEYS.MONITORING,
+        name: MONITORING_OFFER.name,
+        status: "active",
+        activeCount: monitoring.activeCount,
+        limit: monitoring.limit,
+        currentPeriodEnd: monitoring.currentPeriodEnd || ""
+      }]
+      : [],
     requests,
     payments,
     generatedAt: now
@@ -428,6 +568,158 @@ async function billingPricingState(request, env, access, config) {
       message: error?.message || "Dodo pricing preview is unavailable."
     };
   }
+}
+
+async function activeAuditScheduleCount(env, ownerEmail) {
+  if (!env.WAITLIST_DB || !ownerEmail) return 0;
+  try {
+    const row = await env.WAITLIST_DB.prepare(
+      `SELECT COUNT(*) AS count
+       FROM audit_schedules
+       WHERE owner_email = ?
+         AND status = 'active'`
+    )
+      .bind(ownerEmail)
+      .first();
+    return Number(row?.count || 0);
+  } catch {
+    return 0;
+  }
+}
+
+async function monitoringCheckoutEligibilitySummary(env, ownerEmail) {
+  try {
+    const context = await monitoringCheckoutContext(env, { ownerEmail }, {});
+    return {
+      hasEligibleSite: Boolean(context.targetHost),
+      eligibleSiteCount: context.eligibleSites.length
+    };
+  } catch {
+    return {
+      hasEligibleSite: false,
+      eligibleSiteCount: 0
+    };
+  }
+}
+
+function billingSubscriptionState(monitoring = {}, config = {}) {
+  if (monitoring.status === "active") {
+    return {
+      status: "active",
+      label: "Proof Monitoring active",
+      message: "Weekly proof monitoring is active for this workspace."
+    };
+  }
+  if (config.checkoutReady) {
+    return {
+      status: "available",
+      label: "Proof Monitoring available",
+      message: "Paid monitoring checkout is available for verified sites. Access activates after the Dodo subscription webhook."
+    };
+  }
+  return {
+    status: "not_live",
+    label: "No recurring subscription",
+    message: "SEO Fix Kit sells the one-time Fix Pack today. Proof Monitoring checkout is config-gated; Repair Agent and Agency Workspace subscriptions remain roadmap."
+  };
+}
+
+async function monitoringCheckoutContext(env, access, body = {}) {
+  const requestedHost = requestedMonitoringHost(body);
+  const [siteRows, scheduleRows] = await Promise.all([
+    env.WAITLIST_DB.prepare(
+      `SELECT id, host, status, updated_at
+       FROM site_claims
+       WHERE owner_email = ?
+         AND status = 'verified'
+         AND revoked_at IS NULL
+       ORDER BY updated_at DESC
+       LIMIT 20`
+    )
+      .bind(access.ownerEmail)
+      .all(),
+    env.WAITLIST_DB.prepare(
+      `SELECT id, target_url, target_host, interval_days, max_pages, updated_at
+       FROM audit_schedules
+       WHERE owner_email = ?
+         AND status = 'active'
+       ORDER BY updated_at DESC
+       LIMIT 20`
+    )
+      .bind(access.ownerEmail)
+      .all()
+  ]);
+  const sites = (siteRows.results || [])
+    .map((row) => ({ ...row, host: cleanReportDomain(row.host || "") }))
+    .filter((row) => row.host);
+  const schedules = (scheduleRows.results || [])
+    .map((row) => ({
+      ...row,
+      target_host: cleanReportDomain(row.target_host || "") || safeHostname(row.target_url || "")
+    }))
+    .filter((row) => row.target_host);
+
+  const eligible = new Map();
+  for (const site of sites) {
+    eligible.set(site.host, { host: site.host, siteClaimId: site.id || "", auditScheduleId: "" });
+  }
+  for (const schedule of schedules) {
+    const current = eligible.get(schedule.target_host) || { host: schedule.target_host, siteClaimId: "", auditScheduleId: "" };
+    eligible.set(schedule.target_host, { ...current, auditScheduleId: schedule.id || "" });
+  }
+
+  const fallback = schedules[0]?.target_host || sites[0]?.host || "";
+  const targetHost = requestedHost ? (eligible.has(requestedHost) ? requestedHost : "") : fallback;
+  const target = targetHost ? eligible.get(targetHost) : null;
+  return {
+    requestedHost,
+    targetHost,
+    siteClaimId: target?.siteClaimId || "",
+    auditScheduleId: target?.auditScheduleId || "",
+    activeScheduleCount: schedules.length,
+    eligibleSites: [...eligible.values()].slice(0, 20)
+  };
+}
+
+function requestedMonitoringHost(body = {}) {
+  const host = cleanReportDomain(body.targetHost || body.host || "");
+  if (host) return host;
+  return safeHostname(body.targetUrl || body.url || "");
+}
+
+function monitoringCheckoutTargetResponse(context = {}) {
+  return {
+    targetHost: context.targetHost || "",
+    siteClaimId: context.siteClaimId || "",
+    auditScheduleId: context.auditScheduleId || ""
+  };
+}
+
+function monitoringCheckoutErrorResponse({
+  status = 503,
+  code,
+  error,
+  message = "",
+  monitoring = null,
+  target = null,
+  missing = undefined,
+  eligibleSites = undefined
+} = {}) {
+  return jsonNoStore(
+    {
+      ok: false,
+      code,
+      error,
+      message: message || error,
+      checkoutAvailable: false,
+      monitoring,
+      offer: MONITORING_OFFER,
+      target,
+      ...(missing ? { missing } : {}),
+      ...(eligibleSites ? { eligibleSites } : {})
+    },
+    status
+  );
 }
 
 async function getOrCreateFixRequest(env, reportRow, access, summary, note, now, options = {}) {
@@ -876,12 +1168,97 @@ async function createDodoFixPackCheckout(request, env, reportRow, fixRequest, ac
     return Promise.reject(Object.assign(new Error(message), { status: response.status, code: payload?.code || "" }));
   }
 
-  const checkoutUrl = payload.checkout_url || payload.payment_link || "";
-  if (!checkoutUrl) throw new Error("Dodo did not return a checkout URL.");
+  const rawCheckoutUrl = payload.checkout_url || payload.payment_link || "";
+  const checkoutUrl = safeDodoCheckoutUrl(rawCheckoutUrl, env);
+  if (!checkoutUrl) {
+    throw Object.assign(new Error(rawCheckoutUrl ? "Dodo returned an invalid checkout URL." : "Dodo did not return a checkout URL."), {
+      code: "DODO_CHECKOUT_URL_INVALID"
+    });
+  }
   return {
     checkoutUrl,
     checkoutSessionId: payload.session_id || payload.checkout_session_id || payload.id || ""
   };
+}
+
+async function createDodoMonitoringCheckout(request, env, access, context) {
+  const returnUrl = new URL(request.url);
+  returnUrl.pathname = "/beta/billing";
+  returnUrl.search = "";
+  returnUrl.searchParams.set("checkout", "monitoring-return");
+  returnUrl.searchParams.set("host", context.targetHost || "");
+
+  const body = {
+    product_cart: [{ product_id: dodoMonitoringProductId(env), quantity: 1 }],
+    return_url: returnUrl.toString(),
+    adaptive_currency_fees_inclusive: dodoAdaptiveCurrencyFeesInclusive(env),
+    customer: { email: access.ownerEmail },
+    metadata: {
+      product_key: MONITORING_OFFER.productKey,
+      offer_key: OFFER_KEYS.MONITORING,
+      owner_email: access.ownerEmail,
+      target_host: context.targetHost || "",
+      site_claim_id: context.siteClaimId || "",
+      audit_schedule_id: context.auditScheduleId || ""
+    }
+  };
+  const country = dodoCountryFromRequest(request);
+  if (country) body.billing_address = { country };
+
+  const { response, payload } = await fetchDodoJson(`${dodoBaseUrl(env)}/checkouts`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${dodoApiKey(env)}`
+    },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const message =
+      payload?.code === "MERCHANT_NOT_LIVE"
+        ? "Dodo live payments are not enabled for this merchant yet."
+        : payload?.message || "Dodo monitoring checkout could not be created.";
+    return Promise.reject(Object.assign(new Error(message), { status: response.status, code: payload?.code || "" }));
+  }
+
+  const rawCheckoutUrl = payload.checkout_url || payload.payment_link || "";
+  const checkoutUrl = safeDodoCheckoutUrl(rawCheckoutUrl, env);
+  if (!checkoutUrl) {
+    throw Object.assign(new Error(rawCheckoutUrl ? "Dodo returned an invalid checkout URL." : "Dodo did not return a checkout URL."), {
+      code: "DODO_CHECKOUT_URL_INVALID"
+    });
+  }
+  return {
+    checkoutUrl,
+    checkoutSessionId: payload.session_id || payload.checkout_session_id || payload.id || ""
+  };
+}
+
+async function monitoringEntitlementSchemaStatus(env) {
+  try {
+    const entitlementStatement = env.WAITLIST_DB.prepare(
+      "SELECT owner_email, offer_key, subscription_id, limits_json, revoked_at FROM offer_entitlements LIMIT 1"
+    );
+    if (typeof entitlementStatement.first === "function") {
+      await entitlementStatement.first();
+    } else {
+      await entitlementStatement.bind().first();
+    }
+    const eventsStatement = env.WAITLIST_DB.prepare(
+      "SELECT owner_email, offer_key, event FROM offer_entitlement_events LIMIT 1"
+    );
+    if (typeof eventsStatement.first === "function") {
+      await eventsStatement.first();
+    } else {
+      await eventsStatement.bind().first();
+    }
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error?.message || "Offer entitlement table is missing."
+    };
+  }
 }
 
 async function fetchDodoJson(url, options) {
@@ -894,6 +1271,26 @@ async function fetchDodoJson(url, options) {
   });
   const payload = await response.json().catch(() => ({}));
   return { response, payload };
+}
+
+function safeDodoCheckoutUrl(value = "", env = {}) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    const url = new URL(text);
+    const host = url.hostname.toLowerCase();
+    if (url.protocol !== "https:") return "";
+    if (host === "dodopayments.com" || host.endsWith(".dodopayments.com")) return url.href;
+    const allowed = new Set(
+      String(env.DODO_SEOFIXKIT_CHECKOUT_HOST_ALLOWLIST || "")
+        .split(",")
+        .map((item) => cleanReportDomain(item))
+        .filter(Boolean)
+    );
+    return allowed.has(host) ? url.href : "";
+  } catch {
+    return "";
+  }
 }
 
 function parseDodoPricingPreview(payload = {}) {
@@ -999,19 +1396,26 @@ async function handleDodoWebhook(request, env, ctx) {
   }
 
   const eventType = String(event?.type || "");
-  const payment = extractDodoPayment(event?.data || {});
+  const isSubscriptionEvent = DODO_SUBSCRIPTION_EVENTS.has(eventType);
+  const payment = isSubscriptionEvent ? {} : extractDodoPayment(event?.data || {});
+  const subscription = isSubscriptionEvent ? extractDodoSubscription(event?.data || {}) : null;
+  const webhookIdentity = isSubscriptionEvent
+    ? { paymentId: subscription?.subscriptionId || "", metadataFixRequestId: "" }
+    : payment;
   const payloadHash = await sha256Hex(payloadText);
   const reserved = await reserveDodoWebhookEvent(env, {
     webhookId,
     eventType,
-    payment,
+    payment: webhookIdentity,
     payloadHash,
     payloadText
   });
   if (reserved.duplicate) return jsonNoStore({ received: true, duplicate: true });
 
   try {
-    const result = await processDodoPaymentWebhook(env, eventType, payment, webhookId);
+    const result = isSubscriptionEvent
+      ? await processDodoSubscriptionWebhook(env, eventType, subscription, webhookId)
+      : await processDodoPaymentWebhook(env, eventType, payment, webhookId);
     await markDodoWebhookProcessed(env, webhookId, result.status || "processed", "", result.fixRequestId || payment.metadataFixRequestId || "");
     if (result.paymentNotification?.fixRequest) {
       const notification = notifyPaymentSucceeded(env, result.paymentNotification.fixRequest, payment);
@@ -1028,6 +1432,8 @@ async function handleDodoWebhook(request, env, ctx) {
 async function reserveDodoWebhookEvent(env, { webhookId, eventType, payment, payloadHash, payloadText }) {
   if (!webhookId) throw new Error("Missing Dodo webhook id.");
   const now = new Date().toISOString();
+  const providerPaymentId = String(payment?.paymentId || "");
+  const fixRequestId = String(payment?.metadataFixRequestId || "");
   const inserted = await env.WAITLIST_DB.prepare(
     `INSERT OR IGNORE INTO dodo_webhook_events
       (webhook_id, event_type, payment_id, fix_request_id, status, error, payload_hash, payload_json,
@@ -1037,8 +1443,8 @@ async function reserveDodoWebhookEvent(env, { webhookId, eventType, payment, pay
     .bind(
       webhookId,
       eventType,
-      payment.paymentId,
-      payment.metadataFixRequestId,
+      providerPaymentId,
+      fixRequestId,
       payloadHash,
       payloadText.slice(0, 10000),
       now,
@@ -1056,7 +1462,7 @@ async function reserveDodoWebhookEvent(env, { webhookId, eventType, payment, pay
     .bind(webhookId)
     .first();
   if (existing?.payload_hash && existing.payload_hash !== payloadHash) {
-    await markDodoWebhookProcessed(env, webhookId, "error", "Webhook id replayed with a different payload.", payment.metadataFixRequestId || "");
+    await markDodoWebhookProcessed(env, webhookId, "error", "Webhook id replayed with a different payload.", fixRequestId);
     throw new Error("Webhook id replayed with a different payload.");
   }
   if (existing?.status === "processed" || existing?.status === "ignored") return { duplicate: true };
@@ -1304,6 +1710,356 @@ async function processDodoPaymentWebhook(env, eventType, payment, webhookId = ""
   }
 
   return { ok: true, ignored: true, status: "ignored", reason: "unsupported_event", fixRequestId: fixRequest.id };
+}
+
+async function processDodoSubscriptionWebhook(env, eventType, subscription, webhookId = "") {
+  if (!subscription?.subscriptionId) {
+    return { ok: false, ignored: true, status: "ignored", reason: "missing_subscription_id" };
+  }
+
+  const identity = dodoSubscriptionIdentityStatus(env, eventType, subscription);
+  if (!identity.ok) {
+    if (shouldRevokeMonitoringOnProductIdentityFailure(identity.reason)) {
+      const ownerEmail = identity.ownerEmail || normalizeEmail(subscription.metadataOwnerEmail || subscription.customerEmail || "");
+      if (ownerEmail) {
+        const now = new Date().toISOString();
+        const result = await revokeMonitoringEntitlement(env, subscription, ownerEmail, identity.reason, now);
+        await logOfferEntitlementEvent(env, {
+          ownerEmail,
+          entitlementId: result.entitlementId || "",
+          event: "subscription_product_identity_rejected",
+          fromStatus: result.fromStatus || "",
+          toStatus: result.toStatus || identity.reason,
+          detail: { eventType, webhookId, reason: identity.reason, subscriptionId: subscription.subscriptionId || "" }
+        });
+        return {
+          ok: true,
+          status: "processed",
+          ignored: true,
+          reason: identity.reason,
+          offerKey: OFFER_KEYS.MONITORING,
+          entitlementId: result.entitlementId || "",
+          entitlementStatus: result.toStatus || identity.reason
+        };
+      }
+    }
+    await logOfferEntitlementEvent(env, {
+      ownerEmail: identity.ownerEmail || subscription.metadataOwnerEmail || subscription.customerEmail || "",
+      entitlementId: "",
+      event: "subscription_identity_rejected",
+      fromStatus: "",
+      toStatus: "ignored",
+      detail: { eventType, webhookId, reason: identity.reason, subscriptionId: subscription.subscriptionId || "" }
+    });
+    return { ok: false, ignored: true, status: "ignored", reason: identity.reason };
+  }
+
+  const now = new Date().toISOString();
+  const nextStatus = monitoringSubscriptionNextStatus(eventType, subscription.status);
+  if (nextStatus === "unchanged") {
+    await logOfferEntitlementEvent(env, {
+      ownerEmail: identity.ownerEmail,
+      entitlementId: "",
+      event: "subscription_unchanged",
+      fromStatus: "",
+      toStatus: "unchanged",
+      detail: { eventType, webhookId, subscriptionId: subscription.subscriptionId || "", subscriptionStatus: subscription.status || "" }
+    });
+    return {
+      ok: true,
+      status: "processed",
+      ignored: true,
+      reason: subscription.status ? `subscription_${subscription.status}` : "subscription_status_missing",
+      offerKey: OFFER_KEYS.MONITORING
+    };
+  }
+  const result =
+    nextStatus === "active"
+      ? await upsertMonitoringEntitlement(env, subscription, identity.ownerEmail, now)
+      : await revokeMonitoringEntitlement(env, subscription, identity.ownerEmail, nextStatus, now);
+
+  await logOfferEntitlementEvent(env, {
+    ownerEmail: identity.ownerEmail,
+    entitlementId: result.entitlementId || "",
+    event: result.ignored ? "subscription_ignored" : nextStatus === "active" ? "subscription_active" : "subscription_inactive",
+    fromStatus: result.fromStatus || "",
+    toStatus: result.toStatus || nextStatus,
+    detail: {
+      eventType,
+      webhookId,
+      subscriptionId: subscription.subscriptionId || "",
+      productId: dodoMonitoringProductId(env),
+      targetHost: subscription.metadataTargetHost || "",
+      subscriptionStatus: subscription.status || ""
+    }
+  });
+
+  return {
+    ok: true,
+    status: "processed",
+    ignored: Boolean(result.ignored),
+    reason: result.reason || "",
+    offerKey: OFFER_KEYS.MONITORING,
+    entitlementId: result.entitlementId || "",
+    entitlementStatus: result.toStatus || nextStatus
+  };
+}
+
+function shouldRevokeMonitoringOnProductIdentityFailure(reason = "") {
+  return new Set(["product_mismatch", "missing_product_cart", "product_quantity_mismatch"]).has(reason);
+}
+
+function dodoSubscriptionIdentityStatus(env, eventType, subscription = {}) {
+  const ownerEmail = normalizeEmail(subscription.metadataOwnerEmail || subscription.customerEmail || "");
+  if (!ownerEmail) return { ok: false, reason: "missing_owner_email", ownerEmail: "" };
+  if (subscription.metadataProductKey !== MONITORING_OFFER.productKey) {
+    return { ok: false, reason: subscription.metadataProductKey ? "product_key_mismatch" : "missing_product_key", ownerEmail };
+  }
+  if (subscription.metadataOfferKey && subscription.metadataOfferKey !== OFFER_KEYS.MONITORING) {
+    return { ok: false, reason: "offer_key_mismatch", ownerEmail };
+  }
+  const expectedProductId = dodoMonitoringProductId(env);
+  if (!expectedProductId) return { ok: false, reason: "monitoring_product_not_configured", ownerEmail };
+  if (!dodoProductMatches(subscription, expectedProductId)) {
+    return { ok: false, reason: subscription.productIds.length ? "product_mismatch" : "missing_product_cart", ownerEmail };
+  }
+  if (subscription.productQuantity && subscription.productQuantity !== 1) {
+    return { ok: false, reason: "product_quantity_mismatch", ownerEmail };
+  }
+  const expectedBrandId = dodoBrandId(env);
+  if (expectedBrandId && subscription.brandId !== expectedBrandId) {
+    return { ok: false, reason: "brand_mismatch", ownerEmail };
+  }
+  const expectedBusinessId = String(env.DODO_SEOFIXKIT_BUSINESS_ID || "");
+  if (expectedBusinessId && subscription.businessId !== expectedBusinessId) {
+    return { ok: false, reason: "business_mismatch", ownerEmail };
+  }
+  if (!DODO_SUBSCRIPTION_EVENTS.has(eventType)) {
+    return { ok: false, reason: "unsupported_subscription_event", ownerEmail };
+  }
+  return { ok: true, ownerEmail };
+}
+
+function monitoringSubscriptionNextStatus(eventType, subscriptionStatus = "") {
+  const inactiveStatuses = new Set(["cancelled", "canceled", "failed", "expired", "on_hold", "paused"]);
+  const status = String(subscriptionStatus || "").toLowerCase();
+  if (DODO_SUBSCRIPTION_INACTIVE_EVENTS.has(eventType) || inactiveStatuses.has(status)) {
+    return status && inactiveStatuses.has(status) ? status : "inactive";
+  }
+  if (eventType === "subscription.updated" || eventType === "subscription.plan_changed") {
+    return status === "active" ? "active" : "unchanged";
+  }
+  if (DODO_SUBSCRIPTION_ACTIVE_EVENTS.has(eventType)) return "active";
+  return "unchanged";
+}
+
+async function upsertMonitoringEntitlement(env, subscription, ownerEmail, now) {
+  const existing = await findMonitoringEntitlement(env, ownerEmail, subscription.subscriptionId, {
+    subscriptionFirst: true,
+    subscriptionOnly: true
+  });
+  const limits = {
+    monitoredSites: 1,
+    cadenceDays: 7
+  };
+  if (existing?.id) {
+    if (existing.revoked_at && !recoverableMonitoringStatus(existing.status)) {
+      return {
+        entitlementId: existing.id,
+        fromStatus: existing.status || "",
+        toStatus: existing.status || "inactive",
+        ignored: true,
+        reason: "subscription_previously_revoked"
+      };
+    }
+    await env.WAITLIST_DB.prepare(
+      `UPDATE offer_entitlements
+       SET status = 'active',
+           source = 'dodo_subscription',
+           provider = 'dodo',
+           product_id = ?,
+           subscription_id = ?,
+           limits_json = ?,
+           current_period_start = ?,
+           current_period_end = ?,
+           revoked_at = NULL,
+           updated_at = ?
+       WHERE id = ?`
+    )
+      .bind(
+        dodoMonitoringProductId(env),
+        subscription.subscriptionId || existing.subscription_id || "",
+        JSON.stringify(limits),
+        subscription.currentPeriodStart || "",
+        subscription.currentPeriodEnd || "",
+        now,
+        existing.id
+      )
+      .run();
+    return { entitlementId: existing.id, fromStatus: existing.status || "", toStatus: "active" };
+  }
+
+  const active = await findMonitoringEntitlement(env, ownerEmail);
+  if (active?.id) {
+    if (active.subscription_id && active.subscription_id !== subscription.subscriptionId) {
+      return {
+        entitlementId: active.id,
+        fromStatus: active.status || "",
+        toStatus: active.status || "active",
+        ignored: true,
+        reason: "active_entitlement_exists"
+      };
+    }
+    await env.WAITLIST_DB.prepare(
+      `UPDATE offer_entitlements
+       SET status = 'active',
+           source = 'dodo_subscription',
+           provider = 'dodo',
+           product_id = ?,
+           subscription_id = ?,
+           limits_json = ?,
+           current_period_start = ?,
+           current_period_end = ?,
+           revoked_at = NULL,
+           updated_at = ?
+       WHERE id = ?`
+    )
+      .bind(
+        dodoMonitoringProductId(env),
+        subscription.subscriptionId,
+        JSON.stringify(limits),
+        subscription.currentPeriodStart || "",
+        subscription.currentPeriodEnd || "",
+        now,
+        active.id
+      )
+      .run();
+    return { entitlementId: active.id, fromStatus: active.status || "", toStatus: "active" };
+  }
+
+  const id = crypto.randomUUID();
+  await env.WAITLIST_DB.prepare(
+    `INSERT INTO offer_entitlements
+      (id, owner_email, offer_key, status, source, provider, product_id, subscription_id, limits_json,
+       current_period_start, current_period_end, created_at, updated_at, revoked_at)
+     VALUES (?, ?, ?, 'active', 'dodo_subscription', 'dodo', ?, ?, ?, ?, ?, ?, ?, NULL)`
+  )
+    .bind(
+      id,
+      ownerEmail,
+      OFFER_KEYS.MONITORING,
+      dodoMonitoringProductId(env),
+      subscription.subscriptionId || "",
+      JSON.stringify(limits),
+      subscription.currentPeriodStart || "",
+      subscription.currentPeriodEnd || "",
+      now,
+      now
+    )
+    .run();
+  return { entitlementId: id, fromStatus: "", toStatus: "active" };
+}
+
+function recoverableMonitoringStatus(status = "") {
+  return new Set(["failed", "on_hold", "paused"]).has(String(status || "").toLowerCase());
+}
+
+async function revokeMonitoringEntitlement(env, subscription, ownerEmail, nextStatus, now) {
+  const existing = await findMonitoringEntitlement(env, ownerEmail, subscription.subscriptionId, {
+    subscriptionFirst: true,
+    requireSubscriptionMatch: Boolean(subscription.subscriptionId)
+  });
+  if (!existing?.id) {
+    return { entitlementId: "", fromStatus: "", toStatus: nextStatus || "inactive" };
+  }
+  await env.WAITLIST_DB.prepare(
+    `UPDATE offer_entitlements
+     SET status = ?,
+         revoked_at = COALESCE(revoked_at, ?),
+         current_period_end = COALESCE(NULLIF(?, ''), current_period_end),
+         updated_at = ?
+     WHERE id = ?`
+  )
+    .bind(nextStatus || "inactive", now, subscription.currentPeriodEnd || "", now, existing.id)
+    .run();
+  return { entitlementId: existing.id, fromStatus: existing.status || "", toStatus: nextStatus || "inactive" };
+}
+
+async function findMonitoringEntitlement(env, ownerEmail, subscriptionId = "", options = {}) {
+  if (options.subscriptionFirst && subscriptionId) {
+    const bySubscription = await env.WAITLIST_DB.prepare(
+      `SELECT *
+       FROM offer_entitlements
+       WHERE provider = 'dodo'
+         AND subscription_id = ?
+         AND offer_key = ?
+       ORDER BY updated_at DESC
+       LIMIT 1`
+    )
+      .bind(subscriptionId, OFFER_KEYS.MONITORING)
+      .first();
+    if (bySubscription?.id && bySubscription.owner_email === ownerEmail) return bySubscription;
+    if (options.requireSubscriptionMatch || options.subscriptionOnly) return null;
+  }
+  const active = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM offer_entitlements
+     WHERE owner_email = ?
+       AND offer_key = ?
+       AND revoked_at IS NULL
+     ORDER BY updated_at DESC
+     LIMIT 1`
+  )
+    .bind(ownerEmail, OFFER_KEYS.MONITORING)
+    .first();
+  if (active?.id) return active;
+  if (subscriptionId) {
+    const bySubscription = await env.WAITLIST_DB.prepare(
+      `SELECT *
+       FROM offer_entitlements
+       WHERE provider = 'dodo'
+         AND subscription_id = ?
+         AND offer_key = ?
+       ORDER BY updated_at DESC
+       LIMIT 1`
+    )
+      .bind(subscriptionId, OFFER_KEYS.MONITORING)
+      .first();
+    if (bySubscription?.id && bySubscription.owner_email === ownerEmail) return bySubscription;
+  }
+  return null;
+}
+
+async function logOfferEntitlementEvent(env, {
+  entitlementId = "",
+  ownerEmail,
+  event,
+  fromStatus = "",
+  toStatus = "",
+  detail = {}
+}) {
+  if (!env.WAITLIST_DB || !ownerEmail || !event) return;
+  try {
+    await env.WAITLIST_DB.prepare(
+      `INSERT INTO offer_entitlement_events
+        (id, entitlement_id, owner_email, offer_key, event, from_status, to_status, detail_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+      .bind(
+        crypto.randomUUID(),
+        entitlementId,
+        ownerEmail,
+        OFFER_KEYS.MONITORING,
+        cleanText(event, 80),
+        cleanText(fromStatus, 40),
+        cleanText(toStatus, 40),
+        JSON.stringify(detail || {}).slice(0, 4000),
+        new Date().toISOString()
+      )
+      .run();
+  } catch {
+    // Entitlement mutation is the source of truth; health reports event-log schema skew separately.
+  }
 }
 
 async function findFixRequestForPayment(env, payment) {
@@ -1776,15 +2532,19 @@ export {
   FIX_PACK_DUE_DAYS,
   FIX_PACK_NEXT_UPDATE_DAYS,
   FIX_PACK_OFFER,
+  MONITORING_OFFER,
   PAID_LIKE_FIX_REQUEST_STATUSES,
   REBUY_BLOCKED_FIX_REQUEST_STATUSES,
   billingPaymentResponse,
   billingPricingState,
   createDodoFixPackCheckout,
+  createDodoMonitoringCheckout,
   dodoConfigMissing,
   dodoPaymentIdentityStatus,
+  dodoSubscriptionIdentityStatus,
   fetchDodoJson,
   findFixRequestForPayment,
+  findMonitoringEntitlement,
   formatMinorCurrency,
   getBillingSummary,
   getFixPackPricingPreview,
@@ -1795,9 +2555,13 @@ export {
   isAllowedAdminStatusTransition,
   jsonForStorage,
   logFixRequestEvent,
+  logOfferEntitlementEvent,
   logFixRequestNotification,
   markDodoWebhookProcessed,
   minorCurrencyDivisor,
+  monitoringCheckoutContext,
+  monitoringEntitlementSchemaStatus,
+  monitoringSubscriptionNextStatus,
   normalizeCurrencyCode,
   notifyFixRequestStatus,
   notifyPaymentSucceeded,
@@ -1806,9 +2570,12 @@ export {
   parseDodoPricingPreview,
   previewDodoFixPackPricing,
   processDodoPaymentWebhook,
+  processDodoSubscriptionWebhook,
   reportForNotification,
   requestFixPack,
+  requestMonitoringCheckout,
   reserveDodoWebhookEvent,
+  safeDodoCheckoutUrl,
   sendFixPackPaymentEmail,
   sendFixPackStatusEmail,
   seedRepairProposalsForFixRequest,

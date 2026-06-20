@@ -1,3 +1,5 @@
+import { safeDodoCheckoutUrl } from "./dodo-checkout-url.js";
+
 const CLOSED_REPAIR_STATUSES = new Set(["fixed", "ignored"]);
 
 export function fixPackRepairTarget(report = {}, queueItems = []) {
@@ -34,9 +36,12 @@ export function fixPackCheckoutDisabled({ hasPriorityFixes = false, pricingStatu
 }
 
 export function fixPackCheckoutOutcome(result = {}) {
-  const checkoutUrl = result?.checkoutUrl || "";
+  const checkoutUrl = safeDodoCheckoutUrl(result?.checkoutUrl || "");
   if (checkoutUrl) {
     return { status: "success", message: "Opening secure checkout.", checkoutUrl };
+  }
+  if (result?.checkoutUrl) {
+    return { status: "error", message: "Checkout returned an invalid provider URL.", checkoutUrl: "" };
   }
 
   if (result?.ok) {

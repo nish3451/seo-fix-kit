@@ -11,6 +11,11 @@ import {
   fixPackRepairTarget
 } from "./fix-pack-checkout.js";
 import {
+  monitoringCheckoutDisabled,
+  monitoringCheckoutErrorOutcome,
+  monitoringCheckoutOutcome
+} from "./monitoring-checkout.js";
+import {
   repairActionApplyPatch,
   repairActionApprovalPatch,
   repairActionIgnorePatch,
@@ -987,7 +992,13 @@ function CustomerDashboard({
       <section className="account-panel monitoring-offer-panel">
         <div className="section-heading">
           <p className="beta-eyebrow">Proof Monitoring</p>
-          <h3>{monitoring.status === "active" ? "Monitoring entitlement active" : "Beta monitoring allowance"}</h3>
+          <h3>
+            {monitoring.status === "active"
+              ? "Monitoring entitlement active"
+              : monitoring.checkoutLive
+                ? "Paid monitoring checkout available"
+                : "Beta monitoring allowance"}
+          </h3>
         </div>
         <p>{monitoring.message || "Weekly monitoring watches verified sites and reports proof deltas without claiming to fix issues."}</p>
       </section>
@@ -4422,6 +4433,8 @@ function BillingPortal({ ownerEmail }) {
   const [billing, setBilling] = useState(null);
   const [status, setStatus] = useState("loading");
   const [message, setMessage] = useState("Loading billing.");
+  const [monitoringCheckoutStatus, setMonitoringCheckoutStatus] = useState("idle");
+  const [monitoringCheckoutMessage, setMonitoringCheckoutMessage] = useState("");
 
   useEffect(() => {
     loadBillingSummary(setBilling, setStatus, setMessage);
@@ -4431,12 +4444,49 @@ function BillingPortal({ ownerEmail }) {
   const payments = billing?.payments || [];
   const pricing = billing?.pricing || {};
   const subscription = billing?.subscriptionState || {};
+  const monitoring = billing?.monitoring || {};
+  const monitoringOffer = monitoring.offer || {};
   const priceLabel =
     pricing.status === "available"
       ? pricing.displayPrice
       : status === "loading"
         ? "Loading Dodo price"
         : "Pricing unavailable";
+  const monitoringDisabled = monitoringCheckoutDisabled({
+    checkoutReady: Boolean(monitoring.checkoutReady),
+    status: monitoringCheckoutStatus,
+    hasEligibleSite: monitoring.hasEligibleSite !== false
+  });
+
+  async function startMonitoringCheckout() {
+    setMonitoringCheckoutStatus("submitting");
+    setMonitoringCheckoutMessage("");
+    try {
+      const response = await fetch("/api/beta/monitoring-checkout", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json"
+        },
+        body: JSON.stringify({})
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok && payload.checkoutAvailable !== false) {
+        throw new Error(payload.error || payload.message || "Proof Monitoring checkout is unavailable.");
+      }
+      const outcome = monitoringCheckoutOutcome(payload);
+      setMonitoringCheckoutStatus(outcome.status === "redirecting" ? "success" : outcome.status);
+      setMonitoringCheckoutMessage(outcome.message);
+      if (outcome.checkoutUrl) {
+        window.location.href = outcome.checkoutUrl;
+      }
+    } catch (error) {
+      const outcome = monitoringCheckoutErrorOutcome(error);
+      setMonitoringCheckoutStatus(outcome.status);
+      setMonitoringCheckoutMessage(outcome.message);
+    }
+  }
 
   return (
     <section className="billing-shell">
@@ -4492,6 +4542,28 @@ function BillingPortal({ ownerEmail }) {
           </div>
           <p>{subscription.message || "SEO Fix Kit currently sells one-time Fix Pack requests. Repair Agent and Growth Add-On subscriptions remain roadmap."}</p>
           <p className="quiet-note">Provider: {billing?.provider?.name || "Dodo Payments"}</p>
+        </div>
+
+        <div className="billing-panel">
+          <div className="section-heading">
+            <p className="beta-eyebrow">Proof Monitoring</p>
+            <h2>{monitoring.status === "active" ? "Monitoring active" : monitoring.checkoutReady ? "Start weekly monitoring" : "Monitoring checkout gated"}</h2>
+          </div>
+          <p>{monitoring.message || monitoringOffer.description || "Weekly proof monitoring watches verified sites and reports deltas."}</p>
+          <button
+            className="action-link paid-action"
+            disabled={monitoringDisabled}
+            onClick={startMonitoringCheckout}
+            type="button"
+          >
+            {monitoringCheckoutStatus === "submitting" ? "Opening checkout" : "Start monitoring checkout"}
+          </button>
+          {monitoringCheckoutMessage && (
+            <p className={`form-message ${monitoringCheckoutStatus}`}>{monitoringCheckoutMessage}</p>
+          )}
+          <p className="quiet-note">
+            Entitlement activates only after Dodo sends the subscription webhook. This does not execute repairs.
+          </p>
         </div>
       </section>
 
