@@ -14,6 +14,8 @@ import {
   repairActionApplyPatch,
   repairActionApprovalPatch,
   repairActionIgnorePatch,
+  repairActionImplementationPackAvailable,
+  repairActionImplementationPackUrl,
   repairActionRerunPatch,
   repairActionUpdateRequest
 } from "./repair-action-requests.js";
@@ -3237,6 +3239,16 @@ function TeamRepairBoard({ report }) {
                   {issue.latestAction?.proposedChange && <p>{issue.latestAction.proposedChange}</p>}
                 </div>
                 <div className="repair-action-buttons">
+                  {repairActionImplementationPackAvailable(issue.latestAction) && (
+                    <a
+                      className="action-link"
+                      href={repairActionImplementationPackUrl(report.id, issue.latestAction.id)}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Implementation pack
+                    </a>
+                  )}
                   <button
                     className="action-link"
                     disabled={actingIssueId === issue.issueId || status === "loading"}

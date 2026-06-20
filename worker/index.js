@@ -52,6 +52,7 @@ import {
 } from "./routes/reports.js";
 import {
   createRepairAction,
+  getRepairActionImplementationPack,
   getRepairQueue,
   saveRepairQueue,
   updateRepairAction
@@ -77,6 +78,7 @@ import {
   apiGetAudit,
   apiGetAuditIssues,
   apiGetAuditReport,
+  apiGetRepairActionImplementationPack,
   apiGetRepairQueue,
   apiSaveRepairQueue,
   apiUpdateRepairAction,
@@ -327,6 +329,10 @@ export default {
         return createRepairAction(request, env, ctx);
       }
 
+      if (url.pathname.startsWith("/api/reports/") && url.pathname.includes("/repair-actions/") && url.pathname.endsWith("/implementation.md") && request.method === "GET") {
+        return getRepairActionImplementationPack(request, env, ctx);
+      }
+
       if (url.pathname.startsWith("/api/reports/") && url.pathname.includes("/repair-actions/") && request.method === "PATCH") {
         return updateRepairAction(request, env, ctx);
       }
@@ -385,6 +391,10 @@ export default {
 
       if (url.pathname.startsWith("/v1/audits/") && url.pathname.endsWith("/repair-actions") && request.method === "POST") {
         return apiCreateRepairAction(request, env, ctx);
+      }
+
+      if (url.pathname.startsWith("/v1/audits/") && url.pathname.includes("/repair-actions/") && url.pathname.endsWith("/implementation.md") && request.method === "GET") {
+        return apiGetRepairActionImplementationPack(request, env);
       }
 
       if (url.pathname.startsWith("/v1/audits/") && url.pathname.includes("/repair-actions/") && request.method === "PATCH") {

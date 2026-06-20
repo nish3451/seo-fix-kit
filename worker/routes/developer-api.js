@@ -12,6 +12,10 @@ import {
   apiRepairQueueSummary
 } from "../../shared/repair-queue.js";
 import {
+  buildRepairImplementationPack,
+  repairImplementationItemForAction
+} from "../../shared/repair-implementation-pack.js";
+import {
   repairActionDetailResponse,
   repairQueueItemDetailResponse
 } from "../../shared/repair-api-serializers.js";
@@ -23,7 +27,7 @@ import {
   betaAccessResponse,
   betaAccessStatus
 } from "../lib/auth.js";
-import { json, jsonNoStore } from "../lib/http.js";
+import { json, jsonNoStore, secureHeaders } from "../lib/http.js";
 import { repairTableAll, requireRepairTables } from "../lib/repair-tables.js";
 import {
   deleteReportRowsWithBlobs,
@@ -113,6 +117,7 @@ async function getDeveloperApiSummary(request, env) {
       updateRepairQueue: "PATCH /v1/audits/{audit_id}/repair-queue",
       createRepairAction: "POST /v1/audits/{audit_id}/repair-actions",
       updateRepairAction: "PATCH /v1/audits/{audit_id}/repair-actions/{action_id}",
+      getRepairActionImplementationPack: "GET /v1/audits/{audit_id}/repair-actions/{action_id}/implementation.md",
       getReport: "GET /v1/audits/{audit_id}/report",
       startLargeCrawl: "POST /v1/large-crawls",
       getLargeCrawl: "GET /v1/large-crawls/{large_crawl_id}",
@@ -614,6 +619,47 @@ async function apiUpdateRepairAction(request, env, ctx = null) {
   });
 }
 
+async function apiGetRepairActionImplementationPack(request, env) {
+  const access = await apiAccessStatus(request, env);
+  if (!access.ok) return apiAccessResponse(access);
+  const repairTables = await requireRepairTables(env);
+  if (!repairTables.ok) return repairTables.response;
+  const { auditId, actionId } = apiRepairActionImplementationPathParts(request.url);
+  if (!isSafeUuid(actionId)) return json({ error: "Action not found." }, 404);
+  const resolved = await resolveApiAuditReport(env, access, auditId);
+  if (!resolved.ok) return jsonNoStore({ error: resolved.error }, resolved.status);
+  const reportId = resolved.report.id;
+
+  const action = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM repair_agent_actions
+     WHERE id = ?
+       AND report_id = ?
+       AND owner_email = ?
+     LIMIT 1`
+  )
+    .bind(actionId, reportId, access.ownerEmail)
+    .first();
+  if (!action?.id) return json({ error: "Action not found." }, 404);
+
+  const ensured = await ensureRepairQueueRows(env, access, reportId, resolved.report);
+  const item = repairImplementationItemForAction(ensured.items || [], action);
+  if (!item) return jsonNoStore({ error: "Repair item not found." }, 409);
+
+  const pack = buildRepairImplementationPack({ report: resolved.report, item, action });
+  if (!pack.ok) return jsonNoStore({ error: pack.error }, pack.status || 400);
+
+  return new Response(pack.markdown, {
+    status: 200,
+    headers: secureHeaders({
+      "cache-control": "no-store",
+      "content-disposition": `attachment; filename="${pack.filename}"`,
+      "content-type": pack.contentType,
+      "x-robots-tag": "noindex, nofollow"
+    })
+  });
+}
+
 async function apiDeleteAudit(request, env) {
   const access = await apiAccessStatus(request, env);
   if (!access.ok) return apiAccessResponse(access);
@@ -802,6 +848,23 @@ function apiRepairActionPathParts(rawUrl) {
   };
 }
 
+function apiRepairActionImplementationPathParts(rawUrl) {
+  const pathname = new URL(rawUrl).pathname;
+  const prefix = "/v1/audits/";
+  const marker = "/repair-actions/";
+  const suffix = "/implementation.md";
+  if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix) || !pathname.includes(marker)) {
+    return { auditId: "", actionId: "" };
+  }
+  const rest = pathname.slice(prefix.length, -suffix.length);
+  const markerIndex = rest.indexOf(marker);
+  if (markerIndex === -1) return { auditId: "", actionId: "" };
+  return {
+    auditId: decodeURIComponent(rest.slice(0, markerIndex).replace(/^\/|\/$/g, "")),
+    actionId: decodeURIComponent(rest.slice(markerIndex + marker.length).replace(/^\/|\/$/g, ""))
+  };
+}
+
 function scheduleApiRepairActionWebhook(env, access, ctx, eventType, action = {}, report = {}) {
   const delivery = deliverApiWebhooks(
     env,
@@ -832,6 +895,7 @@ export {
   apiGetAudit,
   apiGetAuditIssues,
   apiGetAuditReport,
+  apiGetRepairActionImplementationPack,
   apiGetRepairQueue,
   apiSaveRepairQueue,
   apiUpdateRepairAction,

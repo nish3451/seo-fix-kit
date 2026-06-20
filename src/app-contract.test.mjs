@@ -13,6 +13,8 @@ import {
   repairActionApplyPatch,
   repairActionApprovalPatch,
   repairActionIgnorePatch,
+  repairActionImplementationPackAvailable,
+  repairActionImplementationPackUrl,
   repairActionRerunPatch,
   repairActionUpdateRequest
 } from "./repair-action-requests.js";
@@ -105,6 +107,17 @@ test("repair action UI contract uses action endpoint for lifecycle changes", () 
     assert.deepEqual(JSON.parse(request.init.body), expected, label);
     assert.equal(request.endpoint.includes("/repair-queue"), false, label);
   }
+});
+
+test("repair action UI exposes implementation pack only after approval", () => {
+  assert.equal(
+    repairActionImplementationPackUrl("report 1", "action/1"),
+    "/api/reports/report%201/repair-actions/action%2F1/implementation.md"
+  );
+  assert.equal(repairActionImplementationPackAvailable({ id: "action-1", approvalState: "drafted" }), false);
+  assert.equal(repairActionImplementationPackAvailable({ id: "action-1", approvalState: "ignored" }), false);
+  assert.equal(repairActionImplementationPackAvailable({ id: "action-1", approvalState: "approved" }), true);
+  assert.equal(repairActionImplementationPackAvailable({ id: "action-1", executionState: "applied" }), true);
 });
 
 test("billing delivery readiness copy is customer-facing", () => {

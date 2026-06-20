@@ -56,7 +56,8 @@ test("machine-readable public surfaces list proof pages and limits", () => {
   assert.doesNotMatch(sitemap, /\/llms\.txt/);
   assert.match(llms, /Does not provide live AI-engine visibility tracking/);
   assert.match(llms, /Does not auto-publish growth content/);
-  assert.match(llms, /Does not publish CMS changes/);
+  assert.match(llms, /implementation packs are private handoff documents/i);
+  assert.match(llms, /does not publish CMS changes/i);
 });
 
 test("public demo and support pages carry enough buyer-facing detail", () => {

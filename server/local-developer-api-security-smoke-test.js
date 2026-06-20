@@ -160,6 +160,22 @@ try {
   assert.equal(apiPatchActionBody.action.execution_state, "applied");
   assert.equal(apiPatchActionBody.queue.summary.applied, 1);
 
+  const missingAuthPackResponse = await fetch(`${origin}/v1/audits/${seeded.auditId}/repair-actions/${apiActionBody.action.id}/implementation.md`);
+  assert.equal(missingAuthPackResponse.status, 401);
+
+  const apiImplementationPackResponse = await fetch(`${origin}/v1/audits/${seeded.auditId}/repair-actions/${apiActionBody.action.id}/implementation.md`, {
+    headers: { authorization: `Bearer ${seeded.apiToken}` }
+  });
+  assert.equal(apiImplementationPackResponse.status, 200);
+  assert.match(apiImplementationPackResponse.headers.get("content-type") || "", /text\/markdown/);
+  assert.equal(apiImplementationPackResponse.headers.get("cache-control"), "no-store");
+  assert.equal(apiImplementationPackResponse.headers.get("x-robots-tag"), "noindex, nofollow");
+  const apiImplementationPack = await apiImplementationPackResponse.text();
+  assert.match(apiImplementationPack, /# SEOFixKit Implementation Pack/);
+  assert.match(apiImplementationPack, /Draft the missing title for review/);
+  assert.match(apiImplementationPack, /Rerun Proof/);
+  assert.doesNotMatch(apiImplementationPack, /sfk_live_|BETA_ACCESS_PASSWORD|DODO_SEOFIXKIT_API_KEY/i);
+
   const loginResponse = await fetch(`${origin}/api/beta/login`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -168,6 +184,19 @@ try {
   assert.equal(loginResponse.status, 200);
   const sessionCookie = loginResponse.headers.get("set-cookie");
   assert.ok(sessionCookie);
+
+  const missingSessionPackResponse = await fetch(`${origin}/api/reports/${seeded.reportId}/repair-actions/${apiActionBody.action.id}/implementation.md`);
+  assert.equal(missingSessionPackResponse.status, 401);
+
+  const betaImplementationPackResponse = await fetch(`${origin}/api/reports/${seeded.reportId}/repair-actions/${apiActionBody.action.id}/implementation.md`, {
+    headers: { cookie: sessionCookie }
+  });
+  assert.equal(betaImplementationPackResponse.status, 200);
+  assert.match(betaImplementationPackResponse.headers.get("content-disposition") || "", /implementation-pack\.md/);
+  const betaImplementationPack = await betaImplementationPackResponse.text();
+  assert.match(betaImplementationPack, /# SEOFixKit Implementation Pack/);
+  assert.match(betaImplementationPack, /Draft the missing title for review/);
+  assert.doesNotMatch(betaImplementationPack, /sfk_live_|BETA_ACCESS_PASSWORD|DODO_SEOFIXKIT_API_KEY/i);
 
   const accountResponse = await fetch(`${origin}/api/account/summary`, {
     headers: { cookie: sessionCookie }

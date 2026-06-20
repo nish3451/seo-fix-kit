@@ -22,9 +22,9 @@ Live product claims:
 - Reports include rendered WordPress and ecommerce platform proof for Product schema, breadcrumbs, faceted links, archives, and plugin resource impact.
 - Reports include proof-derived AI Answer Readiness checks for rendered content depth, helpful schema, canonical/internal-link clarity, question-led structure, sitemap context, and optional llms.txt reachability.
 - Reports include draft-only growth briefs from verified keyword, competitor, AI-readiness, and crawl gaps.
-- Reports include a private repair queue with proof, acceptance checks, status, safe draft action records, and approval state.
+- Reports include a private repair queue with proof, acceptance checks, status, safe draft action records, approval state, and owner-approved implementation packs.
 - The account dashboard includes a repair-agent feed that ranks open repairs, drafted actions, applied items needing rerun proof, and monitor regressions.
-- Developer API issue/report responses include safe repair_queue status and repair-action lifecycle webhooks.
+- Developer API issue/report responses include safe repair_queue status. Approved-action implementation packs are fetched from /v1/audits/{audit_id}/repair-actions/{action_id}/implementation.md; repair-action lifecycle webhooks are supported.
 - Reports include SEO/GEO readiness checks for crawlable answer content, entity clarity, useful schema, internal context, and optional llms.txt boundaries.
 - Dodo is the source of truth for visible Fix Pack pricing and checkout.
 - Paid Fix Pack fulfillment includes owner-approved repair proposals, status, delivery notes, and one rerun after fixes.
@@ -45,7 +45,7 @@ Current product boundary:
 - Does not claim llms.txt is required for Google Search or Google generative search surfaces.
 - Does not scrape private Google Business Profile data or discover every citation automatically.
 - Does not log into WordPress, Shopify, WooCommerce, Magento, or private CMS/plugin admin settings.
-- Does not publish CMS changes, open GitHub pull requests, or call provider admin APIs from the browser.
+- Implementation packs are private handoff documents only; SEO Fix Kit does not publish CMS changes, open GitHub pull requests, merge code, or call provider admin APIs from the browser.
 - Does not replace Ahrefs or Semrush.
 - Does not provide anonymous public audits.
 - Does not guarantee rankings, traffic, indexing, or revenue.
@@ -67,7 +67,7 @@ Useful routes:
 function homeMarkdown(origin) {
   return `# SEO Fix Kit
 
-Proof-backed SEO audits, self-serve repair queue, and approval-safe repair-agent workflow.
+Proof-backed SEO audits, self-serve repair queue, private implementation packs, and approval-safe repair-agent workflow.
 
 Request a secure email access link to run a rate-limited private audit. The paid Fix Pack is one proof-backed repair pass for one report plus one rerun after fixes. No ranking promise is made.
 
@@ -223,8 +223,8 @@ function methodologyHtml(origin) {
         <ul class="check-list">
           <li>Private self-serve audits for authorized sites, with 1-page Lite checks and verified-host crawl depths up to 1,000 pages.</li>
           <li>Rendered page proof, sitemap inventory up to 50,000 discovered URLs, crawl intelligence, resource waterfall proof, platform SEO checks, proof-derived AI Answer Readiness, draft-only growth briefs, competitor homepage benchmarks, and supplied backlink/local/keyword imports.</li>
-          <li>Private report repair queues with proof, status, safe drafts, approval state, teammate assignment, account-level next actions, and one Fix Pack checkout path when real fixes exist.</li>
-          <li>Developer API and webhook surfaces for owner-scoped audit workflows, including safe repair queue status and repair-action lifecycle events.</li>
+          <li>Private report repair queues with proof, status, safe drafts, approval state, owner-approved implementation packs, teammate assignment, account-level next actions, and one Fix Pack checkout path when real fixes exist.</li>
+          <li>Developer API and webhook surfaces for owner-scoped audit workflows, including safe repair queue status, a separate approved-action implementation-pack endpoint, and repair-action lifecycle events.</li>
         </ul>
       </section>
       <section class="band">
@@ -233,7 +233,7 @@ function methodologyHtml(origin) {
           <article class="panel"><strong>No fake scale claim</strong><p>Large 50,000-page rendered crawls are early-access staged jobs. We do not call them complete until every batch has page-level proof and merge readiness is clear.</p></article>
           <article class="panel"><strong>No AI visibility tracking</strong><p>AI Answer Readiness is proof-derived from rendered pages, schema, canonicals, links, sitemap context, and optional llms.txt. Live answer-engine sampling, AI citation monitoring, and AI visibility score tracking are not live.</p></article>
           <article class="panel"><strong>No backlink database claim</strong><p>Backlink proof starts with supplied/imported rows and link-edge history. SEO Fix Kit does not replace Ahrefs, Semrush, or proprietary backlink discovery.</p></article>
-          <article class="panel"><strong>No hidden site writes</strong><p>Agent actions and growth briefs are records and reviewable drafts. The browser does not call CMS admin APIs, publish pages, merge code, or use private provider credentials.</p></article>
+          <article class="panel"><strong>No hidden site writes</strong><p>Agent actions, implementation packs, and growth briefs are records, handoffs, and reviewable drafts. The browser does not call CMS admin APIs, publish pages, merge code, or use private provider credentials.</p></article>
         </div>
       </section>
       <section class="band">
@@ -282,7 +282,7 @@ function packagesHtml(origin) {
         <article class="package-card">
           <span>Roadmap</span>
           <h2>Repair Agent</h2>
-          <p>Recurring approval workflow for safe drafts, CMS/GitHub handoff, and rerun tracking after explicit integrations exist.</p>
+          <p>Private implementation packs are live as handoffs for approved actions. Recurring subscription workflow, CMS writes, and GitHub PR creation remain roadmap until explicit integrations exist.</p>
           <ul>
             <li>No live subscription yet</li>
             <li>No CMS writes yet</li>

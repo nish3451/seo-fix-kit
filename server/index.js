@@ -60,6 +60,10 @@ import {
   repairQueueItemDetailResponse
 } from "../shared/repair-api-serializers.js";
 import {
+  buildRepairImplementationPack,
+  repairImplementationItemForAction
+} from "../shared/repair-implementation-pack.js";
+import {
   comparableReportHost,
   normalizeRepairActionCreateInput,
   normalizeRepairActionPatch,
@@ -1066,6 +1070,20 @@ app.patch("/api/reports/:id/repair-actions/:actionId", (req, res) => {
   res.set("cache-control", "no-store").json(result.body);
 });
 
+app.get("/api/reports/:id/repair-actions/:actionId/implementation.md", (req, res) => {
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res.status(401).set("cache-control", "no-store").json({ error: "Private beta session required." });
+    return;
+  }
+  const report = auditReports.get(req.params.id);
+  if (!report || report.owner?.email !== access.ownerEmail) {
+    res.status(404).set("cache-control", "no-store").json({ error: "Report not found." });
+    return;
+  }
+  sendLocalImplementationPack(res, localRepairActionImplementationPack(access, report, req.params.actionId));
+});
+
 app.get("/v1/projects", (req, res) => {
   const access = localApiAccess(req);
   if (!access.ok) {
@@ -1251,6 +1269,20 @@ app.patch("/v1/audits/:id/repair-actions/:actionId", (req, res) => {
     return;
   }
   res.set("cache-control", "no-store").json(localApiRepairActionResponse(access, resolved, result.body?.action));
+});
+
+app.get("/v1/audits/:id/repair-actions/:actionId/implementation.md", (req, res) => {
+  const access = localApiAccess(req);
+  if (!access.ok) {
+    res.status(access.status || 401).set("cache-control", "no-store").json({ error: access.error || "API key required." });
+    return;
+  }
+  const resolved = resolveLocalApiAudit(access, req.params.id);
+  if (!resolved.ok) {
+    res.status(resolved.status).set("cache-control", "no-store").json({ error: resolved.error });
+    return;
+  }
+  sendLocalImplementationPack(res, localRepairActionImplementationPack(access, resolved.report, req.params.actionId));
 });
 
 app.get("/v1/audits/:id", (req, res) => {
@@ -2601,6 +2633,7 @@ function localDeveloperSummary(access) {
       updateRepairQueue: "PATCH /v1/audits/{audit_id}/repair-queue",
       createRepairAction: "POST /v1/audits/{audit_id}/repair-actions",
       updateRepairAction: "PATCH /v1/audits/{audit_id}/repair-actions/{action_id}",
+      getRepairActionImplementationPack: "GET /v1/audits/{audit_id}/repair-actions/{action_id}/implementation.md",
       getReport: "GET /v1/audits/{audit_id}/report",
       startLargeCrawl: "POST /v1/large-crawls",
       getLargeCrawl: "GET /v1/large-crawls/{large_crawl_id}",
@@ -2608,7 +2641,7 @@ function localDeveloperSummary(access) {
       webhookEvents: "audit.completed, audit.failed, repair_action.drafted, repair_action.approved, repair_action.applied, repair_action.fixed, repair_action.regressed"
     },
     issueFields: {
-      repair_queue: "Safe per-issue queue status. Draft text is only returned from owner-authenticated repair-action surfaces."
+      repair_queue: "Safe per-issue queue status. Draft text is only returned from owner-authenticated repair-action surfaces and the separate approved-action implementation-pack endpoint."
     },
     workerOnlyDocs: {
       authHeader: "x-seofixkit-worker-token: WORKER_TOKEN",
@@ -3057,6 +3090,34 @@ function localApiRepairActionResponse(access, resolved = {}, action = {}) {
       summary: queue.summary
     }
   };
+}
+
+function localRepairActionImplementationPack(access, report, actionId = "") {
+  const action = localRepairActionRows.get(String(actionId || ""));
+  if (!action || action.report_id !== report.id || action.owner_email !== access.ownerEmail) {
+    return { ok: false, status: 404, error: "Action not found." };
+  }
+  const item = repairImplementationItemForAction(ensureLocalRepairQueueRows(access, report), action);
+  if (!item) return { ok: false, status: 409, error: "Repair item not found." };
+  const pack = buildRepairImplementationPack({ report, item, action });
+  if (!pack.ok) return { ok: false, status: pack.status || 400, error: pack.error };
+  return { ok: true, pack };
+}
+
+function sendLocalImplementationPack(res, result = {}) {
+  if (!result.ok) {
+    res.status(result.status || 400).set("cache-control", "no-store").json({ error: result.error || "Implementation pack is unavailable." });
+    return;
+  }
+  res
+    .status(200)
+    .set({
+      "cache-control": "no-store",
+      "content-disposition": `attachment; filename="${result.pack.filename}"`,
+      "content-type": result.pack.contentType,
+      "x-robots-tag": "noindex, nofollow"
+    })
+    .send(result.pack.markdown);
 }
 
 function saveLocalRepairQueue(access, report, items = []) {

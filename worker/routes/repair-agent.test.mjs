@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createRepairAction,
+  getRepairActionImplementationPack,
   getRepairQueue,
   saveRepairQueue,
   updateRepairAction
@@ -50,6 +51,136 @@ test("repair agent route derives queue rows and records approval-safe actions", 
   assert.equal(approvedBody.action.approvalState, "approved");
   assert.equal(env.queueItems[0].status, "approved");
   assert.equal(env.actions[0].execution_state, "not_started");
+
+  const packResponse = await getRepairActionImplementationPack(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}/implementation.md`),
+    env
+  );
+  assert.equal(packResponse.status, 200);
+  assert.match(packResponse.headers.get("content-type") || "", /text\/markdown/);
+  assert.equal(packResponse.headers.get("cache-control"), "no-store");
+  assert.equal(packResponse.headers.get("x-robots-tag"), "noindex, nofollow");
+  assert.match(packResponse.headers.get("content-disposition") || "", /implementation-pack\.md/);
+  const packMarkdown = await packResponse.text();
+  assert.match(packMarkdown, /# SEOFixKit Implementation Pack/);
+  assert.match(packMarkdown, /Missing title/);
+  assert.match(packMarkdown, /Rendered title is missing/);
+  assert.match(packMarkdown, /Draft the fixed title for review/);
+  assert.match(packMarkdown, /Rerun Proof/);
+  assert.doesNotMatch(packMarkdown, /checkoutUrl|sfk_beta_session|DODO_SEOFIXKIT_API_KEY/i);
+});
+
+test("repair action implementation pack requires owner-approved action", async () => {
+  const env = fakeRepairEnv();
+  const reportId = "example-report-1";
+  await getRepairQueue(sessionRequest(`/api/reports/${reportId}/repair-queue`), env);
+  await createRepairAction(
+    sessionRequest(`/api/reports/${reportId}/repair-actions`, {
+      method: "POST",
+      body: JSON.stringify({ issueId: "issue-1", proposedChange: "Draft the fixed title for review." })
+    }),
+    env
+  );
+
+  const draftResponse = await getRepairActionImplementationPack(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}/implementation.md`),
+    env
+  );
+  assert.equal(draftResponse.status, 409);
+  assert.match((await draftResponse.json()).error, /Approve the repair action/i);
+
+  await updateRepairAction(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ approvalState: "ignored" })
+    }),
+    env
+  );
+  const ignoredResponse = await getRepairActionImplementationPack(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}/implementation.md`),
+    env
+  );
+  assert.equal(ignoredResponse.status, 409);
+  assert.match((await ignoredResponse.json()).error, /Ignored repair actions/i);
+});
+
+test("repair action implementation pack fails closed for auth and stale queue state", async () => {
+  const env = fakeRepairEnv();
+  const reportId = "example-report-1";
+  await getRepairQueue(sessionRequest(`/api/reports/${reportId}/repair-queue`), env);
+  await createRepairAction(
+    sessionRequest(`/api/reports/${reportId}/repair-actions`, {
+      method: "POST",
+      body: JSON.stringify({ issueId: "issue-1", proposedChange: "Draft the fixed title for review." })
+    }),
+    env
+  );
+  await updateRepairAction(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ approvalState: "approved" })
+    }),
+    env
+  );
+
+  const noSessionResponse = await getRepairActionImplementationPack(
+    new Request(`https://seofixkit.test/api/reports/${reportId}/repair-actions/${env.actions[0].id}/implementation.md`),
+    env
+  );
+  assert.equal(noSessionResponse.status, 401);
+
+  env.actions[0].action_mode = "unsupported";
+  const unsupportedResponse = await getRepairActionImplementationPack(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}/implementation.md`),
+    env
+  );
+  assert.equal(unsupportedResponse.status, 409);
+  assert.match((await unsupportedResponse.json()).error, /Unsupported repair actions/i);
+  env.actions[0].action_mode = "self_serve";
+
+  env.queueItems[0].status = "ignored";
+  const ignoredItemResponse = await getRepairActionImplementationPack(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}/implementation.md`),
+    env
+  );
+  assert.equal(ignoredItemResponse.status, 409);
+  assert.match((await ignoredItemResponse.json()).error, /Ignored repair items/i);
+  env.queueItems[0].status = "approved";
+
+  env.actions[0].queue_item_id = "missing-queue-row";
+  const staleQueueResponse = await getRepairActionImplementationPack(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}/implementation.md`),
+    env
+  );
+  assert.equal(staleQueueResponse.status, 409);
+  assert.match((await staleQueueResponse.json()).error, /Repair item not found/i);
+});
+
+test("repair action implementation pack is owner scoped", async () => {
+  const env = fakeRepairEnv();
+  const reportId = "example-report-1";
+  await getRepairQueue(sessionRequest(`/api/reports/${reportId}/repair-queue`), env);
+  await createRepairAction(
+    sessionRequest(`/api/reports/${reportId}/repair-actions`, {
+      method: "POST",
+      body: JSON.stringify({ issueId: "issue-1", proposedChange: "Draft the fixed title for review." })
+    }),
+    env
+  );
+  await updateRepairAction(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ approvalState: "approved" })
+    }),
+    env
+  );
+
+  env.ownerEmail = "other@example.com";
+  const response = await getRepairActionImplementationPack(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}/implementation.md`),
+    env
+  );
+  assert.equal(response.status, 404);
 });
 
 test("repair action create does not persist when the queue row disappears", async () => {
