@@ -1,5 +1,5 @@
 import { crawlDepthSummary } from "../../shared/crawl-depth.js";
-import { fixRequestStatusLabel } from "../../shared/fulfillment.js";
+import { fixRequestStatusLabel, repairDeliveryReadiness } from "../../shared/fulfillment.js";
 import { keywordRowsSummary } from "../../shared/keyword-rank-audit.js";
 import { localSeoInputSummary } from "../../shared/local-seo-audit.js";
 import {
@@ -266,12 +266,27 @@ function repairProposalResponse(row = {}, now = new Date().toISOString()) {
   };
 }
 
-function billingFixRequestResponse(row, now = new Date().toISOString()) {
-  return {
+function billingFixRequestResponse(row, now = new Date().toISOString(), proposalSummary = null) {
+  const response = {
     ...fixRequestResponse(row, now),
     reportId: row.report_id,
     reportPath: `/beta/reports/${row.report_id}`,
     briefPath: `/api/reports/${row.report_id}/brief.md`
+  };
+  delete response.checkoutSessionId;
+  if (proposalSummary) {
+    response.deliveryReadiness = customerDeliveryReadiness(row, proposalSummary);
+  }
+  return response;
+}
+
+function customerDeliveryReadiness(row, proposalSummary) {
+  const readiness = repairDeliveryReadiness(row, proposalSummary);
+  return {
+    status: readiness.status,
+    readyForStart: readiness.readyForStart,
+    readyForDelivery: readiness.readyForDelivery,
+    blockers: (readiness.blockers || []).map((blocker) => ({ id: blocker.id }))
   };
 }
 

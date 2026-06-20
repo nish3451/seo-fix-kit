@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CRAWL_DEPTH_TIERS, DEFAULT_CRAWL_PAGES, SELF_SERVE_MAX_CRAWL_PAGES } from "../shared/crawl-depth.js";
 import { RENDERED_CRAWL_TARGETS } from "../shared/rendered-crawl-scale.js";
 import { developerWebhookRequest } from "./developer-webhooks.js";
+import { deliveryReadinessLabel, deliveryReadinessText } from "./delivery-readiness-copy.js";
 import {
   fixPackCheckoutBody,
   fixPackCheckoutDisabled,
@@ -4478,26 +4479,35 @@ function BillingPortal({ ownerEmail }) {
           <h2>Fix Pack status</h2>
         </div>
         <div className="billing-list">
-          {requests.map((request) => (
-            <article className={`billing-row ${request.status}`} key={request.id}>
-              <div>
-                <span className="status-pill">{request.statusLabel || statusLabel(request.status)}</span>
-                <h3>{request.targetHost || request.targetUrl}</h3>
-                <p>{request.issueCount || 0} findings · score {request.score ?? "unknown"}</p>
-              </div>
-              <div className="billing-row-meta">
-                {request.paidAt && <span>Paid {formatDate(request.paidAt)}</span>}
-                {request.dueAt && <span>Due {formatDate(request.dueAt)}</span>}
-                {request.nextUpdateAt && <span>Next update {formatDate(request.nextUpdateAt)}</span>}
-                {request.deliveredAt && <span>Delivered {formatDate(request.deliveredAt)}</span>}
-              </div>
-              <div className="queue-links">
-                {request.reportPath && <a href={request.reportPath}>Report</a>}
-                {request.briefPath && <a href={request.briefPath}>Brief</a>}
-                {request.deliveryUrl && <a href={request.deliveryUrl} target="_blank" rel="noreferrer">Delivery</a>}
-              </div>
-            </article>
-          ))}
+          {requests.map((request) => {
+            const readiness = request.deliveryReadiness || {};
+            return (
+              <article className={`billing-row ${request.status}`} key={request.id}>
+                <div>
+                  <span className="status-pill">{request.statusLabel || statusLabel(request.status)}</span>
+                  <h3>{request.targetHost || request.targetUrl}</h3>
+                  <p>{request.issueCount || 0} findings · score {request.score ?? "unknown"}</p>
+                  {readiness.status && (
+                    <div className={`delivery-readiness ${readiness.status}`}>
+                      <strong>{deliveryReadinessLabel(readiness)}</strong>
+                      <span>{deliveryReadinessText(readiness)}</span>
+                    </div>
+                  )}
+                </div>
+                <div className="billing-row-meta">
+                  {request.paidAt && <span>Paid {formatDate(request.paidAt)}</span>}
+                  {request.dueAt && <span>Due {formatDate(request.dueAt)}</span>}
+                  {request.nextUpdateAt && <span>Next update {formatDate(request.nextUpdateAt)}</span>}
+                  {request.deliveredAt && <span>Delivered {formatDate(request.deliveredAt)}</span>}
+                </div>
+                <div className="queue-links">
+                  {request.reportPath && <a href={request.reportPath}>Report</a>}
+                  {request.briefPath && <a href={request.briefPath}>Brief</a>}
+                  {request.deliveryUrl && <a href={request.deliveryUrl} target="_blank" rel="noreferrer">Delivery</a>}
+                </div>
+              </article>
+            );
+          })}
           {!requests.length && (
             <p className="quiet-note">
               No Fix Pack requests yet. Run an audit, open a report with proven fixes, then start checkout from that report.
@@ -4517,8 +4527,8 @@ function BillingPortal({ ownerEmail }) {
             <article className={`billing-row ${payment.type}`} key={`${payment.id}-${payment.type}`}>
               <div>
                 <span className="status-pill">{payment.type.replaceAll("_", " ")}</span>
-                <h3>{payment.targetHost || payment.paymentId || "Dodo payment"}</h3>
-                <p>{payment.paymentId || payment.checkoutSessionId || "Payment identity pending"}</p>
+                <h3>{payment.targetHost || "Dodo payment"}</h3>
+                <p>{payment.displayReference || payment.statusLabel || "Payment record"}</p>
               </div>
               <div className="billing-row-meta">
                 {payment.displayAmount && <span>{payment.displayAmount}</span>}

@@ -25,8 +25,9 @@ import {
   repairSprintEligibilityFromProposals,
   sellableOffers
 } from "../shared/offers.js";
-import { fixRequestAdminResponse, repairProposalSummaryForFixRequest } from "../worker/routes/admin.js";
+import { fixRequestAdminResponse } from "../worker/routes/admin.js";
 import { jsonForStorage } from "../worker/routes/billing.js";
+import { repairProposalSummaryForFixRequest } from "../worker/lib/repair-proposal-summary.js";
 import { repairProposalResponse } from "../worker/lib/serializers.js";
 import { repairProposalApprovalWindowStatus } from "../worker/routes/reports.js";
 
@@ -238,7 +239,7 @@ assert.equal(
   repairSprintEligibilityFromProposals([{ executionMode: "unsupported", approvalStatus: "approved" }]).status,
   "unsupported"
 );
-const proposalSummary = await repairProposalSummaryForFixRequest(fakeProposalSummaryEnv(), "fix_123");
+const proposalSummary = await repairProposalSummaryForFixRequest(fakeProposalSummaryEnv(), "fix_123", "buyer@example.com");
 assert.equal(proposalSummary.approved, 2);
 assert.equal(proposalSummary.approvedExecutable, 1);
 assert.equal(proposalSummary.executable, 2);
@@ -354,27 +355,58 @@ async function sign({ payload, webhookId, webhookTimestamp, secret }) {
 
 function fakeProposalSummaryEnv() {
   const rows = [
-    { fix_request_id: "fix_123", approval_status: "approved", delivery_status: "draft", execution_mode: "unsupported" },
-    { fix_request_id: "fix_123", approval_status: "approved", delivery_status: "draft", execution_mode: "generated_proposal" },
-    { fix_request_id: "fix_123", approval_status: "pending", delivery_status: "draft", execution_mode: "manual_task" }
+    {
+      fix_request_id: "fix_123",
+      owner_email: "buyer@example.com",
+      approval_status: "approved",
+      delivery_status: "draft",
+      execution_mode: "unsupported"
+    },
+    {
+      fix_request_id: "fix_123",
+      owner_email: "buyer@example.com",
+      approval_status: "approved",
+      delivery_status: "draft",
+      execution_mode: "generated_proposal"
+    },
+    {
+      fix_request_id: "fix_123",
+      owner_email: "buyer@example.com",
+      approval_status: "pending",
+      delivery_status: "draft",
+      execution_mode: "manual_task"
+    },
+    {
+      fix_request_id: "fix_123",
+      owner_email: "other@example.com",
+      approval_status: "approved",
+      delivery_status: "draft",
+      execution_mode: "generated_proposal"
+    }
   ];
   return {
     WAITLIST_DB: {
       prepare(sql) {
         assert.equal(sql.includes("approved_executable"), true);
         return {
-          bind(fixRequestId) {
-            const scoped = rows.filter((row) => row.fix_request_id === fixRequestId);
+          bind(fixRequestId, ownerEmail) {
+            const scoped = rows.filter((row) =>
+              row.fix_request_id === fixRequestId &&
+              (!ownerEmail || row.owner_email === ownerEmail)
+            );
             return {
-              first: async () => ({
-                total: scoped.length,
-                approved: scoped.filter((row) => row.approval_status === "approved").length,
-                approved_executable: scoped.filter(
-                  (row) => row.approval_status === "approved" && row.execution_mode !== "unsupported"
-                ).length,
-                dismissed: scoped.filter((row) => row.approval_status === "dismissed").length,
-                executable: scoped.filter((row) => row.execution_mode !== "unsupported").length,
-                delivered: scoped.filter((row) => row.delivery_status === "delivered").length
+              all: async () => ({
+                results: [{
+                  fix_request_id: fixRequestId,
+                  total: scoped.length,
+                  approved: scoped.filter((row) => row.approval_status === "approved").length,
+                  approved_executable: scoped.filter(
+                    (row) => row.approval_status === "approved" && row.execution_mode !== "unsupported"
+                  ).length,
+                  dismissed: scoped.filter((row) => row.approval_status === "dismissed").length,
+                  executable: scoped.filter((row) => row.execution_mode !== "unsupported").length,
+                  delivered: scoped.filter((row) => row.delivery_status === "delivered").length
+                }]
               })
             };
           }

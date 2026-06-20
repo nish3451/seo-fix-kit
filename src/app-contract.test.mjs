@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DEVELOPER_WEBHOOK_EVENTS, developerWebhookRequest } from "./developer-webhooks.js";
+import { deliveryReadinessLabel, deliveryReadinessText } from "./delivery-readiness-copy.js";
 import {
   fixPackCheckoutBody,
   fixPackCheckoutDisabled,
@@ -104,4 +105,63 @@ test("repair action UI contract uses action endpoint for lifecycle changes", () 
     assert.deepEqual(JSON.parse(request.init.body), expected, label);
     assert.equal(request.endpoint.includes("/repair-queue"), false, label);
   }
+});
+
+test("billing delivery readiness copy is customer-facing", () => {
+  const text = deliveryReadinessText({
+    status: "blocked",
+    blockers: [
+      { id: "customer_note_missing", label: "Add a customer-facing delivery note." },
+      { id: "delivery_link_missing", label: "Add a delivery link." },
+      { id: "final_rerun_missing", label: "Attach a final rerun report." }
+    ]
+  });
+
+  assert.equal(
+    text,
+    "We are preparing your delivery update. We are preparing the delivery link. Final rerun proof is not attached yet."
+  );
+  assert.equal(text.includes("Add "), false);
+  assert.equal(text.includes("Attach "), false);
+});
+
+test("billing delivery readiness label does not call blocked requests start-ready", () => {
+  assert.equal(
+    deliveryReadinessLabel({
+      status: "blocked",
+      readyForStart: true,
+      readyForDelivery: false
+    }),
+    "Waiting on repair proof"
+  );
+});
+
+test("billing delivery readiness copy covers ready delivered and proposal states", () => {
+  assert.equal(
+    deliveryReadinessText({ status: "ready", readyForDelivery: true }),
+    "Delivery note, delivery link, approval, and rerun proof are ready."
+  );
+  assert.equal(
+    deliveryReadinessText({ status: "delivered" }),
+    "Delivery and rerun proof are attached."
+  );
+  assert.equal(
+    deliveryReadinessText({ status: "blocked", blockers: [{ id: "approved_proposal_missing" }] }),
+    "A repair proposal still needs your approval."
+  );
+  assert.equal(
+    deliveryReadinessText({ status: "blocked", blockers: [{ id: "proposal_state_unavailable" }] }),
+    "Repair proposal status is temporarily unavailable."
+  );
+});
+
+test("billing delivery readiness copy hides unknown backend blocker labels", () => {
+  const text = deliveryReadinessText({
+    status: "blocked",
+    blockers: [{ id: "future_internal_blocker", label: "Attach payment-secret-123 before delivery." }]
+  });
+
+  assert.equal(text, "We are still preparing this repair pass.");
+  assert.equal(text.includes("payment-secret-123"), false);
+  assert.equal(text.includes("Attach"), false);
 });

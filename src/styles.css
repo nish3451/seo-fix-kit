@@ -3020,6 +3020,39 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.delivery-readiness {
+  background: rgba(251, 248, 239, 0.045);
+  border: 1px solid rgba(251, 248, 239, 0.11);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  max-width: 680px;
+  padding: 10px 12px;
+}
+
+.delivery-readiness.ready,
+.delivery-readiness.delivered {
+  border-color: rgba(152, 240, 204, 0.24);
+}
+
+.delivery-readiness.blocked {
+  border-color: rgba(214, 177, 95, 0.28);
+}
+
+.delivery-readiness strong {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.delivery-readiness span {
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .billing-row-meta {
   color: var(--ink-soft);
   display: grid;

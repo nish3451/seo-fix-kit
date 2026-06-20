@@ -441,7 +441,7 @@ app.get("/api/account/summary", (req, res) => {
     .filter((request) => request.ownerEmail === access.ownerEmail && !request.isTest)
     .sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)))
     .slice(0, 12)
-    .map(localBillingFixRequestResponse);
+    .map(localAccountFixRequestResponse);
   const sites = [...siteClaims.values()]
     .filter((claim) => claim.ownerEmail === access.ownerEmail && !claim.revokedAt)
     .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))
@@ -4510,6 +4510,16 @@ function localBillingFixRequestResponse(request) {
     ...localFixRequestResponse(request),
     reportId: request.reportId,
     reportPath: `/beta/reports/${request.reportId}`,
+    briefPath: `/api/reports/${request.reportId}/brief.md`,
+    deliveryReadiness: localCustomerDeliveryReadiness(request)
+  };
+}
+
+function localAccountFixRequestResponse(request) {
+  return {
+    ...localFixRequestResponse(request),
+    reportId: request.reportId,
+    reportPath: `/beta/reports/${request.reportId}`,
     briefPath: `/api/reports/${request.reportId}/brief.md`
   };
 }
@@ -4525,14 +4535,11 @@ function localBillingPaymentResponse(request) {
         ? "failed_payment"
         : "payment";
   return {
-    id: request.paymentId || request.checkoutSessionId || request.id,
+    id: request.id,
     type,
     status: request.status || "",
     statusLabel: localFixRequestStatusLabel(request.status),
-    paymentId: request.paymentId || "",
-    checkoutSessionId: request.checkoutSessionId || "",
-    refundId: request.refundId || "",
-    disputeEvent: request.disputeEvent || "",
+    displayReference: localBillingPaymentDisplayReference(type),
     amountMinor,
     currency: request.paymentCurrency || "",
     displayAmount: request.displayAmount || "",
@@ -4547,6 +4554,45 @@ function localBillingPaymentResponse(request) {
     disputedAt: request.disputedAt || "",
     createdAt: request.paidAt || request.refundedAt || request.disputedAt || request.updatedAt || request.createdAt || ""
   };
+}
+
+function localCustomerDeliveryReadiness(request = {}) {
+  const status = request.status || "new";
+  if (status === "delivered") {
+    return {
+      status: "delivered",
+      readyForStart: true,
+      readyForDelivery: true,
+      blockers: []
+    };
+  }
+
+  const paymentConfirmed = Boolean(
+    request.paidAt ||
+    request.paymentId ||
+    ["paid", "in_progress", "delivered"].includes(status)
+  );
+  const deliverableStatus = ["paid", "in_progress"].includes(status);
+  const blockers = [];
+  if (!paymentConfirmed) blockers.push({ id: "payment_unconfirmed" });
+  if (!deliverableStatus) blockers.push({ id: "status_not_deliverable" });
+  if (deliverableStatus) blockers.push({ id: "proposal_state_unavailable" });
+  if (!request.customerNote) blockers.push({ id: "customer_note_missing" });
+  if (!request.deliveryUrl) blockers.push({ id: "delivery_link_missing" });
+  if (!request.finalReportId) blockers.push({ id: "final_rerun_missing" });
+  return {
+    status: blockers.length ? "blocked" : "ready",
+    readyForStart: deliverableStatus,
+    readyForDelivery: blockers.length === 0,
+    blockers
+  };
+}
+
+function localBillingPaymentDisplayReference(type = "payment") {
+  if (type === "refund") return "Dodo refund record";
+  if (type === "dispute") return "Dodo dispute record";
+  if (type === "failed_payment") return "Dodo payment attempt";
+  return "Dodo payment record";
 }
 
 function localFixRequestAdminResponse(request) {
