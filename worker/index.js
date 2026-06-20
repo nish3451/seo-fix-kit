@@ -1,6 +1,7 @@
 import { isEmailConfigured } from "../shared/fulfillment.js";
 import { VERSION, rootSitemap } from "../shared/audit-engine.js";
 import {
+  createAdminBetaSession,
   createInvite,
   exportLeadsCsv,
   getAdminSummary,
@@ -448,6 +449,10 @@ export default {
 
       if (url.pathname === "/admin/session" && request.method === "DELETE") {
         return revokeAdminSession(request, env);
+      }
+
+      if (url.pathname === "/admin/beta-session" && request.method === "POST") {
+        return createAdminBetaSession(request, env);
       }
 
       if (url.pathname === "/api/webhooks/dodo" && request.method === "POST") {
