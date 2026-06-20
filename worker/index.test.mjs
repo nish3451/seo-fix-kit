@@ -73,6 +73,27 @@ test("Worker dispatch routes public pages and repair APIs", async () => {
   assert.match(sessionPack.headers.get("content-type") || "", /text\/markdown/);
   assert.match(await sessionPack.text(), /# SEOFixKit Implementation Pack/);
 
+  env.reports.push(fixedRerunReportRow("rerun-fixed-report-1"));
+  const sessionFixedPatch = await worker.fetch(sessionRequest(
+    env,
+    `/api/reports/${env.reportId}/repair-actions/${sessionActionBody.action.id}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        rerunState: "fixed",
+        rerunReportId: "rerun-fixed-report-1"
+      })
+    }
+  ), env, fakeCtx());
+  assert.equal(sessionFixedPatch.status, 200);
+  const sessionProof = await worker.fetch(sessionRequest(
+    env,
+    `/api/reports/${env.reportId}/repair-actions/${sessionActionBody.action.id}/proof.md`
+  ), env, fakeCtx());
+  assert.equal(sessionProof.status, 200);
+  assert.match(sessionProof.headers.get("content-type") || "", /text\/markdown/);
+  assert.match(await sessionProof.text(), /# SEOFixKit Repair Proof Receipt/);
+
   const apiEnv = await fakeWorkerEnv();
   await worker.fetch(new Request(`https://seofixkit.test/v1/audits/${apiEnv.auditId}/repair-queue`, {
     headers: { authorization: `Bearer ${apiEnv.apiToken}` }
@@ -126,6 +147,27 @@ test("Worker dispatch routes public pages and repair APIs", async () => {
   assert.equal(apiPack.status, 200);
   assert.match(apiPack.headers.get("content-type") || "", /text\/markdown/);
   assert.match(await apiPack.text(), /# SEOFixKit Implementation Pack/);
+
+  apiEnv.reports.push(fixedRerunReportRow("rerun-fixed-report-1"));
+  const apiFixedPatch = await worker.fetch(apiRequest(
+    apiEnv,
+    `/v1/audits/${apiEnv.auditId}/repair-actions/${apiActionBody.action.id}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        rerun_state: "fixed",
+        rerun_report_id: "rerun-fixed-report-1"
+      })
+    }
+  ), apiEnv, fakeCtx());
+  assert.equal(apiFixedPatch.status, 200);
+  const apiProof = await worker.fetch(apiRequest(
+    apiEnv,
+    `/v1/audits/${apiEnv.auditId}/repair-actions/${apiActionBody.action.id}/proof.md`
+  ), apiEnv, fakeCtx());
+  assert.equal(apiProof.status, 200);
+  assert.match(apiProof.headers.get("content-type") || "", /text\/markdown/);
+  assert.match(await apiProof.text(), /# SEOFixKit Repair Proof Receipt/);
 });
 
 test("Worker dispatch exposes public-safe deep health readiness", async () => {
@@ -270,6 +312,40 @@ function apiRequest(env, path, init = {}) {
       ...(init.headers || {})
     }
   });
+}
+
+function fixedRerunReportRow(id) {
+  const timestamp = new Date(Date.now() + 60_000).toISOString();
+  return {
+    id,
+    owner_email: "owner@example.com",
+    owner_invite_id: null,
+    expires_at: new Date(Date.now() + 7_200_000).toISOString(),
+    url: "https://example.com/",
+    target_host: "example.com",
+    report_json: JSON.stringify({
+      id,
+      url: "https://example.com/",
+      createdAt: timestamp,
+      score: 100,
+      summary: { pagesScanned: 1, totalFindings: 0 },
+      pages: [{ url: "https://example.com/" }],
+      findings: [],
+      repairPlan: [],
+      reportDelta: {
+        status: "ready",
+        fixedIssues: [{
+          id: "issue-1",
+          title: "Missing title",
+          pageUrl: "https://example.com/",
+          source: "rendered"
+        }]
+      }
+    }),
+    summary_json: JSON.stringify({ totalFindings: 0 }),
+    created_at: timestamp,
+    updated_at: timestamp
+  };
 }
 
 async function fakeWorkerEnv() {

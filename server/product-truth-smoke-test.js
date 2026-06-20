@@ -20,7 +20,8 @@ assert.equal(llms.includes("distinct Repair Sprint checkout is not live yet"), t
 assert.equal(llms.includes("paid Agency Workspace checkout is not live yet"), true);
 assert.equal(llms.includes("Does not claim llms.txt is required for Google Search"), true);
 assert.equal(llms.includes("owner-approved implementation packs"), true);
-assert.equal(llms.includes("Implementation packs are private handoff documents only"), true);
+assert.equal(llms.includes("proof receipts after fixed rerun proof"), true);
+assert.equal(llms.includes("Implementation packs and repair proof receipts are private handoff/proof documents only"), true);
 assert.equal(home.includes("No ranking promise is made."), true);
 assert.equal(support.includes("No ranking, traffic, or revenue promise is made."), true);
 assert.equal(terms.includes("No ranking, indexing, traffic, revenue, or search-engine outcome is promised"), true);

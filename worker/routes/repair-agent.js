@@ -5,6 +5,9 @@ import {
   buildRepairImplementationPack,
   repairImplementationItemForAction
 } from "../../shared/repair-implementation-pack.js";
+import {
+  buildRepairProofReceipt
+} from "../../shared/repair-proof-receipt.js";
 import { betaAccessResponse, betaAccessStatus } from "../lib/auth.js";
 import { json, jsonNoStore, secureHeaders } from "../lib/http.js";
 import { requireRepairTables } from "../lib/repair-tables.js";
@@ -128,6 +131,64 @@ async function getRepairActionImplementationPack(request, env, ctx = null) {
   });
 }
 
+async function getRepairActionProofReceipt(request, env, ctx = null) {
+  const { reportId, actionId } = repairActionProofPathParts(request.url);
+  if (!reportId || !isSafeUuid(actionId)) return json({ error: "Action not found." }, 404);
+  const context = await repairContextForReportId(request, env, reportId, ctx);
+  if (!context.ok) return context.response;
+  const repairTables = await requireRepairTables(context.env);
+  if (!repairTables.ok) return repairTables.response;
+
+  const action = await context.env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM repair_agent_actions
+     WHERE id = ?
+       AND report_id = ?
+       AND owner_email = ?
+     LIMIT 1`
+  )
+    .bind(actionId, context.reportId, context.access.ownerEmail)
+    .first();
+  if (!action?.id) return json({ error: "Action not found." }, 404);
+
+  const queue = await repairQueueResponse(context.env, context.access, context.reportId, context.report);
+  const item = repairImplementationItemForAction(queue.items || [], action);
+  if (!item) return jsonNoStore({ error: "Repair item not found." }, 409);
+
+  const rerun = await ownerProofReport(context, action.rerun_report_id || "");
+  if (!rerun.ok) return jsonNoStore({ error: rerun.error }, rerun.status || 400);
+
+  const receipt = buildRepairProofReceipt({
+    report: context.report,
+    item,
+    action,
+    rerunReport: rerun.report
+  });
+  if (!receipt.ok) return jsonNoStore({ error: receipt.error }, receipt.status || 400);
+
+  return new Response(receipt.markdown, {
+    status: 200,
+    headers: secureHeaders({
+      "cache-control": "no-store",
+      "content-disposition": `attachment; filename="${receipt.filename}"`,
+      "content-type": receipt.contentType,
+      "x-robots-tag": "noindex, nofollow"
+    })
+  });
+}
+
+async function ownerProofReport(context, reportId = "") {
+  if (!reportId) return { ok: false, status: 409, error: "Attach the fixed rerun report before creating a proof receipt." };
+  const row = await ownerReportRow(context.env, reportId, context.access);
+  if (!row) return { ok: false, status: 404, error: "Rerun proof report not found." };
+  const parsedReport = parseJson(row.report_json, null);
+  if (!parsedReport) return { ok: false, status: 404, error: "Rerun proof report not found." };
+  return {
+    ok: true,
+    report: reportWithAuditRow(parsedReport, row, reportId)
+  };
+}
+
 async function repairContext(request, env, suffix, ctx = null) {
   const reportId = reportIdFromActionPath(request.url, suffix);
   return repairContextForReportId(request, env, reportId, ctx);
@@ -189,6 +250,23 @@ function repairActionImplementationPathParts(rawUrl) {
   };
 }
 
+function repairActionProofPathParts(rawUrl) {
+  const pathname = new URL(rawUrl).pathname;
+  const prefix = "/api/reports/";
+  const marker = "/repair-actions/";
+  const suffix = "/proof.md";
+  if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix) || !pathname.includes(marker)) {
+    return { reportId: "", actionId: "" };
+  }
+  const rest = pathname.slice(prefix.length, -suffix.length);
+  const markerIndex = rest.indexOf(marker);
+  if (markerIndex === -1) return { reportId: "", actionId: "" };
+  return {
+    reportId: decodeURIComponent(rest.slice(0, markerIndex).replace(/^\/|\/$/g, "")),
+    actionId: decodeURIComponent(rest.slice(markerIndex + marker.length).replace(/^\/|\/$/g, ""))
+  };
+}
+
 function queueCounts(items = []) {
   return items.reduce((counts, item) => {
     counts.total += 1;
@@ -229,6 +307,7 @@ function scheduleRepairActionWebhook(context, eventType, action = {}) {
 export {
   createRepairAction,
   getRepairActionImplementationPack,
+  getRepairActionProofReceipt,
   getRepairQueue,
   saveRepairQueue,
   updateRepairAction

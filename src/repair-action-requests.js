@@ -14,10 +14,28 @@ function repairActionImplementationPackUrl(reportId, actionId) {
   return `/api/reports/${encodeURIComponent(reportId)}/repair-actions/${encodeURIComponent(actionId)}/implementation.md`;
 }
 
+function repairActionProofReceiptUrl(reportId, actionId) {
+  return `/api/reports/${encodeURIComponent(reportId)}/repair-actions/${encodeURIComponent(actionId)}/proof.md`;
+}
+
 function repairActionImplementationPackAvailable(action = {}) {
   const approvalState = action.approvalState || action.approval_state || "";
   const executionState = action.executionState || action.execution_state || "";
   return Boolean(action.id && (approvalState === "approved" || executionState === "applied"));
+}
+
+function repairActionProofReceiptAvailable(action = {}) {
+  const approvalState = action.approvalState || action.approval_state || "";
+  const executionState = action.executionState || action.execution_state || "";
+  const rerunState = action.rerunState || action.rerun_state || "";
+  const rerunReportId = action.rerunReportId || action.rerun_report_id || "";
+  return Boolean(
+    action.id &&
+    approvalState === "approved" &&
+    executionState === "applied" &&
+    rerunState === "fixed" &&
+    rerunReportId
+  );
 }
 
 function repairActionApprovalPatch() {
@@ -42,6 +60,8 @@ export {
   repairActionIgnorePatch,
   repairActionImplementationPackAvailable,
   repairActionImplementationPackUrl,
+  repairActionProofReceiptAvailable,
+  repairActionProofReceiptUrl,
   repairActionRerunPatch,
   repairActionUpdateRequest
 };

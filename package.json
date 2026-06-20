@@ -27,6 +27,7 @@
     "test:ai-answer-readiness": "node --test shared/ai-answer-readiness.test.mjs",
     "test:growth-opportunities": "node --test shared/growth-opportunities.test.mjs",
     "test:repair-queue": "node --test shared/repair-queue.test.mjs",
+    "test:repair-proof-receipt": "node --test shared/repair-proof-receipt.test.mjs",
     "test:repair-agent": "node --test worker/routes/repair-agent.test.mjs",
     "test:developer-api": "node --test worker/routes/developer-api.test.mjs",
     "test:remediation-brief": "node server/remediation-brief-smoke-test.js",
@@ -34,7 +35,7 @@
     "test:webhooks": "node --test worker/lib/webhooks.test.mjs",
     "test:large-crawl": "node server/large-rendered-crawl-smoke-test.js",
     "test:app-contract": "node --test src/app-contract.test.mjs",
-    "check": "npm run test:billing && npm run test:billing-route && npm run test:product-truth && npm run test:audit && npm run test:large-crawl-security && npm run test:report-retention-security && npm run test:local-developer-api-security && npm run test:worker-dispatch && npm run test:public-pages && npm run test:audit-engine && npm run test:account && npm run test:ai-answer-readiness && npm run test:growth-opportunities && npm run test:repair-queue && npm run test:repair-agent && npm run test:developer-api && npm run test:remediation-brief && npm run test:audit-batch-runner && npm run test:webhooks && npm run test:app-contract && npm run test:large-crawl && npm run build"
+    "check": "npm run test:billing && npm run test:billing-route && npm run test:product-truth && npm run test:audit && npm run test:large-crawl-security && npm run test:report-retention-security && npm run test:local-developer-api-security && npm run test:worker-dispatch && npm run test:public-pages && npm run test:audit-engine && npm run test:account && npm run test:ai-answer-readiness && npm run test:growth-opportunities && npm run test:repair-queue && npm run test:repair-proof-receipt && npm run test:repair-agent && npm run test:developer-api && npm run test:remediation-brief && npm run test:audit-batch-runner && npm run test:webhooks && npm run test:app-contract && npm run test:large-crawl && npm run build"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.0",

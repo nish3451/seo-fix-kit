@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   createRepairAction,
   getRepairActionImplementationPack,
+  getRepairActionProofReceipt,
   getRepairQueue,
   saveRepairQueue,
   updateRepairAction
@@ -181,6 +182,89 @@ test("repair action implementation pack is owner scoped", async () => {
     env
   );
   assert.equal(response.status, 404);
+});
+
+test("repair action proof receipt requires owner fixed rerun proof", async () => {
+  const env = fakeRepairEnv();
+  const reportId = "example-report-1";
+  await getRepairQueue(sessionRequest(`/api/reports/${reportId}/repair-queue`), env);
+  await createRepairAction(
+    sessionRequest(`/api/reports/${reportId}/repair-actions`, {
+      method: "POST",
+      body: JSON.stringify({ issueId: "issue-1", proposedChange: "Draft the fixed title for review." })
+    }),
+    env
+  );
+  await updateRepairAction(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ approvalState: "approved" })
+    }),
+    env
+  );
+
+  const noSessionResponse = await getRepairActionProofReceipt(
+    new Request(`https://seofixkit.test/api/reports/${reportId}/repair-actions/${env.actions[0].id}/proof.md`),
+    env
+  );
+  assert.equal(noSessionResponse.status, 401);
+
+  const notAppliedResponse = await getRepairActionProofReceipt(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}/proof.md`),
+    env
+  );
+  assert.equal(notAppliedResponse.status, 409);
+  assert.match((await notAppliedResponse.json()).error, /Attach|applied/i);
+
+  await updateRepairAction(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ executionState: "applied" })
+    }),
+    env
+  );
+  env.reports.push({
+    id: "rerun-fixed-report-1",
+    owner_email: "owner@example.com",
+    owner_invite_id: null,
+    expires_at: new Date(Date.now() + 7_200_000).toISOString(),
+    created_at: new Date(Date.now() + 60_000).toISOString(),
+    updated_at: new Date(Date.now() + 60_000).toISOString(),
+    url: "https://example.com/",
+    target_host: "example.com",
+    report_json: JSON.stringify(fixedRerunReport("rerun-fixed-report-1"))
+  });
+  const fixed = await updateRepairAction(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ rerunState: "fixed", rerunReportId: "rerun-fixed-report-1" })
+    }),
+    env
+  );
+  assert.equal(fixed.status, 200);
+
+  const receiptResponse = await getRepairActionProofReceipt(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}/proof.md`),
+    env
+  );
+  assert.equal(receiptResponse.status, 200);
+  assert.match(receiptResponse.headers.get("content-type") || "", /text\/markdown/);
+  assert.equal(receiptResponse.headers.get("cache-control"), "no-store");
+  assert.equal(receiptResponse.headers.get("x-robots-tag"), "noindex, nofollow");
+  assert.match(receiptResponse.headers.get("content-disposition") || "", /repair-proof\.md/);
+  const markdown = await receiptResponse.text();
+  assert.match(markdown, /# SEOFixKit Repair Proof Receipt/);
+  assert.match(markdown, /Missing title/);
+  assert.match(markdown, /Rerun Proof/);
+  assert.match(markdown, /rerun-fixed-report-1/);
+  assert.doesNotMatch(markdown, /checkoutUrl|sfk_beta_session|DODO_SEOFIXKIT_API_KEY/i);
+
+  env.ownerEmail = "other@example.com";
+  const otherOwnerResponse = await getRepairActionProofReceipt(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}/proof.md`),
+    env
+  );
+  assert.equal(otherOwnerResponse.status, 404);
 });
 
 test("repair action create does not persist when the queue row disappears", async () => {

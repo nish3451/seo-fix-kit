@@ -6,6 +6,7 @@ import {
   apiGetAuditIssues,
   apiGetAuditReport,
   apiGetRepairActionImplementationPack,
+  apiGetRepairActionProofReceipt,
   apiGetRepairQueue,
   apiSaveRepairQueue,
   apiUpdateRepairAction
@@ -115,6 +116,54 @@ test("Developer API exposes owner-only repair action workflow for API agents", a
   assert.match(packMarkdown, /Draft the fixed title for review/);
   assert.match(packMarkdown, /Rendered title is missing/);
   assert.doesNotMatch(packMarkdown, /sfk_live_|token_hash|DODO_SEOFIXKIT_API_KEY/i);
+
+  const missingTokenProof = await apiGetRepairActionProofReceipt(
+    new Request(`https://seofixkit.test/v1/audits/${env.auditId}/repair-actions/${env.actions[0].id}/proof.md`),
+    env
+  );
+  assert.equal(missingTokenProof.status, 401);
+
+  env.reports.push({
+    id: "rerun-fixed-report-1",
+    owner_email: "owner@example.com",
+    expires_at: new Date(Date.now() + 7_200_000).toISOString(),
+    created_at: new Date(Date.now() + 60_000).toISOString(),
+    updated_at: new Date(Date.now() + 60_000).toISOString(),
+    url: "https://example.com/",
+    target_host: "example.com",
+    report_json: JSON.stringify(fixedRerunReport("rerun-fixed-report-1"))
+  });
+  const fixedResponse = await apiUpdateRepairAction(apiRequest(
+    `/v1/audits/${env.auditId}/repair-actions/${env.actions[0].id}`,
+    env.apiToken,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ rerunState: "fixed", rerunReportId: "rerun-fixed-report-1" })
+    }
+  ), env);
+  assert.equal(fixedResponse.status, 200);
+
+  const receiptResponse = await apiGetRepairActionProofReceipt(apiRequest(
+    `/v1/audits/${env.auditId}/repair-actions/${env.actions[0].id}/proof.md`,
+    env.apiToken
+  ), env);
+  assert.equal(receiptResponse.status, 200);
+  assert.match(receiptResponse.headers.get("content-type") || "", /text\/markdown/);
+  assert.equal(receiptResponse.headers.get("cache-control"), "no-store");
+  assert.equal(receiptResponse.headers.get("x-robots-tag"), "noindex, nofollow");
+  assert.match(receiptResponse.headers.get("content-disposition") || "", /repair-proof\.md/);
+  const receiptMarkdown = await receiptResponse.text();
+  assert.match(receiptMarkdown, /# SEOFixKit Repair Proof Receipt/);
+  assert.match(receiptMarkdown, /Rerun Proof/);
+  assert.match(receiptMarkdown, /rerun-fixed-report-1/);
+  assert.doesNotMatch(receiptMarkdown, /sfk_live_|token_hash|DODO_SEOFIXKIT_API_KEY/i);
+
+  env.tokens[0].owner_email = "other@example.com";
+  const otherOwnerProof = await apiGetRepairActionProofReceipt(apiRequest(
+    `/v1/audits/${env.auditId}/repair-actions/${env.actions[0].id}/proof.md`,
+    env.apiToken
+  ), env);
+  assert.equal(otherOwnerProof.status, 404);
 });
 
 test("Developer API implementation pack rejects drafts and other owners", async () => {
