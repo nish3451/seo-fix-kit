@@ -10,6 +10,16 @@ function repairActionUpdateRequest(reportId, actionId, body = {}) {
   };
 }
 
+function repairActionImplementationPackUrl(reportId, actionId) {
+  return `/api/reports/${encodeURIComponent(reportId)}/repair-actions/${encodeURIComponent(actionId)}/implementation.md`;
+}
+
+function repairActionImplementationPackAvailable(action = {}) {
+  const approvalState = action.approvalState || action.approval_state || "";
+  const executionState = action.executionState || action.execution_state || "";
+  return Boolean(action.id && (approvalState === "approved" || executionState === "applied"));
+}
+
 function repairActionApprovalPatch() {
   return { approvalState: "approved" };
 }
@@ -30,6 +40,8 @@ export {
   repairActionApplyPatch,
   repairActionApprovalPatch,
   repairActionIgnorePatch,
+  repairActionImplementationPackAvailable,
+  repairActionImplementationPackUrl,
   repairActionRerunPatch,
   repairActionUpdateRequest
 };

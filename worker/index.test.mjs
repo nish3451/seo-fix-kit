@@ -65,6 +65,14 @@ test("Worker dispatch routes public pages and repair APIs", async () => {
   assert.equal(env.actions[0].execution_state, "applied");
   assert.equal(env.queueItems[0].status, "applied");
 
+  const sessionPack = await worker.fetch(sessionRequest(
+    env,
+    `/api/reports/${env.reportId}/repair-actions/${sessionActionBody.action.id}/implementation.md`
+  ), env, fakeCtx());
+  assert.equal(sessionPack.status, 200);
+  assert.match(sessionPack.headers.get("content-type") || "", /text\/markdown/);
+  assert.match(await sessionPack.text(), /# SEOFixKit Implementation Pack/);
+
   const apiEnv = await fakeWorkerEnv();
   await worker.fetch(new Request(`https://seofixkit.test/v1/audits/${apiEnv.auditId}/repair-queue`, {
     headers: { authorization: `Bearer ${apiEnv.apiToken}` }
@@ -110,6 +118,14 @@ test("Worker dispatch routes public pages and repair APIs", async () => {
   assert.equal(apiEnv.actions[0].approval_state, "approved");
   assert.equal(apiEnv.actions[0].execution_state, "applied");
   assert.equal(apiEnv.queueItems[0].status, "applied");
+
+  const apiPack = await worker.fetch(apiRequest(
+    apiEnv,
+    `/v1/audits/${apiEnv.auditId}/repair-actions/${apiActionBody.action.id}/implementation.md`
+  ), apiEnv, fakeCtx());
+  assert.equal(apiPack.status, 200);
+  assert.match(apiPack.headers.get("content-type") || "", /text\/markdown/);
+  assert.match(await apiPack.text(), /# SEOFixKit Implementation Pack/);
 });
 
 test("Worker dispatch exposes public-safe deep health readiness", async () => {

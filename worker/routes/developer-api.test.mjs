@@ -5,6 +5,7 @@ import {
   apiDeleteAudit,
   apiGetAuditIssues,
   apiGetAuditReport,
+  apiGetRepairActionImplementationPack,
   apiGetRepairQueue,
   apiSaveRepairQueue,
   apiUpdateRepairAction
@@ -100,6 +101,115 @@ test("Developer API exposes owner-only repair action workflow for API agents", a
   assert.equal(latestQueueBody.items[0].latest_action.approval_state, "approved");
   assert.equal(latestQueueBody.items[0].latest_action.execution_state, "applied");
   assert.doesNotMatch(JSON.stringify(latestQueueBody), /Draft the fixed title for review|source_proof|proposed_change/i);
+
+  const packResponse = await apiGetRepairActionImplementationPack(apiRequest(
+    `/v1/audits/${env.auditId}/repair-actions/${env.actions[0].id}/implementation.md`,
+    env.apiToken
+  ), env);
+  assert.equal(packResponse.status, 200);
+  assert.match(packResponse.headers.get("content-type") || "", /text\/markdown/);
+  assert.equal(packResponse.headers.get("cache-control"), "no-store");
+  assert.equal(packResponse.headers.get("x-robots-tag"), "noindex, nofollow");
+  const packMarkdown = await packResponse.text();
+  assert.match(packMarkdown, /# SEOFixKit Implementation Pack/);
+  assert.match(packMarkdown, /Draft the fixed title for review/);
+  assert.match(packMarkdown, /Rendered title is missing/);
+  assert.doesNotMatch(packMarkdown, /sfk_live_|token_hash|DODO_SEOFIXKIT_API_KEY/i);
+});
+
+test("Developer API implementation pack rejects drafts and other owners", async () => {
+  const env = await fakeDeveloperApiEnv({ queueItems: [], actions: [] });
+  const createResponse = await apiCreateRepairAction(apiRequest(`/v1/audits/${env.auditId}/repair-actions`, env.apiToken, {
+    method: "POST",
+    body: JSON.stringify({
+      issueId: "issue-1",
+      proposedChange: "Draft the fixed title for review."
+    })
+  }), env);
+  assert.equal(createResponse.status, 201);
+
+  const draftPack = await apiGetRepairActionImplementationPack(apiRequest(
+    `/v1/audits/${env.auditId}/repair-actions/${env.actions[0].id}/implementation.md`,
+    env.apiToken
+  ), env);
+  assert.equal(draftPack.status, 409);
+  assert.match((await draftPack.json()).error, /Approve the repair action/i);
+
+  await apiUpdateRepairAction(apiRequest(
+    `/v1/audits/${env.auditId}/repair-actions/${env.actions[0].id}`,
+    env.apiToken,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ approvalState: "approved" })
+    }
+  ), env);
+
+  env.tokens[0].owner_email = "other@example.com";
+  const otherOwnerPack = await apiGetRepairActionImplementationPack(apiRequest(
+    `/v1/audits/${env.auditId}/repair-actions/${env.actions[0].id}/implementation.md`,
+    env.apiToken
+  ), env);
+  assert.equal(otherOwnerPack.status, 404);
+});
+
+test("Developer API implementation pack fails closed for auth and stale queue state", async () => {
+  const env = await fakeDeveloperApiEnv({ queueItems: [], actions: [] });
+  const createResponse = await apiCreateRepairAction(apiRequest(`/v1/audits/${env.auditId}/repair-actions`, env.apiToken, {
+    method: "POST",
+    body: JSON.stringify({
+      issueId: "issue-1",
+      proposedChange: "Draft the fixed title for review."
+    })
+  }), env);
+  assert.equal(createResponse.status, 201);
+  await apiUpdateRepairAction(apiRequest(
+    `/v1/audits/${env.auditId}/repair-actions/${env.actions[0].id}`,
+    env.apiToken,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ approvalState: "approved" })
+    }
+  ), env);
+
+  const missingToken = await apiGetRepairActionImplementationPack(
+    new Request(`https://seofixkit.test/v1/audits/${env.auditId}/repair-actions/${env.actions[0].id}/implementation.md`),
+    env
+  );
+  assert.equal(missingToken.status, 401);
+
+  env.tokens[0].status = "revoked";
+  const revokedToken = await apiGetRepairActionImplementationPack(apiRequest(
+    `/v1/audits/${env.auditId}/repair-actions/${env.actions[0].id}/implementation.md`,
+    env.apiToken
+  ), env);
+  assert.equal(revokedToken.status, 401);
+  env.tokens[0].status = "active";
+
+  env.actions[0].action_mode = "unsupported";
+  const unsupportedResponse = await apiGetRepairActionImplementationPack(apiRequest(
+    `/v1/audits/${env.auditId}/repair-actions/${env.actions[0].id}/implementation.md`,
+    env.apiToken
+  ), env);
+  assert.equal(unsupportedResponse.status, 409);
+  assert.match((await unsupportedResponse.json()).error, /Unsupported repair actions/i);
+  env.actions[0].action_mode = "self_serve";
+
+  env.queueItems[0].status = "ignored";
+  const ignoredItemResponse = await apiGetRepairActionImplementationPack(apiRequest(
+    `/v1/audits/${env.auditId}/repair-actions/${env.actions[0].id}/implementation.md`,
+    env.apiToken
+  ), env);
+  assert.equal(ignoredItemResponse.status, 409);
+  assert.match((await ignoredItemResponse.json()).error, /Ignored repair items/i);
+  env.queueItems[0].status = "approved";
+
+  env.actions[0].queue_item_id = "missing-queue-row";
+  const staleQueueResponse = await apiGetRepairActionImplementationPack(apiRequest(
+    `/v1/audits/${env.auditId}/repair-actions/${env.actions[0].id}/implementation.md`,
+    env.apiToken
+  ), env);
+  assert.equal(staleQueueResponse.status, 409);
+  assert.match((await staleQueueResponse.json()).error, /Repair item not found/i);
 });
 
 test("Developer API repair action ignored state closes the queue item", async () => {

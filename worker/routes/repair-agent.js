@@ -1,8 +1,12 @@
 import {
   agentActionResponse
 } from "../../shared/repair-queue.js";
+import {
+  buildRepairImplementationPack,
+  repairImplementationItemForAction
+} from "../../shared/repair-implementation-pack.js";
 import { betaAccessResponse, betaAccessStatus } from "../lib/auth.js";
-import { json, jsonNoStore } from "../lib/http.js";
+import { json, jsonNoStore, secureHeaders } from "../lib/http.js";
 import { requireRepairTables } from "../lib/repair-tables.js";
 import { ownerReportRow } from "../lib/report-data.js";
 import { isSafeUuid, parseJson } from "../lib/text.js";
@@ -86,11 +90,53 @@ async function updateRepairAction(request, env, ctx = null) {
   });
 }
 
+async function getRepairActionImplementationPack(request, env, ctx = null) {
+  const { reportId, actionId } = repairActionImplementationPathParts(request.url);
+  if (!reportId || !isSafeUuid(actionId)) return json({ error: "Action not found." }, 404);
+  const context = await repairContextForReportId(request, env, reportId, ctx);
+  if (!context.ok) return context.response;
+  const repairTables = await requireRepairTables(context.env);
+  if (!repairTables.ok) return repairTables.response;
+
+  const action = await context.env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM repair_agent_actions
+     WHERE id = ?
+       AND report_id = ?
+       AND owner_email = ?
+     LIMIT 1`
+  )
+    .bind(actionId, context.reportId, context.access.ownerEmail)
+    .first();
+  if (!action?.id) return json({ error: "Action not found." }, 404);
+
+  const queue = await repairQueueResponse(context.env, context.access, context.reportId, context.report);
+  const item = repairImplementationItemForAction(queue.items || [], action);
+  if (!item) return jsonNoStore({ error: "Repair item not found." }, 409);
+
+  const pack = buildRepairImplementationPack({ report: context.report, item, action });
+  if (!pack.ok) return jsonNoStore({ error: pack.error }, pack.status || 400);
+
+  return new Response(pack.markdown, {
+    status: 200,
+    headers: secureHeaders({
+      "cache-control": "no-store",
+      "content-disposition": `attachment; filename="${pack.filename}"`,
+      "content-type": pack.contentType,
+      "x-robots-tag": "noindex, nofollow"
+    })
+  });
+}
+
 async function repairContext(request, env, suffix, ctx = null) {
+  const reportId = reportIdFromActionPath(request.url, suffix);
+  return repairContextForReportId(request, env, reportId, ctx);
+}
+
+async function repairContextForReportId(request, env, reportId, ctx = null) {
   const access = await betaAccessStatus(request, env);
   if (!access.ok) return { ok: false, response: betaAccessResponse(access) };
   if (!env.WAITLIST_DB) return { ok: false, response: json({ error: "Repair queue storage is not configured." }, 503) };
-  const reportId = reportIdFromActionPath(request.url, suffix);
   const row = await ownerReportRow(env, reportId, access);
   if (!row) return { ok: false, response: json({ error: "Report not found." }, 404) };
   const parsedReport = parseJson(row.report_json, null);
@@ -124,6 +170,23 @@ function repairActionIdFromPath(rawUrl) {
   const index = pathname.indexOf(marker);
   if (index === -1) return "";
   return decodeURIComponent(pathname.slice(index + marker.length));
+}
+
+function repairActionImplementationPathParts(rawUrl) {
+  const pathname = new URL(rawUrl).pathname;
+  const prefix = "/api/reports/";
+  const marker = "/repair-actions/";
+  const suffix = "/implementation.md";
+  if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix) || !pathname.includes(marker)) {
+    return { reportId: "", actionId: "" };
+  }
+  const rest = pathname.slice(prefix.length, -suffix.length);
+  const markerIndex = rest.indexOf(marker);
+  if (markerIndex === -1) return { reportId: "", actionId: "" };
+  return {
+    reportId: decodeURIComponent(rest.slice(0, markerIndex).replace(/^\/|\/$/g, "")),
+    actionId: decodeURIComponent(rest.slice(markerIndex + marker.length).replace(/^\/|\/$/g, ""))
+  };
 }
 
 function queueCounts(items = []) {
@@ -165,6 +228,7 @@ function scheduleRepairActionWebhook(context, eventType, action = {}) {
 
 export {
   createRepairAction,
+  getRepairActionImplementationPack,
   getRepairQueue,
   saveRepairQueue,
   updateRepairAction
