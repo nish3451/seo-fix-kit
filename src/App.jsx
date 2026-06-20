@@ -16,6 +16,8 @@ import {
   repairActionIgnorePatch,
   repairActionImplementationPackAvailable,
   repairActionImplementationPackUrl,
+  repairActionProofReceiptAvailable,
+  repairActionProofReceiptUrl,
   repairActionRerunPatch,
   repairActionUpdateRequest
 } from "./repair-action-requests.js";
@@ -3247,6 +3249,16 @@ function TeamRepairBoard({ report }) {
                       target="_blank"
                     >
                       Implementation pack
+                    </a>
+                  )}
+                  {repairActionProofReceiptAvailable(issue.latestAction) && (
+                    <a
+                      className="action-link"
+                      href={repairActionProofReceiptUrl(report.id, issue.latestAction.id)}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Proof receipt
                     </a>
                   )}
                   <button

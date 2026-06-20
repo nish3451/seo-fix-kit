@@ -63,6 +63,7 @@ import {
   buildRepairImplementationPack,
   repairImplementationItemForAction
 } from "../shared/repair-implementation-pack.js";
+import { buildRepairProofReceipt } from "../shared/repair-proof-receipt.js";
 import {
   comparableReportHost,
   normalizeRepairActionCreateInput,
@@ -1084,6 +1085,20 @@ app.get("/api/reports/:id/repair-actions/:actionId/implementation.md", (req, res
   sendLocalImplementationPack(res, localRepairActionImplementationPack(access, report, req.params.actionId));
 });
 
+app.get("/api/reports/:id/repair-actions/:actionId/proof.md", (req, res) => {
+  const access = localBetaAccess(req);
+  if (!access.ok) {
+    res.status(401).set("cache-control", "no-store").json({ error: "Private beta session required." });
+    return;
+  }
+  const report = auditReports.get(req.params.id);
+  if (!report || report.owner?.email !== access.ownerEmail) {
+    res.status(404).set("cache-control", "no-store").json({ error: "Report not found." });
+    return;
+  }
+  sendLocalProofReceipt(res, localRepairActionProofReceipt(access, report, req.params.actionId));
+});
+
 app.get("/v1/projects", (req, res) => {
   const access = localApiAccess(req);
   if (!access.ok) {
@@ -1283,6 +1298,20 @@ app.get("/v1/audits/:id/repair-actions/:actionId/implementation.md", (req, res) 
     return;
   }
   sendLocalImplementationPack(res, localRepairActionImplementationPack(access, resolved.report, req.params.actionId));
+});
+
+app.get("/v1/audits/:id/repair-actions/:actionId/proof.md", (req, res) => {
+  const access = localApiAccess(req);
+  if (!access.ok) {
+    res.status(access.status || 401).set("cache-control", "no-store").json({ error: access.error || "API key required." });
+    return;
+  }
+  const resolved = resolveLocalApiAudit(access, req.params.id);
+  if (!resolved.ok) {
+    res.status(resolved.status).set("cache-control", "no-store").json({ error: resolved.error });
+    return;
+  }
+  sendLocalProofReceipt(res, localRepairActionProofReceipt(access, resolved.report, req.params.actionId));
 });
 
 app.get("/v1/audits/:id", (req, res) => {
@@ -2634,6 +2663,7 @@ function localDeveloperSummary(access) {
       createRepairAction: "POST /v1/audits/{audit_id}/repair-actions",
       updateRepairAction: "PATCH /v1/audits/{audit_id}/repair-actions/{action_id}",
       getRepairActionImplementationPack: "GET /v1/audits/{audit_id}/repair-actions/{action_id}/implementation.md",
+      getRepairActionProofReceipt: "GET /v1/audits/{audit_id}/repair-actions/{action_id}/proof.md",
       getReport: "GET /v1/audits/{audit_id}/report",
       startLargeCrawl: "POST /v1/large-crawls",
       getLargeCrawl: "GET /v1/large-crawls/{large_crawl_id}",
@@ -2641,7 +2671,7 @@ function localDeveloperSummary(access) {
       webhookEvents: "audit.completed, audit.failed, repair_action.drafted, repair_action.approved, repair_action.applied, repair_action.fixed, repair_action.regressed"
     },
     issueFields: {
-      repair_queue: "Safe per-issue queue status. Draft text is only returned from owner-authenticated repair-action surfaces and the separate approved-action implementation-pack endpoint."
+      repair_queue: "Safe per-issue queue status. Draft text is only returned from owner-authenticated repair-action surfaces and separate implementation-pack/proof-receipt endpoints."
     },
     workerOnlyDocs: {
       authHeader: "x-seofixkit-worker-token: WORKER_TOKEN",
@@ -3104,6 +3134,22 @@ function localRepairActionImplementationPack(access, report, actionId = "") {
   return { ok: true, pack };
 }
 
+function localRepairActionProofReceipt(access, report, actionId = "") {
+  const action = localRepairActionRows.get(String(actionId || ""));
+  if (!action || action.report_id !== report.id || action.owner_email !== access.ownerEmail) {
+    return { ok: false, status: 404, error: "Action not found." };
+  }
+  const item = repairImplementationItemForAction(ensureLocalRepairQueueRows(access, report), action);
+  if (!item) return { ok: false, status: 409, error: "Repair item not found." };
+  const rerunReport = auditReports.get(action.rerun_report_id || "");
+  if (!rerunReport || rerunReport.owner?.email !== access.ownerEmail) {
+    return { ok: false, status: 404, error: "Rerun proof report not found." };
+  }
+  const receipt = buildRepairProofReceipt({ report, item, action, rerunReport });
+  if (!receipt.ok) return { ok: false, status: receipt.status || 400, error: receipt.error };
+  return { ok: true, receipt };
+}
+
 function sendLocalImplementationPack(res, result = {}) {
   if (!result.ok) {
     res.status(result.status || 400).set("cache-control", "no-store").json({ error: result.error || "Implementation pack is unavailable." });
@@ -3118,6 +3164,22 @@ function sendLocalImplementationPack(res, result = {}) {
       "x-robots-tag": "noindex, nofollow"
     })
     .send(result.pack.markdown);
+}
+
+function sendLocalProofReceipt(res, result = {}) {
+  if (!result.ok) {
+    res.status(result.status || 400).set("cache-control", "no-store").json({ error: result.error || "Proof receipt is unavailable." });
+    return;
+  }
+  res
+    .status(200)
+    .set({
+      "cache-control": "no-store",
+      "content-disposition": `attachment; filename="${result.receipt.filename}"`,
+      "content-type": result.receipt.contentType,
+      "x-robots-tag": "noindex, nofollow"
+    })
+    .send(result.receipt.markdown);
 }
 
 function saveLocalRepairQueue(access, report, items = []) {
@@ -5215,7 +5277,14 @@ function resetLocalStateForTests() {
   fixRequests.length = 0;
 }
 
-function seedProtectedLocalAuditForTests({ ownerEmail = "owner@example.com", status = "paid", url = "https://example.com/", findingPageUrl = url } = {}) {
+function seedProtectedLocalAuditForTests({
+  ownerEmail = "owner@example.com",
+  status = "paid",
+  url = "https://example.com/",
+  findingPageUrl = url,
+  findings = null,
+  reportDelta = null
+} = {}) {
   const access = {
     ok: true,
     ownerEmail,
@@ -5229,7 +5298,7 @@ function seedProtectedLocalAuditForTests({ ownerEmail = "owner@example.com", sta
     url,
     score: 91,
     summary: { totalFindings: 1, guardedFalsePositives: 0, pagesScanned: 1 },
-    findings: [{
+    findings: Array.isArray(findings) ? findings : [{
       id: "finding-1",
       severity: "medium",
       title: "Missing title",
@@ -5246,6 +5315,9 @@ function seedProtectedLocalAuditForTests({ ownerEmail = "owner@example.com", sta
     retention: { expiresAt: isoDaysFromNow(REPORT_RETENTION_DAYS), days: REPORT_RETENTION_DAYS },
     owner: { email: ownerEmail }
   };
+  if (reportDelta && typeof reportDelta === "object" && !Array.isArray(reportDelta)) {
+    report.reportDelta = reportDelta;
+  }
   report.reportPath = `/beta/reports/${report.id}`;
   report.reportUrl = `http://127.0.0.1:${port}${report.reportPath}`;
   auditReports.set(report.id, report);

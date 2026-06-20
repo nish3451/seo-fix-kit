@@ -15,6 +15,8 @@ import {
   repairActionIgnorePatch,
   repairActionImplementationPackAvailable,
   repairActionImplementationPackUrl,
+  repairActionProofReceiptAvailable,
+  repairActionProofReceiptUrl,
   repairActionRerunPatch,
   repairActionUpdateRequest
 } from "./repair-action-requests.js";
@@ -118,6 +120,17 @@ test("repair action UI exposes implementation pack only after approval", () => {
   assert.equal(repairActionImplementationPackAvailable({ id: "action-1", approvalState: "ignored" }), false);
   assert.equal(repairActionImplementationPackAvailable({ id: "action-1", approvalState: "approved" }), true);
   assert.equal(repairActionImplementationPackAvailable({ id: "action-1", executionState: "applied" }), true);
+});
+
+test("repair action UI exposes proof receipt only after fixed rerun proof", () => {
+  assert.equal(
+    repairActionProofReceiptUrl("report 1", "action/1"),
+    "/api/reports/report%201/repair-actions/action%2F1/proof.md"
+  );
+  assert.equal(repairActionProofReceiptAvailable({ id: "action-1", approvalState: "approved", executionState: "applied" }), false);
+  assert.equal(repairActionProofReceiptAvailable({ id: "action-1", approvalState: "approved", executionState: "applied", rerunState: "still_open", rerunReportId: "rerun-1" }), false);
+  assert.equal(repairActionProofReceiptAvailable({ id: "action-1", approvalState: "approved", executionState: "applied", rerunState: "fixed" }), false);
+  assert.equal(repairActionProofReceiptAvailable({ id: "action-1", approvalState: "approved", executionState: "applied", rerunState: "fixed", rerunReportId: "rerun-1" }), true);
 });
 
 test("billing delivery readiness copy is customer-facing", () => {

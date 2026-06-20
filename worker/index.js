@@ -53,6 +53,7 @@ import {
 import {
   createRepairAction,
   getRepairActionImplementationPack,
+  getRepairActionProofReceipt,
   getRepairQueue,
   saveRepairQueue,
   updateRepairAction
@@ -79,6 +80,7 @@ import {
   apiGetAuditIssues,
   apiGetAuditReport,
   apiGetRepairActionImplementationPack,
+  apiGetRepairActionProofReceipt,
   apiGetRepairQueue,
   apiSaveRepairQueue,
   apiUpdateRepairAction,
@@ -333,6 +335,10 @@ export default {
         return getRepairActionImplementationPack(request, env, ctx);
       }
 
+      if (url.pathname.startsWith("/api/reports/") && url.pathname.includes("/repair-actions/") && url.pathname.endsWith("/proof.md") && request.method === "GET") {
+        return getRepairActionProofReceipt(request, env, ctx);
+      }
+
       if (url.pathname.startsWith("/api/reports/") && url.pathname.includes("/repair-actions/") && request.method === "PATCH") {
         return updateRepairAction(request, env, ctx);
       }
@@ -395,6 +401,10 @@ export default {
 
       if (url.pathname.startsWith("/v1/audits/") && url.pathname.includes("/repair-actions/") && url.pathname.endsWith("/implementation.md") && request.method === "GET") {
         return apiGetRepairActionImplementationPack(request, env);
+      }
+
+      if (url.pathname.startsWith("/v1/audits/") && url.pathname.includes("/repair-actions/") && url.pathname.endsWith("/proof.md") && request.method === "GET") {
+        return apiGetRepairActionProofReceipt(request, env);
       }
 
       if (url.pathname.startsWith("/v1/audits/") && url.pathname.includes("/repair-actions/") && request.method === "PATCH") {

@@ -206,6 +206,61 @@ try {
   assert.equal(accountBody.metrics.appliedRepairs, 1);
   assert.equal(accountBody.nextActions[0].id, "rerun-applied-repair");
 
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const fixedReceiptSeeded = seedProtectedLocalAuditForTests({
+    ownerEmail: "paid-owner@example.com",
+    status: "cancelled",
+    url: "https://example.com/",
+    findings: [],
+    reportDelta: {
+      status: "ready",
+      fixedIssues: [{
+        id: "finding-1",
+        title: "Missing title",
+        pageUrl: "https://example.com/",
+        source: "rendered"
+      }]
+    }
+  });
+  const fixedReceiptPatchResponse = await fetch(`${origin}/v1/audits/${seeded.auditId}/repair-actions/${apiActionBody.action.id}`, {
+    method: "PATCH",
+    headers: {
+      authorization: `Bearer ${seeded.apiToken}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      rerunState: "fixed",
+      rerunReportId: fixedReceiptSeeded.reportId
+    })
+  });
+  assert.equal(fixedReceiptPatchResponse.status, 200);
+
+  const missingAuthProofResponse = await fetch(`${origin}/v1/audits/${seeded.auditId}/repair-actions/${apiActionBody.action.id}/proof.md`);
+  assert.equal(missingAuthProofResponse.status, 401);
+
+  const apiProofReceiptResponse = await fetch(`${origin}/v1/audits/${seeded.auditId}/repair-actions/${apiActionBody.action.id}/proof.md`, {
+    headers: { authorization: `Bearer ${seeded.apiToken}` }
+  });
+  assert.equal(apiProofReceiptResponse.status, 200);
+  assert.match(apiProofReceiptResponse.headers.get("content-type") || "", /text\/markdown/);
+  assert.equal(apiProofReceiptResponse.headers.get("cache-control"), "no-store");
+  assert.equal(apiProofReceiptResponse.headers.get("x-robots-tag"), "noindex, nofollow");
+  const apiProofReceipt = await apiProofReceiptResponse.text();
+  assert.match(apiProofReceipt, /# SEOFixKit Repair Proof Receipt/);
+  assert.match(apiProofReceipt, /Rerun Proof/);
+  assert.match(apiProofReceipt, new RegExp(fixedReceiptSeeded.reportId));
+  assert.doesNotMatch(apiProofReceipt, /sfk_live_|BETA_ACCESS_PASSWORD|DODO_SEOFIXKIT_API_KEY/i);
+
+  const betaProofReceiptResponse = await fetch(`${origin}/api/reports/${seeded.reportId}/repair-actions/${apiActionBody.action.id}/proof.md`, {
+    headers: { cookie: sessionCookie }
+  });
+  assert.equal(betaProofReceiptResponse.status, 200);
+  assert.match(betaProofReceiptResponse.headers.get("content-disposition") || "", /repair-proof\.md/);
+  const betaProofReceipt = await betaProofReceiptResponse.text();
+  assert.match(betaProofReceipt, /# SEOFixKit Repair Proof Receipt/);
+  assert.match(betaProofReceipt, /Rerun Proof/);
+  assert.doesNotMatch(betaProofReceipt, /sfk_live_|BETA_ACCESS_PASSWORD|DODO_SEOFIXKIT_API_KEY/i);
+
   const webhookResponse = await fetch(`${origin}/api/developer/webhooks`, {
     method: "POST",
     headers: {

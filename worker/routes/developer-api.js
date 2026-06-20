@@ -16,6 +16,9 @@ import {
   repairImplementationItemForAction
 } from "../../shared/repair-implementation-pack.js";
 import {
+  buildRepairProofReceipt
+} from "../../shared/repair-proof-receipt.js";
+import {
   repairActionDetailResponse,
   repairQueueItemDetailResponse
 } from "../../shared/repair-api-serializers.js";
@@ -118,6 +121,7 @@ async function getDeveloperApiSummary(request, env) {
       createRepairAction: "POST /v1/audits/{audit_id}/repair-actions",
       updateRepairAction: "PATCH /v1/audits/{audit_id}/repair-actions/{action_id}",
       getRepairActionImplementationPack: "GET /v1/audits/{audit_id}/repair-actions/{action_id}/implementation.md",
+      getRepairActionProofReceipt: "GET /v1/audits/{audit_id}/repair-actions/{action_id}/proof.md",
       getReport: "GET /v1/audits/{audit_id}/report",
       startLargeCrawl: "POST /v1/large-crawls",
       getLargeCrawl: "GET /v1/large-crawls/{large_crawl_id}",
@@ -125,7 +129,7 @@ async function getDeveloperApiSummary(request, env) {
       webhookEvents: "audit.completed, audit.failed, repair_action.drafted, repair_action.approved, repair_action.applied, repair_action.fixed, repair_action.regressed"
     },
     issueFields: {
-      repair_queue: "Safe per-issue queue status. Draft text is only returned from repair-action endpoints for the authenticated owner."
+      repair_queue: "Safe per-issue queue status. Draft text is only returned from repair-action endpoints and private markdown artifacts for the authenticated owner."
     },
     workerOnlyDocs: {
       authHeader: "x-seofixkit-worker-token: WORKER_TOKEN",
@@ -660,6 +664,58 @@ async function apiGetRepairActionImplementationPack(request, env) {
   });
 }
 
+async function apiGetRepairActionProofReceipt(request, env) {
+  const access = await apiAccessStatus(request, env);
+  if (!access.ok) return apiAccessResponse(access);
+  const repairTables = await requireRepairTables(env);
+  if (!repairTables.ok) return repairTables.response;
+  const { auditId, actionId } = apiRepairActionProofPathParts(request.url);
+  if (!isSafeUuid(actionId)) return json({ error: "Action not found." }, 404);
+  const resolved = await resolveApiAuditReport(env, access, auditId);
+  if (!resolved.ok) return jsonNoStore({ error: resolved.error }, resolved.status);
+  const reportId = resolved.report.id;
+
+  const action = await env.WAITLIST_DB.prepare(
+    `SELECT *
+     FROM repair_agent_actions
+     WHERE id = ?
+       AND report_id = ?
+       AND owner_email = ?
+     LIMIT 1`
+  )
+    .bind(actionId, reportId, access.ownerEmail)
+    .first();
+  if (!action?.id) return json({ error: "Action not found." }, 404);
+
+  const ensured = await ensureRepairQueueRows(env, access, reportId, resolved.report);
+  const item = repairImplementationItemForAction(ensured.items || [], action);
+  if (!item) return jsonNoStore({ error: "Repair item not found." }, 409);
+
+  if (!action.rerun_report_id) {
+    return jsonNoStore({ error: "Attach the fixed rerun report before creating a proof receipt." }, 409);
+  }
+  const rerun = await resolveApiAuditReport(env, access, action.rerun_report_id || "");
+  if (!rerun.ok) return jsonNoStore({ error: rerun.error || "Rerun proof report not found." }, rerun.status || 404);
+
+  const receipt = buildRepairProofReceipt({
+    report: resolved.report,
+    item,
+    action,
+    rerunReport: rerun.report
+  });
+  if (!receipt.ok) return jsonNoStore({ error: receipt.error }, receipt.status || 400);
+
+  return new Response(receipt.markdown, {
+    status: 200,
+    headers: secureHeaders({
+      "cache-control": "no-store",
+      "content-disposition": `attachment; filename="${receipt.filename}"`,
+      "content-type": receipt.contentType,
+      "x-robots-tag": "noindex, nofollow"
+    })
+  });
+}
+
 async function apiDeleteAudit(request, env) {
   const access = await apiAccessStatus(request, env);
   if (!access.ok) return apiAccessResponse(access);
@@ -865,6 +921,23 @@ function apiRepairActionImplementationPathParts(rawUrl) {
   };
 }
 
+function apiRepairActionProofPathParts(rawUrl) {
+  const pathname = new URL(rawUrl).pathname;
+  const prefix = "/v1/audits/";
+  const marker = "/repair-actions/";
+  const suffix = "/proof.md";
+  if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix) || !pathname.includes(marker)) {
+    return { auditId: "", actionId: "" };
+  }
+  const rest = pathname.slice(prefix.length, -suffix.length);
+  const markerIndex = rest.indexOf(marker);
+  if (markerIndex === -1) return { auditId: "", actionId: "" };
+  return {
+    auditId: decodeURIComponent(rest.slice(0, markerIndex).replace(/^\/|\/$/g, "")),
+    actionId: decodeURIComponent(rest.slice(markerIndex + marker.length).replace(/^\/|\/$/g, ""))
+  };
+}
+
 function scheduleApiRepairActionWebhook(env, access, ctx, eventType, action = {}, report = {}) {
   const delivery = deliverApiWebhooks(
     env,
@@ -896,6 +969,7 @@ export {
   apiGetAuditIssues,
   apiGetAuditReport,
   apiGetRepairActionImplementationPack,
+  apiGetRepairActionProofReceipt,
   apiGetRepairQueue,
   apiSaveRepairQueue,
   apiUpdateRepairAction,
