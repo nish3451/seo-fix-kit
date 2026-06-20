@@ -277,6 +277,28 @@ test("account summary surfaces monitor regressions ahead of ordinary repairs", a
   assert.equal(body.nextActions[0].id, "review-monitor-regression");
 });
 
+test("account summary does not invent delivery readiness without proposal state", async () => {
+  const env = fakeAccountEnv({
+    fixRequests: [fixRequestRow({
+      status: "paid",
+      paid_at: nowIso(),
+      payment_id: "payment-1",
+      customer_note: "Ready for review",
+      delivery_url: "https://seofixkit.com/beta/reports/final",
+      final_report_id: "final-report-1"
+    })]
+  });
+
+  const response = await getAccountSummary(sessionRequest("/api/account"), env);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+
+  assert.equal(body.fixRequests.length, 1);
+  assert.equal(body.fixRequests[0].status, "paid");
+  assert.equal(body.fixRequests[0].deliveryReadiness, undefined);
+  assert.equal(body.fixRequests[0].repairProposalSummary, undefined);
+});
+
 function sessionRequest(path) {
   return new Request(`https://seofixkit.test${path}`, {
     headers: {
@@ -490,6 +512,35 @@ function repairActionRow(overrides = {}) {
     approved_at: "",
     applied_at: "",
     updated_by_email: "owner@example.com",
+    ...overrides
+  };
+}
+
+function fixRequestRow(overrides = {}) {
+  return {
+    id: "fix-request-1",
+    owner_email: "owner@example.com",
+    report_id: "report-1",
+    target_url: "https://example.com/",
+    target_host: "example.com",
+    score: 82,
+    issue_count: 1,
+    status: "checkout_created",
+    checkout_session_id: "checkout-1",
+    customer_note: "",
+    delivery_url: "",
+    final_report_id: "",
+    in_progress_at: "",
+    delivered_at: "",
+    paid_at: "",
+    due_at: "",
+    next_update_at: "",
+    status_reason: "",
+    is_test: 0,
+    refunded_at: "",
+    before_after_summary_json: "",
+    created_at: nowIso(),
+    updated_at: nowIso(),
     ...overrides
   };
 }

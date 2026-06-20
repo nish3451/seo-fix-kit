@@ -14,7 +14,8 @@ import {
   buildStatusNotificationEmail,
   fixRequestStatusLabel,
   isEmailConfigured,
-  normalizeFixRequestStatus
+  normalizeFixRequestStatus,
+  repairDeliveryReadiness
 } from "../shared/fulfillment.js";
 import {
   OFFER_KEYS,
@@ -24,8 +25,9 @@ import {
   repairSprintEligibilityFromProposals,
   sellableOffers
 } from "../shared/offers.js";
-import { repairProposalSummaryForFixRequest } from "../worker/routes/admin.js";
+import { fixRequestAdminResponse } from "../worker/routes/admin.js";
 import { jsonForStorage } from "../worker/routes/billing.js";
+import { repairProposalSummaryForFixRequest } from "../worker/lib/repair-proposal-summary.js";
 import { repairProposalResponse } from "../worker/lib/serializers.js";
 import { repairProposalApprovalWindowStatus } from "../worker/routes/reports.js";
 
@@ -237,7 +239,7 @@ assert.equal(
   repairSprintEligibilityFromProposals([{ executionMode: "unsupported", approvalStatus: "approved" }]).status,
   "unsupported"
 );
-const proposalSummary = await repairProposalSummaryForFixRequest(fakeProposalSummaryEnv(), "fix_123");
+const proposalSummary = await repairProposalSummaryForFixRequest(fakeProposalSummaryEnv(), "fix_123", "buyer@example.com");
 assert.equal(proposalSummary.approved, 2);
 assert.equal(proposalSummary.approvedExecutable, 1);
 assert.equal(proposalSummary.executable, 2);
@@ -246,6 +248,74 @@ assert.equal(repairProposalApprovalWindowStatus("in_progress").ok, true);
 assert.equal(repairProposalApprovalWindowStatus("delivered").ok, false);
 assert.equal(repairProposalApprovalWindowStatus("refunded").ok, false);
 assert.equal(repairProposalApprovalWindowStatus("disputed").ok, false);
+assert.equal(
+  repairDeliveryReadiness({ status: "checkout_created" }, { status: "ready", executable: 1, approvedExecutable: 1 }).blockers[0].id,
+  "payment_unconfirmed"
+);
+assert.equal(
+  repairDeliveryReadiness(
+    { status: "refunded", paid_at: "2026-06-20T00:00:00.000Z", payment_id: "pay_123", customer_note: "Ready", delivery_url: "https://seofixkit.com/beta/reports/final", final_report_id: "final" },
+    { status: "ready", executable: 1, approvedExecutable: 1 }
+  ).blockers.some((blocker) => blocker.id === "status_not_deliverable"),
+  true
+);
+assert.equal(
+  repairDeliveryReadiness({ status: "paid", paid_at: "2026-06-20T00:00:00.000Z" }, { status: "unavailable" })
+    .blockers
+    .some((blocker) => blocker.id === "proposal_state_unavailable"),
+  true
+);
+assert.equal(
+  repairDeliveryReadiness(
+    { status: "paid", paid_at: "2026-06-20T00:00:00.000Z", customer_note: "Ready", delivery_url: "https://seofixkit.com/beta/reports/final", final_report_id: "final" },
+    { status: "ready", executable: 2, approvedExecutable: 0 }
+  ).blockers.some((blocker) => blocker.id === "approved_proposal_missing"),
+  true
+);
+assert.equal(
+  repairDeliveryReadiness(
+    { status: "paid", paid_at: "2026-06-20T00:00:00.000Z" },
+    { status: "ready", executable: 0, approvedExecutable: 0 }
+  ).readyForDelivery,
+  false
+);
+assert.equal(
+  repairDeliveryReadiness(
+    { status: "in_progress", paid_at: "2026-06-20T00:00:00.000Z", customer_note: "Ready", delivery_url: "https://seofixkit.com/beta/reports/final", final_report_id: "final" },
+    { status: "ready", executable: 2, approvedExecutable: 1 }
+  ).readyForDelivery,
+  true
+);
+assert.equal(
+  repairDeliveryReadiness({ status: "delivered" }, { status: "ready", executable: 2, approvedExecutable: 1 }).status,
+  "delivered"
+);
+assert.equal(
+  repairDeliveryReadiness({ status: "delivered" }, { status: "ready", executable: 2, approvedExecutable: 1 }).blockers.length,
+  0
+);
+const adminFixRequest = fixRequestAdminResponse(
+  {
+    id: "fix_123",
+    report_id: "report_123",
+    owner_email: "buyer@example.com",
+    status: "paid",
+    paid_at: "2026-06-20T00:00:00.000Z",
+    customer_note: "",
+    delivery_url: "",
+    final_report_id: "",
+    target_url: "https://example.com/",
+    target_host: "example.com"
+  },
+  [],
+  [],
+  { status: "ready", total: 2, approved: 0, approvedExecutable: 0, dismissed: 0, executable: 2, delivered: 0 }
+);
+assert.equal(adminFixRequest.deliveryReadiness.readyForStart, true);
+assert.equal(
+  adminFixRequest.deliveryReadiness.blockers.some((blocker) => blocker.id === "approved_proposal_missing"),
+  true
+);
 const storedProposalJson = jsonForStorage({ snippet: "\"".repeat(5000), fix: "Use complete JSON only." }, 4000, { truncated: true });
 assert.equal(storedProposalJson.length <= 4000, true);
 assert.equal(JSON.parse(storedProposalJson).fix, "Use complete JSON only.");
@@ -285,27 +355,58 @@ async function sign({ payload, webhookId, webhookTimestamp, secret }) {
 
 function fakeProposalSummaryEnv() {
   const rows = [
-    { fix_request_id: "fix_123", approval_status: "approved", delivery_status: "draft", execution_mode: "unsupported" },
-    { fix_request_id: "fix_123", approval_status: "approved", delivery_status: "draft", execution_mode: "generated_proposal" },
-    { fix_request_id: "fix_123", approval_status: "pending", delivery_status: "draft", execution_mode: "manual_task" }
+    {
+      fix_request_id: "fix_123",
+      owner_email: "buyer@example.com",
+      approval_status: "approved",
+      delivery_status: "draft",
+      execution_mode: "unsupported"
+    },
+    {
+      fix_request_id: "fix_123",
+      owner_email: "buyer@example.com",
+      approval_status: "approved",
+      delivery_status: "draft",
+      execution_mode: "generated_proposal"
+    },
+    {
+      fix_request_id: "fix_123",
+      owner_email: "buyer@example.com",
+      approval_status: "pending",
+      delivery_status: "draft",
+      execution_mode: "manual_task"
+    },
+    {
+      fix_request_id: "fix_123",
+      owner_email: "other@example.com",
+      approval_status: "approved",
+      delivery_status: "draft",
+      execution_mode: "generated_proposal"
+    }
   ];
   return {
     WAITLIST_DB: {
       prepare(sql) {
         assert.equal(sql.includes("approved_executable"), true);
         return {
-          bind(fixRequestId) {
-            const scoped = rows.filter((row) => row.fix_request_id === fixRequestId);
+          bind(fixRequestId, ownerEmail) {
+            const scoped = rows.filter((row) =>
+              row.fix_request_id === fixRequestId &&
+              (!ownerEmail || row.owner_email === ownerEmail)
+            );
             return {
-              first: async () => ({
-                total: scoped.length,
-                approved: scoped.filter((row) => row.approval_status === "approved").length,
-                approved_executable: scoped.filter(
-                  (row) => row.approval_status === "approved" && row.execution_mode !== "unsupported"
-                ).length,
-                dismissed: scoped.filter((row) => row.approval_status === "dismissed").length,
-                executable: scoped.filter((row) => row.execution_mode !== "unsupported").length,
-                delivered: scoped.filter((row) => row.delivery_status === "delivered").length
+              all: async () => ({
+                results: [{
+                  fix_request_id: fixRequestId,
+                  total: scoped.length,
+                  approved: scoped.filter((row) => row.approval_status === "approved").length,
+                  approved_executable: scoped.filter(
+                    (row) => row.approval_status === "approved" && row.execution_mode !== "unsupported"
+                  ).length,
+                  dismissed: scoped.filter((row) => row.approval_status === "dismissed").length,
+                  executable: scoped.filter((row) => row.execution_mode !== "unsupported").length,
+                  delivered: scoped.filter((row) => row.delivery_status === "delivered").length
+                }]
               })
             };
           }

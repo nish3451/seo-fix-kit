@@ -34,6 +34,7 @@ import { EMAIL_PROVIDER, sendWorkerEmail } from "../lib/email.js";
 import { json, jsonNoStore, secureHeaders } from "../lib/http.js";
 import { offerCatalogForOwner } from "../lib/offers.js";
 import { preserveFixRequestReports, reportJsonForRow } from "../lib/report-data.js";
+import { repairProposalSummariesForFixRequests } from "../lib/repair-proposal-summary.js";
 import { isRepairTablesMissingError } from "../lib/repair-tables.js";
 import { ensureRepairQueueRows } from "../lib/repair-agent-actions.js";
 import { sha256Hex } from "../lib/security.js";
@@ -359,7 +360,12 @@ async function getBillingSummary(request, env) {
     .bind(access.ownerEmail)
     .all();
   const fixRows = rows.results || [];
-  const requests = fixRows.map((row) => billingFixRequestResponse(row, now));
+  const proposalSummaries = await repairProposalSummariesForFixRequests(
+    env,
+    fixRows.map((row) => row.id),
+    access.ownerEmail
+  );
+  const requests = fixRows.map((row) => billingFixRequestResponse(row, now, proposalSummaries.get(row.id)));
   const payments = fixRows
     .filter((row) => row.payment_id || row.paid_at || row.refunded_at || row.dispute_event || row.status === "payment_failed")
     .map(billingPaymentResponse);
@@ -702,14 +708,11 @@ function billingPaymentResponse(row) {
         : "payment";
 
   return {
-    id: row.payment_id || row.checkout_session_id || row.id,
+    id: row.id,
     type,
     status: row.status || "",
     statusLabel: fixRequestStatusLabel(row.status || "new"),
-    paymentId: row.payment_id || "",
-    checkoutSessionId: row.checkout_session_id || "",
-    refundId: row.refund_id || "",
-    disputeEvent: row.dispute_event || "",
+    displayReference: billingPaymentDisplayReference(type),
     amountMinor,
     currency,
     displayAmount: currency && amountMinor !== null ? formatMinorCurrency(amountMinor, currency) : "",
@@ -724,6 +727,13 @@ function billingPaymentResponse(row) {
     disputedAt: row.disputed_at || "",
     createdAt: row.paid_at || row.refunded_at || row.disputed_at || row.updated_at || row.created_at || ""
   };
+}
+
+function billingPaymentDisplayReference(type = "payment") {
+  if (type === "refund") return "Dodo refund record";
+  if (type === "dispute") return "Dodo dispute record";
+  if (type === "failed_payment") return "Dodo payment attempt";
+  return "Dodo payment record";
 }
 
 function isAllowedAdminStatusTransition(currentStatus, requestedStatus) {

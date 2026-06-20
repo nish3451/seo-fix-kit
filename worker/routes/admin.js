@@ -6,7 +6,8 @@ import {
   adminNotificationEmail,
   buildOpsDigestEmail,
   isEmailConfigured,
-  normalizeFixRequestStatus
+  normalizeFixRequestStatus,
+  repairDeliveryReadiness
 } from "../../shared/fulfillment.js";
 import {
   escapeHtml
@@ -46,6 +47,9 @@ import {
   hydrateReportRow,
   preserveFixRequestReports
 } from "../lib/report-data.js";
+import {
+  repairProposalSummaryForFixRequest
+} from "../lib/repair-proposal-summary.js";
 import {
   fixRequestResponse
 } from "../lib/serializers.js";
@@ -222,7 +226,7 @@ async function getAdminSummary(request, env) {
   const fixQueueRows = fixQueue.results || [];
   const proposalSummaries = new Map(
     await Promise.all(
-      fixQueueRows.map(async (row) => [row.id, await repairProposalSummaryForFixRequest(env, row.id)])
+      fixQueueRows.map(async (row) => [row.id, await repairProposalSummaryForFixRequest(env, row.id, row.owner_email)])
     )
   );
   const dodoConfig = dodoCheckoutConfigStatus(env);
@@ -390,7 +394,7 @@ async function updateFixRequestAdmin(request, env) {
   if (!finalReportStatus.ok) return jsonNoStore({ error: finalReportStatus.error }, 400);
   const proposalSummary =
     requestedStatus === "delivered"
-      ? await repairProposalSummaryForFixRequest(env, existing.id)
+      ? await repairProposalSummaryForFixRequest(env, existing.id, existing.owner_email)
       : { status: "skipped", total: 0, approved: 0, approvedExecutable: 0, executable: 0 };
   if (requestedStatus === "delivered" && !deliveryUrl && finalReportId) {
     deliveryUrl = `${new URL(request.url).origin}/beta/reports/${encodeURIComponent(finalReportId)}`;
@@ -525,41 +529,9 @@ async function updateFixRequestAdmin(request, env) {
       updated,
       notifications.results || [],
       events.results || [],
-      await repairProposalSummaryForFixRequest(env, id)
+      await repairProposalSummaryForFixRequest(env, id, updated.owner_email)
     )
   });
-}
-
-async function repairProposalSummaryForFixRequest(env, fixRequestId) {
-  if (!env.WAITLIST_DB || !fixRequestId) {
-    return { status: "skipped", total: 0, approved: 0, approvedExecutable: 0, dismissed: 0, executable: 0, delivered: 0 };
-  }
-  try {
-    const row = await env.WAITLIST_DB.prepare(
-      `SELECT
-         COUNT(*) AS total,
-         SUM(CASE WHEN approval_status = 'approved' THEN 1 ELSE 0 END) AS approved,
-         SUM(CASE WHEN approval_status = 'approved' AND execution_mode != 'unsupported' THEN 1 ELSE 0 END) AS approved_executable,
-         SUM(CASE WHEN approval_status = 'dismissed' THEN 1 ELSE 0 END) AS dismissed,
-         SUM(CASE WHEN execution_mode != 'unsupported' THEN 1 ELSE 0 END) AS executable,
-         SUM(CASE WHEN delivery_status = 'delivered' THEN 1 ELSE 0 END) AS delivered
-       FROM repair_proposals
-       WHERE fix_request_id = ?`
-    )
-      .bind(fixRequestId)
-      .first();
-    return {
-      status: "ready",
-      total: Number(row?.total || 0),
-      approved: Number(row?.approved || 0),
-      approvedExecutable: Number(row?.approved_executable || 0),
-      dismissed: Number(row?.dismissed || 0),
-      executable: Number(row?.executable || 0),
-      delivered: Number(row?.delivered || 0)
-    };
-  } catch {
-    return { status: "unavailable", total: 0, approved: 0, approvedExecutable: 0, dismissed: 0, executable: 0, delivered: 0 };
-  }
 }
 
 async function syncRepairProposalDeliveryState(env, { fixRequestId, status, deliveryUrl, finalReportId, now }) {
@@ -598,6 +570,15 @@ async function syncRepairProposalDeliveryState(env, { fixRequestId, status, deli
 }
 
 function fixRequestAdminResponse(row, notifications = [], events = [], proposalSummary = null, now = new Date().toISOString()) {
+  const repairProposalSummary = proposalSummary || {
+    status: "unavailable",
+    total: 0,
+    approved: 0,
+    approvedExecutable: 0,
+    dismissed: 0,
+    executable: 0,
+    delivered: 0
+  };
   return {
     ...fixRequestResponse(row, now),
     reportId: row.report_id,
@@ -615,15 +596,8 @@ function fixRequestAdminResponse(row, notifications = [], events = [], proposalS
     deliveryNotificationError: row.delivery_notification_error || "",
     reportPath: `/beta/reports/${row.report_id}`,
     briefPath: `/api/reports/${row.report_id}/brief.md`,
-    repairProposalSummary: proposalSummary || {
-      status: "unavailable",
-      total: 0,
-      approved: 0,
-      approvedExecutable: 0,
-      dismissed: 0,
-      executable: 0,
-      delivered: 0
-    },
+    repairProposalSummary,
+    deliveryReadiness: repairDeliveryReadiness(row, repairProposalSummary),
     notifications: notifications.map((notification) => ({
       event: notification.event || "",
       recipientType: notification.recipient_type,
@@ -826,8 +800,8 @@ async function sendDailyOpsDigest(env) {
 export {
   createInvite,
   exportLeadsCsv,
+  fixRequestAdminResponse,
   getAdminSummary,
-  repairProposalSummaryForFixRequest,
   sendDailyOpsDigest,
   sendUrgentOpsAlerts,
   updateFixRequestAdmin

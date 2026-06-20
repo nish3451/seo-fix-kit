@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  getBillingSummary,
   processDodoPaymentWebhook,
   requestFixPack
 } from "./billing.js";
@@ -1136,6 +1137,301 @@ test("Dodo webhook drill marker can pay only a test Fix Pack request and seed pr
   assert.ok(paymentEvent);
 });
 
+test("billing summary exposes customer delivery readiness from repair proposal state", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-paid",
+    status: "paid",
+    payment_id: "payment-1",
+    paid_at: "2026-06-20T00:00:00.000Z",
+    customer_note: "",
+    delivery_url: "",
+    final_report_id: ""
+  }));
+  env.repairProposals.push({
+    fix_request_id: "fix-request-paid",
+    owner_email: "owner@example.com",
+    approval_status: "pending",
+    delivery_status: "draft",
+    execution_mode: "generated_proposal"
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    display_price: "$99.00",
+    currency: "USD",
+    total_amount: 9900
+  }), {
+    status: 200,
+    headers: { "content-type": "application/json" }
+  });
+
+  try {
+    const response = await getBillingSummary(new Request("https://seofixkit.test/api/billing/summary", {
+      headers: { "x-beta-session": env.sessionToken }
+    }), env);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.requests.length, 1);
+    assert.equal(body.requests[0].repairProposalSummary, undefined);
+    assert.equal(body.requests[0].deliveryReadiness.checks, undefined);
+    assert.equal(body.requests[0].deliveryReadiness.readyForStart, true);
+    assert.equal(body.requests[0].deliveryReadiness.readyForDelivery, false);
+    assert.deepEqual(
+      body.requests[0].deliveryReadiness.blockers.map((blocker) => blocker.id),
+      ["approved_proposal_missing", "customer_note_missing", "delivery_link_missing", "final_rerun_missing"]
+    );
+    assert.deepEqual(
+      body.requests[0].deliveryReadiness.blockers.map((blocker) => blocker.label),
+      [undefined, undefined, undefined, undefined]
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("billing summary marks delivery blocked when proposal state is unavailable", async () => {
+  const env = await fakeBillingEnv();
+  env.repairProposalsMissing = true;
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-paid",
+    status: "paid",
+    payment_id: "payment-1",
+    paid_at: "2026-06-20T00:00:00.000Z",
+    customer_note: "Ready for review",
+    delivery_url: "https://seofixkit.com/beta/reports/final",
+    final_report_id: "final"
+  }));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    display_price: "$99.00",
+    currency: "USD",
+    total_amount: 9900
+  }), {
+    status: 200,
+    headers: { "content-type": "application/json" }
+  });
+
+  try {
+    const response = await getBillingSummary(new Request("https://seofixkit.test/api/billing/summary", {
+      headers: { "x-beta-session": env.sessionToken }
+    }), env);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.requests[0].repairProposalSummary, undefined);
+    assert.equal(body.requests[0].deliveryReadiness.checks, undefined);
+    assert.deepEqual(
+      body.requests[0].deliveryReadiness.blockers.map((blocker) => blocker.id),
+      ["proposal_state_unavailable"]
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("billing summary keeps empty Fix Pack state unchanged", async () => {
+  const env = await fakeBillingEnv();
+
+  await withDodoPricing(async () => {
+    const response = await getBillingSummary(new Request("https://seofixkit.test/api/billing/summary", {
+      headers: { "x-beta-session": env.sessionToken }
+    }), env);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.deepEqual(body.requests, []);
+    assert.deepEqual(body.payments, []);
+  });
+});
+
+test("billing summary marks delivery ready when approved proposal and proof are attached", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-ready",
+    status: "in_progress",
+    payment_id: "payment-ready",
+    paid_at: "2026-06-20T00:00:00.000Z",
+    customer_note: "We repaired the title and queued the rerun proof.",
+    delivery_url: "https://seofixkit.com/beta/reports/final",
+    final_report_id: "final"
+  }));
+  env.repairProposals.push({
+    fix_request_id: "fix-request-ready",
+    owner_email: "someone-else@example.com",
+    approval_status: "approved",
+    delivery_status: "draft",
+    execution_mode: "generated_proposal"
+  });
+  env.repairProposals.push({
+    fix_request_id: "fix-request-ready",
+    owner_email: "owner@example.com",
+    approval_status: "approved",
+    delivery_status: "draft",
+    execution_mode: "generated_proposal"
+  });
+
+  await withDodoPricing(async () => {
+    const response = await getBillingSummary(new Request("https://seofixkit.test/api/billing/summary", {
+      headers: { "x-beta-session": env.sessionToken }
+    }), env);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.requests[0].deliveryReadiness.status, "ready");
+    assert.equal(body.requests[0].deliveryReadiness.readyForDelivery, true);
+    assert.deepEqual(body.requests[0].deliveryReadiness.blockers, []);
+    assert.equal(body.requests[0].repairProposalSummary, undefined);
+    assert.equal(body.requests[0].checkoutSessionId, undefined);
+  });
+});
+
+test("billing summary ignores proposal rows from another owner", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-owner-guard",
+    status: "paid",
+    payment_id: "payment-owner-guard",
+    paid_at: "2026-06-20T00:00:00.000Z",
+    customer_note: "Ready for proof",
+    delivery_url: "https://seofixkit.com/beta/reports/final",
+    final_report_id: "final"
+  }));
+  env.repairProposals.push({
+    fix_request_id: "fix-request-owner-guard",
+    owner_email: "someone-else@example.com",
+    approval_status: "pending",
+    delivery_status: "draft",
+    execution_mode: "generated_proposal"
+  });
+
+  await withDodoPricing(async () => {
+    const response = await getBillingSummary(new Request("https://seofixkit.test/api/billing/summary", {
+      headers: { "x-beta-session": env.sessionToken }
+    }), env);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.requests[0].deliveryReadiness.status, "ready");
+    assert.equal(body.requests[0].deliveryReadiness.readyForDelivery, true);
+    assert.deepEqual(body.requests[0].deliveryReadiness.blockers, []);
+  });
+});
+
+test("billing summary marks delivered requests delivered without blockers", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-delivered",
+    status: "delivered",
+    payment_id: "payment-delivered",
+    paid_at: "2026-06-20T00:00:00.000Z",
+    delivered_at: "2026-06-21T00:00:00.000Z"
+  }));
+
+  await withDodoPricing(async () => {
+    const response = await getBillingSummary(new Request("https://seofixkit.test/api/billing/summary", {
+      headers: { "x-beta-session": env.sessionToken }
+    }), env);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.requests[0].deliveryReadiness.status, "delivered");
+    assert.equal(body.requests[0].deliveryReadiness.readyForStart, true);
+    assert.equal(body.requests[0].deliveryReadiness.readyForDelivery, true);
+    assert.deepEqual(body.requests[0].deliveryReadiness.blockers, []);
+  });
+});
+
+test("billing summary hides customer-sensitive billing identifiers", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-paid",
+    status: "paid",
+    payment_id: "payment-secret",
+    checkout_session_id: "checkout-secret",
+    paid_at: "2026-06-20T00:00:00.000Z"
+  }));
+
+  await withDodoPricing(async () => {
+    const response = await getBillingSummary(new Request("https://seofixkit.test/api/billing/summary", {
+      headers: { "x-beta-session": env.sessionToken }
+    }), env);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.requests[0].checkoutSessionId, undefined);
+    assert.equal(body.requests[0].repairProposalSummary, undefined);
+    assert.equal(body.requests[0].deliveryReadiness.checks, undefined);
+    assert.equal(body.payments[0].paymentId, undefined);
+    assert.equal(body.payments[0].checkoutSessionId, undefined);
+    assert.equal(body.payments[0].refundId, undefined);
+    assert.equal(body.payments[0].disputeEvent, undefined);
+    assert.equal(body.payments[0].displayReference, "Dodo payment record");
+  });
+});
+
+test("billing summary uses customer-safe payment history references", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-payment",
+    status: "paid",
+    payment_id: "payment-secret",
+    paid_at: "2026-06-20T00:00:00.000Z"
+  }));
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-refund",
+    status: "refunded",
+    payment_id: "payment-refund-secret",
+    refund_id: "refund-secret",
+    paid_at: "2026-06-20T00:00:00.000Z",
+    refunded_at: "2026-06-21T00:00:00.000Z"
+  }));
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-dispute",
+    status: "disputed",
+    payment_id: "payment-dispute-secret",
+    dispute_event: "chargeback",
+    paid_at: "2026-06-20T00:00:00.000Z",
+    disputed_at: "2026-06-21T00:00:00.000Z"
+  }));
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-failed",
+    status: "payment_failed",
+    checkout_session_id: "checkout-failed-secret"
+  }));
+
+  await withDodoPricing(async () => {
+    const response = await getBillingSummary(new Request("https://seofixkit.test/api/billing/summary", {
+      headers: { "x-beta-session": env.sessionToken }
+    }), env);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    const references = new Set(body.payments.map((payment) => payment.displayReference));
+    assert.deepEqual(references, new Set([
+      "Dodo payment record",
+      "Dodo refund record",
+      "Dodo dispute record",
+      "Dodo payment attempt"
+    ]));
+    for (const payment of body.payments) {
+      assert.equal(payment.paymentId, undefined);
+      assert.equal(payment.checkoutSessionId, undefined);
+      assert.equal(payment.refundId, undefined);
+      assert.equal(payment.disputeEvent, undefined);
+    }
+  });
+});
+
+async function withDodoPricing(callback) {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    display_price: "$99.00",
+    currency: "USD",
+    total_amount: 9900
+  }), {
+    status: 200,
+    headers: { "content-type": "application/json" }
+  });
+  try {
+    return await callback();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
 async function fakeBillingEnv() {
   const sessionToken = "test-session";
   const tokenHash = await sha256Hex(sessionToken);
@@ -1344,6 +1640,45 @@ function first(sql, values, env) {
 }
 
 function all(sql, values, env) {
+  if (sql.includes("FROM fix_requests") && sql.includes("WHERE owner_email = ?")) {
+    const [ownerEmail] = values;
+    return {
+      results: env.fixRequests
+        .filter((row) => row.owner_email === ownerEmail && Number(row.is_test || 0) === 0)
+        .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")))
+    };
+  }
+  if (sql.includes("FROM repair_proposals") && sql.includes("GROUP BY fix_request_id")) {
+    if (env.repairProposalsMissing) throw new Error("no such table: repair_proposals");
+    const ownerFiltered = sql.includes("owner_email = ?");
+    const ownerEmail = ownerFiltered ? values[values.length - 1] : "";
+    const ids = new Set(ownerFiltered ? values.slice(0, -1) : values);
+    const grouped = new Map();
+    for (const proposal of env.repairProposals.filter((row) =>
+      ids.has(row.fix_request_id) &&
+      (!ownerEmail || row.owner_email === ownerEmail)
+    )) {
+      const current = grouped.get(proposal.fix_request_id) || {
+        fix_request_id: proposal.fix_request_id,
+        total: 0,
+        approved: 0,
+        approved_executable: 0,
+        dismissed: 0,
+        executable: 0,
+        delivered: 0
+      };
+      current.total += 1;
+      if (proposal.approval_status === "approved") current.approved += 1;
+      if (proposal.approval_status === "approved" && proposal.execution_mode !== "unsupported") {
+        current.approved_executable += 1;
+      }
+      if (proposal.approval_status === "dismissed") current.dismissed += 1;
+      if (proposal.execution_mode !== "unsupported") current.executable += 1;
+      if (proposal.delivery_status === "delivered") current.delivered += 1;
+      grouped.set(proposal.fix_request_id, current);
+    }
+    return { results: [...grouped.values()] };
+  }
   if (sql.includes("FROM repair_queue_items")) {
     if (env.repairTablesMissing) throw new Error("no such table: repair_queue_items");
     const [reportId, ownerEmail] = values;
