@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import test from "node:test";
 import {
   getBillingSummary,
+  handleDodoWebhook,
   processDodoPaymentWebhook,
-  requestFixPack
+  processDodoSubscriptionWebhook,
+  requestFixPack,
+  requestMonitoringCheckout
 } from "./billing.js";
-import { extractDodoPayment } from "../../shared/dodo.js";
+import { extractDodoPayment, extractDodoSubscription } from "../../shared/dodo.js";
 import { sha256Hex } from "../lib/security.js";
 
 test("Fix Pack checkout carries selected repair metadata to Dodo", async () => {
@@ -1242,6 +1246,562 @@ test("billing summary keeps empty Fix Pack state unchanged", async () => {
   });
 });
 
+test("Proof Monitoring checkout creates Dodo subscription checkout for verified owner", async () => {
+  const env = await fakeBillingEnv();
+  const dodoRequests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    dodoRequests.push({ url: String(url), body: JSON.parse(options.body || "{}") });
+    return new Response(JSON.stringify({
+      checkout_url: "https://checkout.example.com/monitoring-1",
+      session_id: "dodo-monitoring-session-1"
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const response = await requestMonitoringCheckout(new Request("https://seofixkit.test/api/beta/monitoring-checkout", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-beta-session": env.sessionToken
+      },
+      body: JSON.stringify({ targetHost: "example.com" })
+    }), env);
+
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.mode, "checkout");
+    assert.equal(body.checkoutUrl, "https://checkout.example.com/monitoring-1");
+    assert.equal(body.target.targetHost, "example.com");
+    assert.equal(body.monitoring.status, "beta_allowance");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(dodoRequests.length, 1);
+  assert.equal(dodoRequests[0].url, "https://test.dodopayments.com/checkouts");
+  assert.deepEqual(dodoRequests[0].body.product_cart, [{ product_id: "pdt_monitoring", quantity: 1 }]);
+  assert.equal(dodoRequests[0].body.metadata.product_key, "seofixkit_proof_monitoring");
+  assert.equal(dodoRequests[0].body.metadata.offer_key, "proof_monitoring");
+  assert.equal(dodoRequests[0].body.metadata.owner_email, "owner@example.com");
+  assert.equal(dodoRequests[0].body.metadata.target_host, "example.com");
+  assert.equal(dodoRequests[0].body.metadata.site_claim_id, "site-claim-1");
+  assert.equal(dodoRequests[0].body.metadata.audit_schedule_id, "schedule-1");
+});
+
+test("Proof Monitoring checkout fails closed when subscription product is not configured", async () => {
+  const env = await fakeBillingEnv();
+  delete env.DODO_SEOFIXKIT_PRODUCT_MONITORING_ID;
+  const dodoRequests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    dodoRequests.push({ url: String(url), body: JSON.parse(options.body || "{}") });
+    return new Response(JSON.stringify({ checkout_url: "https://checkout.example.com/unexpected" }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const response = await requestMonitoringCheckout(new Request("https://seofixkit.test/api/beta/monitoring-checkout", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-beta-session": env.sessionToken
+      },
+      body: JSON.stringify({ targetHost: "example.com" })
+    }), env);
+
+    assert.equal(response.status, 503);
+    const body = await response.json();
+    assert.equal(body.code, "MONITORING_CHECKOUT_NOT_CONFIGURED");
+    assert.equal(body.checkoutAvailable, false);
+    assert.deepEqual(body.missing, ["productId"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(dodoRequests.length, 0);
+});
+
+test("Proof Monitoring checkout fails closed without an eligible verified site or monitor", async () => {
+  for (const setup of [
+    {
+      label: "no eligible sites",
+      prepare(env) {
+        env.siteClaims = [];
+        env.auditSchedules = [];
+      },
+      body: {}
+    },
+    {
+      label: "requested host not owned",
+      prepare() {},
+      body: { targetHost: "other.com" }
+    }
+  ]) {
+    const env = await fakeBillingEnv();
+    setup.prepare(env);
+    const dodoRequests = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url, options = {}) => {
+      dodoRequests.push({ url: String(url), body: JSON.parse(options.body || "{}") });
+      return new Response(JSON.stringify({ checkout_url: "https://checkout.example.com/unexpected" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    };
+
+    try {
+      const response = await requestMonitoringCheckout(new Request("https://seofixkit.test/api/beta/monitoring-checkout", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-beta-session": env.sessionToken
+        },
+        body: JSON.stringify(setup.body)
+      }), env);
+
+      assert.equal(response.status, 409, setup.label);
+      const body = await response.json();
+      assert.equal(body.ok, false, setup.label);
+      assert.equal(body.code, "MONITORING_SITE_REQUIRED", setup.label);
+      assert.equal(body.checkoutAvailable, false, setup.label);
+      assert.ok(Array.isArray(body.eligibleSites), setup.label);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    assert.equal(dodoRequests.length, 0, setup.label);
+  }
+});
+
+test("Proof Monitoring checkout fails closed when entitlement schema is unavailable", async () => {
+  const env = await fakeBillingEnv();
+  env.missingEntitlementSchema = true;
+  const dodoRequests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    dodoRequests.push({ url: String(url), body: JSON.parse(options.body || "{}") });
+    return new Response(JSON.stringify({ checkout_url: "https://checkout.example.com/unexpected" }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const response = await requestMonitoringCheckout(new Request("https://seofixkit.test/api/beta/monitoring-checkout", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-beta-session": env.sessionToken
+      },
+      body: JSON.stringify({ targetHost: "example.com" })
+    }), env);
+
+    assert.equal(response.status, 503);
+    const body = await response.json();
+    assert.equal(body.ok, false);
+    assert.equal(body.code, "MONITORING_ENTITLEMENT_SCHEMA_MISSING");
+    assert.equal(body.checkoutAvailable, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(dodoRequests.length, 0);
+});
+
+test("Proof Monitoring checkout rejects unsafe provider checkout URLs", async () => {
+  const env = await fakeBillingEnv();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    checkout_url: "javascript:alert(1)",
+    session_id: "unsafe-session"
+  }), {
+    status: 200,
+    headers: { "content-type": "application/json" }
+  });
+
+  try {
+    const response = await requestMonitoringCheckout(new Request("https://seofixkit.test/api/beta/monitoring-checkout", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-beta-session": env.sessionToken
+      },
+      body: JSON.stringify({ targetHost: "example.com" })
+    }), env);
+
+    assert.equal(response.status, 503);
+    const body = await response.json();
+    assert.equal(body.ok, false);
+    assert.equal(body.code, "DODO_CHECKOUT_URL_INVALID");
+    assert.equal(body.checkoutAvailable, false);
+    assert.equal(body.checkoutUrl, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Dodo subscription webhook activates Proof Monitoring entitlement", async () => {
+  const env = await fakeBillingEnv();
+  const subscription = extractDodoSubscription(subscriptionEventData({
+    id: "sub-active-1",
+    status: "active"
+  }));
+
+  const result = await processDodoSubscriptionWebhook(env, "subscription.active", subscription, "wh_sub_active");
+
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "processed");
+  assert.equal(result.offerKey, "proof_monitoring");
+  assert.equal(result.entitlementStatus, "active");
+  assert.equal(env.entitlements.length, 1);
+  assert.equal(env.entitlements[0].owner_email, "owner@example.com");
+  assert.equal(env.entitlements[0].offer_key, "proof_monitoring");
+  assert.equal(env.entitlements[0].status, "active");
+  assert.equal(env.entitlements[0].provider, "dodo");
+  assert.equal(env.entitlements[0].product_id, "pdt_monitoring");
+  assert.equal(env.entitlements[0].subscription_id, "sub-active-1");
+  assert.equal(env.entitlementEvents.at(-1).event, "subscription_active");
+});
+
+test("signed Dodo subscription webhook activates once and dedupes replay", async () => {
+  const env = await fakeBillingEnv();
+  const payload = {
+    type: "subscription.active",
+    data: subscriptionEventData({
+      id: "sub-signed-1",
+      status: "active"
+    })
+  };
+
+  const first = await handleDodoWebhook(signedDodoWebhookRequest(payload, "wh_signed_sub_1", env), env, null);
+  assert.equal(first.status, 200);
+  const firstBody = await first.json();
+  assert.equal(firstBody.received, true);
+  assert.equal(firstBody.status, "processed");
+  assert.equal(env.entitlements.length, 1);
+  assert.equal(env.dodoWebhookEvents[0].status, "processed");
+  assert.equal(env.dodoWebhookEvents[0].payment_id, "sub-signed-1");
+
+  const second = await handleDodoWebhook(signedDodoWebhookRequest(payload, "wh_signed_sub_1", env), env, null);
+  assert.equal(second.status, 200);
+  const secondBody = await second.json();
+  assert.equal(secondBody.duplicate, true);
+  assert.equal(env.entitlements.length, 1);
+});
+
+test("Dodo subscription webhook revokes Proof Monitoring entitlement on cancellation", async () => {
+  const env = await fakeBillingEnv();
+  const active = extractDodoSubscription(subscriptionEventData({ id: "sub-cancel-1", status: "active" }));
+  await processDodoSubscriptionWebhook(env, "subscription.active", active, "wh_sub_cancel_active");
+  const cancelled = extractDodoSubscription(subscriptionEventData({ id: "sub-cancel-1", status: "cancelled" }));
+
+  const result = await processDodoSubscriptionWebhook(env, "subscription.cancelled", cancelled, "wh_sub_cancelled");
+
+  assert.equal(result.ok, true);
+  assert.equal(result.entitlementStatus, "cancelled");
+  assert.equal(env.entitlements.length, 1);
+  assert.equal(env.entitlements[0].status, "cancelled");
+  assert.ok(env.entitlements[0].revoked_at);
+  assert.equal(env.entitlementEvents.at(-1).event, "subscription_inactive");
+});
+
+test("signed Dodo subscription.paused webhook revokes Proof Monitoring entitlement", async () => {
+  const env = await fakeBillingEnv();
+  const active = extractDodoSubscription(subscriptionEventData({ id: "sub-paused-1", status: "active" }));
+  await processDodoSubscriptionWebhook(env, "subscription.active", active, "wh_paused_active");
+  const payload = {
+    type: "subscription.paused",
+    data: subscriptionEventData({
+      id: "sub-paused-1",
+      status: "paused"
+    })
+  };
+
+  const response = await handleDodoWebhook(signedDodoWebhookRequest(payload, "wh_paused_1", env), env, null);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.received, true);
+  assert.equal(body.status, "processed");
+  assert.equal(body.entitlementStatus, "paused");
+  assert.equal(env.entitlements.length, 1);
+  assert.equal(env.entitlements[0].status, "paused");
+  assert.ok(env.entitlements[0].revoked_at);
+  assert.equal(env.dodoWebhookEvents.at(-1).status, "processed");
+  assert.equal(env.dodoWebhookEvents.at(-1).payment_id, "sub-paused-1");
+});
+
+test("Dodo subscription webhook reactivates recoverable on-hold monitoring", async () => {
+  const env = await fakeBillingEnv();
+  const active = extractDodoSubscription(subscriptionEventData({ id: "sub-on-hold-1", status: "active" }));
+  await processDodoSubscriptionWebhook(env, "subscription.active", active, "wh_on_hold_active");
+  const onHold = extractDodoSubscription(subscriptionEventData({ id: "sub-on-hold-1", status: "on_hold" }));
+  await processDodoSubscriptionWebhook(env, "subscription.on_hold", onHold, "wh_on_hold");
+
+  const recovered = extractDodoSubscription(subscriptionEventData({ id: "sub-on-hold-1", status: "active" }));
+  const result = await processDodoSubscriptionWebhook(env, "subscription.active", recovered, "wh_on_hold_recovered");
+
+  assert.equal(result.ok, true);
+  assert.equal(result.ignored, false);
+  assert.equal(result.entitlementStatus, "active");
+  assert.equal(env.entitlements.length, 1);
+  assert.equal(env.entitlements[0].status, "active");
+  assert.equal(env.entitlements[0].revoked_at, null);
+  assert.equal(env.entitlementEvents.at(-1).event, "subscription_active");
+});
+
+test("Dodo subscription webhook reactivates failed monitoring after provider recovery", async () => {
+  const env = await fakeBillingEnv();
+  const active = extractDodoSubscription(subscriptionEventData({ id: "sub-failed-recovered-1", status: "active" }));
+  await processDodoSubscriptionWebhook(env, "subscription.active", active, "wh_failed_recovered_active");
+  const failed = extractDodoSubscription(subscriptionEventData({ id: "sub-failed-recovered-1", status: "failed" }));
+  await processDodoSubscriptionWebhook(env, "subscription.failed", failed, "wh_failed_recovered_failed");
+
+  const recovered = extractDodoSubscription(subscriptionEventData({ id: "sub-failed-recovered-1", status: "active" }));
+  const result = await processDodoSubscriptionWebhook(env, "subscription.renewed", recovered, "wh_failed_recovered_renewed");
+
+  assert.equal(result.ok, true);
+  assert.equal(result.ignored, false);
+  assert.equal(result.entitlementStatus, "active");
+  assert.equal(env.entitlements.length, 1);
+  assert.equal(env.entitlements[0].status, "active");
+  assert.equal(env.entitlements[0].revoked_at, null);
+});
+
+test("Dodo subscription webhook does not reactivate a cancelled subscription from stale active events", async () => {
+  const env = await fakeBillingEnv();
+  const active = extractDodoSubscription(subscriptionEventData({ id: "sub-stale-1", status: "active" }));
+  await processDodoSubscriptionWebhook(env, "subscription.active", active, "wh_stale_active_initial");
+  const cancelled = extractDodoSubscription(subscriptionEventData({ id: "sub-stale-1", status: "cancelled" }));
+  await processDodoSubscriptionWebhook(env, "subscription.cancelled", cancelled, "wh_stale_cancelled");
+
+  const staleActive = extractDodoSubscription(subscriptionEventData({ id: "sub-stale-1", status: "active" }));
+  const result = await processDodoSubscriptionWebhook(env, "subscription.updated", staleActive, "wh_stale_active_retry");
+
+  assert.equal(result.ok, true);
+  assert.equal(result.ignored, true);
+  assert.equal(result.reason, "subscription_previously_revoked");
+  assert.equal(env.entitlements.length, 1);
+  assert.equal(env.entitlements[0].status, "cancelled");
+  assert.ok(env.entitlements[0].revoked_at);
+});
+
+test("Dodo subscription.updated with pending or missing status does not activate monitoring", async () => {
+  for (const status of ["pending", "missing"]) {
+    const env = await fakeBillingEnv();
+    const data = subscriptionEventData({
+      id: `sub-updated-${status || "missing"}`,
+      status
+    });
+    if (status === "missing") delete data.status;
+    const subscription = extractDodoSubscription(data);
+
+    const result = await processDodoSubscriptionWebhook(env, "subscription.updated", subscription, `wh_updated_${status || "missing"}`);
+
+    assert.equal(result.ok, true, status);
+    assert.equal(result.ignored, true, status);
+    assert.equal(env.entitlements.length, 0, status);
+  }
+});
+
+test("Dodo subscription webhook rejects wrong monitoring product", async () => {
+  const env = await fakeBillingEnv();
+  const subscription = extractDodoSubscription(subscriptionEventData({
+    id: "sub-wrong-product",
+    product_id: "pdt_other"
+  }));
+
+  const result = await processDodoSubscriptionWebhook(env, "subscription.active", subscription, "wh_sub_wrong_product");
+
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "processed");
+  assert.equal(result.ignored, true);
+  assert.equal(result.reason, "product_mismatch");
+  assert.equal(env.entitlements.length, 0);
+  assert.equal(env.entitlementEvents.at(-1).event, "subscription_product_identity_rejected");
+});
+
+test("Dodo subscription plan_changed revokes monitoring when product changes away", async () => {
+  const env = await fakeBillingEnv();
+  const active = extractDodoSubscription(subscriptionEventData({ id: "sub-plan-change-1", status: "active" }));
+  await processDodoSubscriptionWebhook(env, "subscription.active", active, "wh_plan_change_active");
+  const changed = extractDodoSubscription(subscriptionEventData({
+    id: "sub-plan-change-1",
+    status: "active",
+    product_id: "pdt_other"
+  }));
+
+  const result = await processDodoSubscriptionWebhook(env, "subscription.plan_changed", changed, "wh_plan_changed");
+
+  assert.equal(result.ok, true);
+  assert.equal(result.ignored, true);
+  assert.equal(result.reason, "product_mismatch");
+  assert.equal(env.entitlements[0].status, "product_mismatch");
+  assert.ok(env.entitlements[0].revoked_at);
+});
+
+test("Dodo subscription webhook rejects missing product cart and quantity mismatch", async () => {
+  for (const scenario of [
+    {
+      label: "missing product",
+      data: subscriptionEventData({ id: "sub-missing-product", product_cart: [] }),
+      reason: "missing_product_cart"
+    },
+    {
+      label: "top-level quantity mismatch",
+      data: subscriptionEventData({
+        id: "sub-quantity-mismatch",
+        product_id: "pdt_monitoring",
+        quantity: 2,
+        useTopLevelProduct: true
+      }),
+      reason: "product_quantity_mismatch"
+    }
+  ]) {
+    const env = await fakeBillingEnv();
+    const subscription = extractDodoSubscription(scenario.data);
+
+    const result = await processDodoSubscriptionWebhook(env, "subscription.active", subscription, `wh_${scenario.label.replaceAll(" ", "_")}`);
+
+    assert.equal(result.ok, true, scenario.label);
+    assert.equal(result.ignored, true, scenario.label);
+    assert.equal(result.reason, scenario.reason, scenario.label);
+    assert.equal(env.entitlements.length, 0, scenario.label);
+  }
+});
+
+test("Dodo subscription parser does not double-count matching top-level product id", async () => {
+  const env = await fakeBillingEnv();
+  const data = subscriptionEventData({ id: "sub-duplicate-product" });
+  data.product_id = "pdt_monitoring";
+  data.quantity = 1;
+  const subscription = extractDodoSubscription(data);
+
+  assert.deepEqual(subscription.productIds, ["pdt_monitoring"]);
+  assert.equal(subscription.productQuantity, 1);
+  const result = await processDodoSubscriptionWebhook(env, "subscription.active", subscription, "wh_duplicate_product");
+
+  assert.equal(result.ok, true);
+  assert.equal(result.entitlementStatus, "active");
+  assert.equal(env.entitlements.length, 1);
+});
+
+test("Dodo subscription webhook refuses activation without monitoring product config", async () => {
+  const env = await fakeBillingEnv();
+  delete env.DODO_SEOFIXKIT_PRODUCT_MONITORING_ID;
+  const subscription = extractDodoSubscription(subscriptionEventData({
+    id: "sub-missing-config"
+  }));
+
+  const result = await processDodoSubscriptionWebhook(env, "subscription.active", subscription, "wh_sub_missing_config");
+
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "ignored");
+  assert.equal(result.reason, "monitoring_product_not_configured");
+  assert.equal(env.entitlements.length, 0);
+});
+
+test("Dodo subscription webhook refuses entitlement mutation without a subscription id", async () => {
+  const env = await fakeBillingEnv();
+  const data = subscriptionEventData({ id: "", subscription_id: "" });
+  delete data.id;
+  delete data.subscription_id;
+  const subscription = extractDodoSubscription(data);
+
+  const result = await processDodoSubscriptionWebhook(env, "subscription.active", subscription, "wh_sub_missing_id");
+
+  assert.equal(result.ok, false);
+  assert.equal(result.status, "ignored");
+  assert.equal(result.reason, "missing_subscription_id");
+  assert.equal(env.entitlements.length, 0);
+});
+
+test("billing summary exposes Proof Monitoring checkout and entitlement state", async () => {
+  const env = await fakeBillingEnv();
+
+  await withDodoPricing(async () => {
+    const response = await getBillingSummary(new Request("https://seofixkit.test/api/billing/summary", {
+      headers: { "x-beta-session": env.sessionToken }
+    }), env);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.provider.monitoringCheckoutReady, true);
+    assert.equal(body.provider.monitoringEntitlementSchemaReady, true);
+    assert.deepEqual(body.provider.monitoringMissing, []);
+    assert.equal(body.monitoring.status, "beta_allowance");
+    assert.equal(body.monitoring.checkoutReady, true);
+    assert.equal(body.monitoring.hasEligibleSite, true);
+    assert.equal(body.subscriptionState.status, "available");
+    assert.deepEqual(body.subscriptions, []);
+    const monitoringOffer = body.offers.find((offer) => offer.key === "proof_monitoring");
+    assert.equal(monitoringOffer.checkoutLive, true);
+    assert.equal(monitoringOffer.statusLabel, "Checkout live");
+  });
+
+  const active = extractDodoSubscription(subscriptionEventData({ id: "sub-summary-active", status: "active" }));
+  await processDodoSubscriptionWebhook(env, "subscription.active", active, "wh_summary_active");
+
+  await withDodoPricing(async () => {
+    const response = await getBillingSummary(new Request("https://seofixkit.test/api/billing/summary", {
+      headers: { "x-beta-session": env.sessionToken }
+    }), env);
+    const body = await response.json();
+
+    assert.equal(body.monitoring.status, "active");
+    assert.equal(body.subscriptionState.status, "active");
+    assert.equal(body.subscriptions.length, 1);
+    assert.equal(body.subscriptions[0].offerKey, "proof_monitoring");
+  });
+});
+
+test("billing summary gates monitoring checkout when entitlement event schema is missing", async () => {
+  const env = await fakeBillingEnv();
+  env.missingEntitlementEventsSchema = true;
+
+  await withDodoPricing(async () => {
+    const response = await getBillingSummary(new Request("https://seofixkit.test/api/billing/summary", {
+      headers: { "x-beta-session": env.sessionToken }
+    }), env);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.provider.monitoringCheckoutReady, false);
+    assert.equal(body.provider.monitoringEntitlementSchemaReady, false);
+    assert.deepEqual(body.provider.monitoringMissing, []);
+    assert.equal(body.monitoring.checkoutReady, false);
+    assert.deepEqual(body.monitoring.checkoutMissing, ["entitlementSchema"]);
+    assert.equal(body.subscriptionState.status, "not_live");
+    const monitoringOffer = body.offers.find((offer) => offer.key === "proof_monitoring");
+    assert.equal(monitoringOffer.checkoutLive, false);
+  });
+});
+
+test("billing summary keeps monitoring checkout gated when product config is missing", async () => {
+  const env = await fakeBillingEnv();
+  delete env.DODO_SEOFIXKIT_PRODUCT_MONITORING_ID;
+
+  await withDodoPricing(async () => {
+    const response = await getBillingSummary(new Request("https://seofixkit.test/api/billing/summary", {
+      headers: { "x-beta-session": env.sessionToken }
+    }), env);
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(body.provider.monitoringCheckoutReady, false);
+    assert.deepEqual(body.provider.monitoringMissing, ["productId"]);
+    assert.equal(body.monitoring.checkoutReady, false);
+    assert.equal(body.subscriptionState.status, "not_live");
+    const monitoringOffer = body.offers.find((offer) => offer.key === "proof_monitoring");
+    assert.equal(monitoringOffer.checkoutLive, false);
+  });
+});
+
 test("billing summary marks delivery ready when approved proposal and proof are attached", async () => {
   const env = await fakeBillingEnv();
   env.fixRequests.push(checkoutFixRequest(env, {
@@ -1459,6 +2019,8 @@ async function fakeBillingEnv() {
     reportId,
     DODO_SEOFIXKIT_API_KEY: "dodo-key",
     DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID: "pdt_fix_pack",
+    DODO_SEOFIXKIT_PRODUCT_MONITORING_ID: "pdt_monitoring",
+    DODO_SEOFIXKIT_CHECKOUT_HOST_ALLOWLIST: "checkout.example.com",
     DODO_SEOFIXKIT_BRAND_ID: "brand-1",
     DODO_SEOFIXKIT_ENVIRONMENT: "test",
     DODO_SEOFIXKIT_WEBHOOK_SECRET: "whsec_test",
@@ -1528,8 +2090,29 @@ async function fakeBillingEnv() {
       applied_at: "",
       updated_by_email: "owner@example.com"
     }],
+    siteClaims: [{
+      id: "site-claim-1",
+      owner_email: "owner@example.com",
+      host: "example.com",
+      status: "verified",
+      revoked_at: null,
+      updated_at: now
+    }],
+    auditSchedules: [{
+      id: "schedule-1",
+      owner_email: "owner@example.com",
+      target_url: "https://example.com/",
+      target_host: "example.com",
+      status: "active",
+      interval_days: 7,
+      max_pages: 10,
+      updated_at: now
+    }],
     fixRequests: [],
     repairProposals: [],
+    entitlements: [],
+    entitlementEvents: [],
+    dodoWebhookEvents: [],
     events: []
   };
   env.WAITLIST_DB = {
@@ -1595,6 +2178,63 @@ function paymentEventData(env, overrides = {}) {
   };
 }
 
+function subscriptionEventData(overrides = {}) {
+  const payload = {
+    id: overrides.id || "sub-1",
+    subscription_id: overrides.subscription_id || overrides.id || "sub-1",
+    status: overrides.status || "active",
+    brand_id: overrides.brand_id || "brand-1",
+    customer: { email: overrides.customerEmail || "owner@example.com" },
+    product_cart: overrides.product_cart === undefined
+      ? [{ product_id: overrides.product_id || "pdt_monitoring", quantity: overrides.quantity || 1 }]
+      : overrides.product_cart,
+    current_period_start: "2026-06-20T00:00:00.000Z",
+    current_period_end: "2026-07-20T00:00:00.000Z",
+    metadata: {
+      product_key: "seofixkit_proof_monitoring",
+      offer_key: "proof_monitoring",
+      owner_email: "owner@example.com",
+      target_host: "example.com",
+      site_claim_id: "site-claim-1",
+      audit_schedule_id: "schedule-1",
+      ...(overrides.metadata || {})
+    }
+  };
+  if (overrides.useTopLevelProduct) {
+    delete payload.product_cart;
+    payload.product_id = overrides.product_id || "pdt_monitoring";
+    payload.quantity = overrides.quantity || 1;
+  }
+  return payload;
+}
+
+function signedDodoWebhookRequest(payload, webhookId, env) {
+  const body = JSON.stringify(payload);
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signature = createHmac("sha256", dodoWebhookSecretBytes(env.DODO_SEOFIXKIT_WEBHOOK_SECRET))
+    .update(`${webhookId}.${timestamp}.${body}`)
+    .digest("base64");
+  return new Request("https://seofixkit.test/api/webhooks/dodo", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "webhook-id": webhookId,
+      "webhook-timestamp": timestamp,
+      "webhook-signature": `v1=${signature}`
+    },
+    body
+  });
+}
+
+function dodoWebhookSecretBytes(secret) {
+  const normalized = String(secret || "").trim().replace(/^whsec_/, "");
+  try {
+    return Buffer.from(atob(normalized), "binary");
+  } catch {
+    return Buffer.from(secret);
+  }
+}
+
 function statement(sql, values, env) {
   return {
     first: async () => first(sql, values, env),
@@ -1611,6 +2251,9 @@ function first(sql, values, env) {
     if (env.missingCheckoutRepairColumn) throw new Error("no such column: checkout_repair_json");
     return env.fixRequests[0] ? { checkout_repair_json: env.fixRequests[0].checkout_repair_json || "" } : null;
   }
+  if (sql.includes("FROM dodo_webhook_events")) {
+    return env.dodoWebhookEvents.find((row) => row.webhook_id === values[0]) || null;
+  }
   if (sql.includes("FROM fix_requests") && sql.includes("WHERE id = ?")) {
     return env.fixRequests.find((row) => row.id === values[0]) || null;
   }
@@ -1619,6 +2262,38 @@ function first(sql, values, env) {
   }
   if (sql.includes("FROM fix_requests") && sql.includes("WHERE payment_id = ?")) {
     return env.fixRequests.find((row) => row.payment_id === values[0]) || null;
+  }
+  if (sql.includes("SELECT COUNT(*) AS count") && sql.includes("FROM audit_schedules")) {
+    const [ownerEmail] = values;
+    return {
+      count: env.auditSchedules.filter((row) => row.owner_email === ownerEmail && row.status === "active").length
+    };
+  }
+  if (sql.includes("FROM offer_entitlements") && sql.includes("provider = 'dodo'")) {
+    if (env.missingEntitlementSchema) throw new Error("no such table: offer_entitlements");
+    const [subscriptionId, offerKey] = values;
+    return env.entitlements.find((row) =>
+      row.provider === "dodo" &&
+      row.subscription_id === subscriptionId &&
+      row.offer_key === offerKey
+    ) || null;
+  }
+  if (sql.includes("FROM offer_entitlements") && sql.includes("owner_email = ?")) {
+    if (env.missingEntitlementSchema) throw new Error("no such table: offer_entitlements");
+    const [ownerEmail, offerKey] = values;
+    return env.entitlements.find((row) =>
+      row.owner_email === ownerEmail &&
+      row.offer_key === offerKey &&
+      !row.revoked_at
+    ) || null;
+  }
+  if (sql.includes("FROM offer_entitlements")) {
+    if (env.missingEntitlementSchema) throw new Error("no such table: offer_entitlements");
+    return env.entitlements[0] || null;
+  }
+  if (sql.includes("FROM offer_entitlement_events")) {
+    if (env.missingEntitlementEventsSchema) throw new Error("no such table: offer_entitlement_events");
+    return env.entitlementEvents[0] || null;
   }
   if (sql.includes("FROM audit_reports")) {
     return env.reports.find((row) => row.id === values[0]) || null;
@@ -1693,11 +2368,84 @@ function all(sql, values, env) {
     const [fixRequestId] = values;
     return { results: env.repairProposals.filter((row) => row.fix_request_id === fixRequestId) };
   }
+  if (sql.includes("FROM site_claims")) {
+    const [ownerEmail] = values;
+    return {
+      results: env.siteClaims.filter((row) =>
+        row.owner_email === ownerEmail &&
+        row.status === "verified" &&
+        !row.revoked_at
+      )
+    };
+  }
+  if (sql.includes("FROM audit_schedules")) {
+    const [ownerEmail] = values;
+    return {
+      results: env.auditSchedules.filter((row) =>
+        row.owner_email === ownerEmail &&
+        row.status === "active"
+      )
+    };
+  }
+  if (sql.includes("FROM offer_entitlements")) {
+    if (env.missingEntitlementSchema) throw new Error("no such table: offer_entitlements");
+    const [ownerEmail] = values;
+    return {
+      results: env.entitlements.filter((row) =>
+        row.owner_email === ownerEmail &&
+        !row.revoked_at
+      )
+    };
+  }
   throw new Error(`Unexpected all SQL: ${sql}`);
 }
 
 function run(sql, values, env) {
   if (sql.includes("UPDATE beta_sessions")) return { meta: { changes: 1 } };
+  if (sql.includes("INSERT OR IGNORE INTO dodo_webhook_events")) {
+    if (values.some((value) => value === undefined)) {
+      throw new Error("D1_TYPE_ERROR: undefined bind value");
+    }
+    const existing = env.dodoWebhookEvents.find((row) => row.webhook_id === values[0]);
+    if (existing) return { meta: { changes: 0 } };
+    env.dodoWebhookEvents.push({
+      webhook_id: values[0],
+      event_type: values[1],
+      payment_id: values[2],
+      fix_request_id: values[3],
+      status: "received",
+      error: "",
+      payload_hash: values[4],
+      payload_json: values[5],
+      received_count: 1,
+      first_received_at: values[6],
+      last_received_at: values[7],
+      processed_at: "",
+      created_at: values[8],
+      updated_at: values[9]
+    });
+    return { meta: { changes: 1 } };
+  }
+  if (sql.includes("UPDATE dodo_webhook_events") && sql.includes("received_count = received_count + 1")) {
+    const row = env.dodoWebhookEvents.find((item) => item.webhook_id === values[2]);
+    if (row) {
+      row.received_count += 1;
+      row.last_received_at = values[0];
+      row.updated_at = values[1];
+    }
+    return { meta: { changes: row ? 1 : 0 } };
+  }
+  if (sql.includes("UPDATE dodo_webhook_events") && sql.includes("SET status = ?")) {
+    const row = env.dodoWebhookEvents.find((item) => item.webhook_id === values[5]);
+    if (row) {
+      row.status = values[0];
+      row.error = values[1];
+      row.fix_request_id = row.fix_request_id || values[2];
+      row.processed_at = values[3];
+      row.updated_at = values[4];
+    }
+    return { meta: { changes: row ? 1 : 0 } };
+  }
   if (sql.includes("INSERT INTO repair_queue_items")) {
     if (!env.queueItems.some((row) => row.report_id === values[1] && row.issue_id === values[3])) {
       env.queueItems.push({
@@ -1794,6 +2542,66 @@ function run(sql, values, env) {
       return { meta: { changes: 1 } };
     }
     return { meta: { changes: 0 } };
+  }
+  if (sql.includes("INSERT INTO offer_entitlements")) {
+    env.entitlements.push({
+      id: values[0],
+      owner_email: values[1],
+      offer_key: values[2],
+      status: "active",
+      source: "dodo_subscription",
+      provider: "dodo",
+      product_id: values[3],
+      subscription_id: values[4],
+      limits_json: values[5],
+      current_period_start: values[6],
+      current_period_end: values[7],
+      created_at: values[8],
+      updated_at: values[9],
+      revoked_at: null
+    });
+    return { meta: { changes: 1 } };
+  }
+  if (sql.includes("UPDATE offer_entitlements") && sql.includes("status = 'active'")) {
+    const row = env.entitlements.find((item) => item.id === values[6]);
+    if (row) {
+      row.status = "active";
+      row.source = "dodo_subscription";
+      row.provider = "dodo";
+      row.product_id = values[0];
+      row.subscription_id = values[1];
+      row.limits_json = values[2];
+      row.current_period_start = values[3];
+      row.current_period_end = values[4];
+      row.revoked_at = null;
+      row.updated_at = values[5];
+    }
+    return { meta: { changes: row ? 1 : 0 } };
+  }
+  if (sql.includes("UPDATE offer_entitlements") && sql.includes("revoked_at")) {
+    const row = env.entitlements.find((item) => item.id === values[4]);
+    if (row) {
+      row.status = values[0];
+      row.revoked_at = row.revoked_at || values[1];
+      row.current_period_end = values[2] || row.current_period_end;
+      row.updated_at = values[3];
+    }
+    return { meta: { changes: row ? 1 : 0 } };
+  }
+  if (sql.includes("INSERT INTO offer_entitlement_events")) {
+    if (env.missingEntitlementEventsSchema) throw new Error("no such table: offer_entitlement_events");
+    env.entitlementEvents.push({
+      id: values[0],
+      entitlement_id: values[1],
+      owner_email: values[2],
+      offer_key: values[3],
+      event: values[4],
+      from_status: values[5],
+      to_status: values[6],
+      detail_json: values[7],
+      created_at: values[8]
+    });
+    return { meta: { changes: 1 } };
   }
   if (sql.includes("UPDATE fix_requests") && sql.includes("checkout_url")) {
     const row = env.fixRequests.find((row) => row.id === values[6]);

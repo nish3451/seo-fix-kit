@@ -37,7 +37,7 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Private repair proof receipts after fixed rerun proof, connecting the original issue, approved/applied change, and same-host rerun report without claiming SEOFixKit published or guaranteed the repair.
 - Account-level repair agent feed that ranks open repairs, drafted actions awaiting approval, applied repairs needing rerun proof, and monitor regressions across recent reports.
 - Repair proposal records tied to Fix Pack requests, with execution modes, owner approval, delivery state, final rerun proof references, and protected retention for paid proof.
-- Server-owned offer catalog and entitlement scaffolding for Proof Monitoring, Repair Sprint, SEO/GEO Repair Agent, and Agency Workspace. Monthly paid checkout, distinct Repair Sprint checkout, and paid Agency Workspace checkout are not live yet.
+- Server-owned offer catalog and entitlement scaffolding for Proof Monitoring, Repair Sprint, SEO/GEO Repair Agent, and Agency Workspace. Proof Monitoring has a config-gated Dodo subscription checkout path; distinct Repair Sprint checkout, Repair Agent checkout, and paid Agency Workspace checkout are not live yet.
 - Founder-friendly React interface.
 - Cloudflare Worker target using Workers Static Assets and Browser Run.
 - Locked private-beta homepage with `/api/waitlist` and `/api/access/request` backed by D1.
@@ -108,8 +108,9 @@ Cloudflare cannot run the local Express + Chromium server directly. The deployab
 - `/api/team`, `/api/team/members`, and `/api/reports/:id/collaboration` power teammate assignees, issue notes, and repair status tracking with beta Agency Workspace limits until paid workspace entitlements are wired
 - `/api/reports/:id/repair-queue`, `/api/reports/:id/repair-actions`, `/api/reports/:id/repair-actions/:actionId`, `/api/reports/:id/repair-actions/:actionId/implementation.md`, and `/api/reports/:id/repair-actions/:actionId/proof.md` power private proof-backed queue state, approval-safe action records, owner-approved implementation handoff packs, and fixed-rerun proof receipts
 - `/api/beta/fix-request` creates a Dodo checkout session for the one-site SEO Fix Pack when Dodo config is present
-- `/api/billing/summary` powers the private customer billing portal with Dodo pricing, Fix Pack requests, payment history, staged offer catalog, and truthful subscription state
-- `/api/webhooks/dodo` verifies Dodo Standard Webhooks signatures and marks successful Fix Pack payments
+- `/api/beta/monitoring-checkout` creates a Dodo checkout session for Proof Monitoring only when the monitoring subscription product config is present
+- `/api/billing/summary` powers the private customer billing portal with Dodo pricing, Fix Pack requests, payment history, staged offer catalog, monitoring checkout state, and truthful subscription state
+- `/api/webhooks/dodo` verifies Dodo Standard Webhooks signatures, marks successful Fix Pack payments, and syncs Proof Monitoring subscription events into offer entitlements
 - rendered checks powered by Cloudflare Browser Run through the `BROWSER` binding
 - `/llms.txt` and same-URL Markdown for `/` kept truthful to the visible product
 
@@ -147,6 +148,8 @@ Visible pricing comes from Dodo's checkout preview endpoint. If the API key, pro
 
 Fix Pack checkout can carry the selected repair queue issue in request/checkout metadata so fulfillment can start from the proven queue item. That metadata is context only; Dodo remains the source of truth for checkout, payment, refunds, disputes, and visible price.
 
+Proof Monitoring checkout uses `DODO_SEOFIXKIT_PRODUCT_MONITORING_ID` and opens only from a verified workspace when Dodo subscription config is complete. A checkout URL does not activate monitoring; signed Dodo subscription webhooks upsert or revoke the `proof_monitoring` entitlement in `offer_entitlements`.
+
 The private `/beta/billing` portal follows the BillingSDK self-serve billing pattern, but the implementation keeps Dodo calls inside the Worker. The official BillingSDK React transport currently adds generic client hooks around a separate API surface, so this repo uses the same customer-portal shape without moving Dodo provider logic or secrets into the browser.
 
 For production rehearsals, the live audit batch runner can run a test-only Fix Pack webhook drill by setting `SEOFIXKIT_FIX_PACK_PROOF=1` and `SEOFIXKIT_FIX_PACK_WEBHOOK_DRILL=1`. The drill uses the admin token to create a founder-override proof session, creates only an `is_test` Fix Pack request, signs a Dodo-shaped webhook, and proves the Worker can process that test request without printing secrets, checkout URLs, or session ids. It does not prove a real card payment, Dodo-originated webhook delivery, or customer repair delivery.
@@ -155,6 +158,7 @@ Cloudflare vars in `wrangler.jsonc` hold the public Dodo brand/product identifie
 
 - `DODO_SEOFIXKIT_BRAND_ID`
 - `DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID`
+- `DODO_SEOFIXKIT_PRODUCT_MONITORING_ID`
 - `DODO_SEOFIXKIT_ENVIRONMENT`
 - `DODO_SEOFIXKIT_ADAPTIVE_CURRENCY_FEES_INCLUSIVE`
 

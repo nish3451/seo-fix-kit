@@ -35,6 +35,9 @@ test("public proof pages expose methodology and package ladder without overclaim
   assert.match(packages, /SEO Fix Pack/);
   assert.match(packages, /\$99\.00 one-time/);
   assert.match(packages, /Dodo shows the final checkout price/);
+  assert.match(packages, /Proof Monitoring/);
+  assert.match(packages, /Config-gated subscription/);
+  assert.match(packages, /Access activates after Dodo webhook entitlement/);
   assert.match(packages, /Roadmap/);
   assert.doesNotMatch(combined, /completed 50K rendered validation/i);
   assert.doesNotMatch(combined, /guaranteed rankings/i);
@@ -55,6 +58,8 @@ test("machine-readable public surfaces list proof pages and limits", () => {
   assert.match(llms, new RegExp(`${origin}/api/deep-health`));
   assert.doesNotMatch(sitemap, /\/llms\.txt/);
   assert.match(llms, /Does not provide live AI-engine visibility tracking/);
+  assert.match(llms, /Proof Monitoring checkout is config-gated/);
+  assert.match(llms, /Does not claim paid Proof Monitoring is active/);
   assert.match(llms, /Does not auto-publish growth content/);
   assert.match(llms, /implementation packs and repair proof receipts are private handoff\/proof documents/i);
   assert.match(llms, /does not publish CMS changes/i);

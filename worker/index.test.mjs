@@ -188,6 +188,8 @@ test("Worker dispatch exposes public-safe deep health readiness", async () => {
   assert.equal(body.bindings.reportStorage, true);
   assert.equal(body.bindings.emailNotifications, true);
   assert.equal(body.billing.checkoutReady, true);
+  assert.equal(body.billing.monitoringCheckoutReady, true);
+  assert.equal(body.billing.monitoringProductConfigured, true);
   assert.equal(body.billing.webhookReady, true);
   assert.equal(body.billing.environment, "test");
   assert.equal(body.schema.criticalOk, true);
@@ -195,6 +197,7 @@ test("Worker dispatch exposes public-safe deep health readiness", async () => {
   assert.equal(body.capabilities.fixPackCheckout, true);
   assert.equal(body.capabilities.repairExecution, true);
   assert.equal(body.capabilities.recurringMonitoring, true);
+  assert.equal(body.capabilities.paidProofMonitoring, true);
   assert.equal(body.capabilities.developerApi, true);
   assert.equal(body.capabilities.agencyWorkspace, true);
   assert.equal(body.capabilities.largeCrawlEarlyAccess, true);
@@ -231,6 +234,33 @@ test("Worker deep health degrades when billing schema is incomplete", async () =
   assert.equal(body.capabilities.fixPackCheckout, false);
   assert.equal(body.billing.checkoutReady, true);
   assert.equal(body.schema.checks.find((check) => check.key === "dodoWebhookEvents").error, "table missing");
+});
+
+test("Worker deep health does not overclaim paid monitoring when monitoring config is missing", async () => {
+  const env = await fakeWorkerEnv();
+  delete env.DODO_SEOFIXKIT_PRODUCT_MONITORING_ID;
+
+  const response = await worker.fetch(new Request("https://seofixkit.test/api/deep-health"), env, fakeCtx());
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.billing.monitoringCheckoutReady, false);
+  assert.equal(body.billing.monitoringProductConfigured, false);
+  assert.equal(body.capabilities.paidProofMonitoring, false);
+});
+
+test("Worker deep health does not overclaim paid monitoring when entitlement events schema is missing", async () => {
+  const env = await fakeWorkerEnv();
+  env.missingHealthTables = new Set(["offer_entitlement_events"]);
+
+  const response = await worker.fetch(new Request("https://seofixkit.test/api/deep-health"), env, fakeCtx());
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.deepEqual(body.schema.failed, ["offerEntitlementEvents"]);
+  assert.equal(body.capabilities.paidProofMonitoring, false);
 });
 
 test("Worker deep health claims the route for HEAD and unsupported methods", async () => {
@@ -429,6 +459,7 @@ async function fakeWorkerEnv() {
     SEOFIXKIT_EMAIL_FROM: "SEO Fix Kit <support@seofixkit.com>",
     DODO_SEOFIXKIT_API_KEY: "dodo-key",
     DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID: "pdt_fix_pack",
+    DODO_SEOFIXKIT_PRODUCT_MONITORING_ID: "pdt_monitoring",
     DODO_SEOFIXKIT_BRAND_ID: "brand-1",
     DODO_SEOFIXKIT_ENVIRONMENT: "test",
     DODO_SEOFIXKIT_WEBHOOK_SECRET: "whsec_test",

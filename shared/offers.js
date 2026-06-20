@@ -25,11 +25,11 @@ const OFFER_CATALOG = [
     name: "Proof Monitoring",
     type: "subscription",
     stage: "beta_gated",
-    statusLabel: "Entitlement not live",
+    statusLabel: "Config gated",
     priceRange: "$49-$99/mo target",
-    checkoutState: "paused",
+    checkoutState: "account_checkout",
     description: "Recurring proof monitoring, report deltas, and change alerts for verified sites.",
-    availability: "Can be packaged after subscription entitlements are wired to audit schedules.",
+    availability: "Available for verified sites only when Dodo subscription checkout and webhook entitlements are configured.",
     requirements: ["Verified site", "Audit schedules", "Report deltas", "Billing entitlement"],
     limits: { monitoredSites: 1, cadenceDays: 7 }
   },
@@ -82,14 +82,19 @@ const BETA_AGENCY_LIMITS = {
   clientSites: 5
 };
 
-function offerCatalog({ fixPackCheckoutReady = false, entitlements = [] } = {}) {
+function offerCatalog({ fixPackCheckoutReady = false, monitoringCheckoutReady = false, entitlements = [] } = {}) {
   const entitlementMap = new Map((entitlements || []).map((row) => [row.offer_key || row.offerKey, row]));
   return OFFER_CATALOG.map((offer) => {
     const entitlement = entitlementMap.get(offer.key) || null;
     const liveCheckout =
-      offer.key === OFFER_KEYS.FIX_PACK ? fixPackCheckoutReady && offer.checkoutState === "report_checkout" : false;
+      offer.key === OFFER_KEYS.FIX_PACK
+        ? fixPackCheckoutReady && offer.checkoutState === "report_checkout"
+        : offer.key === OFFER_KEYS.MONITORING
+          ? monitoringCheckoutReady && offer.checkoutState === "account_checkout"
+          : false;
     return {
       ...offer,
+      statusLabel: entitlement?.status === "active" ? "Active entitlement" : liveCheckout ? "Checkout live" : offer.statusLabel,
       checkoutLive: liveCheckout,
       entitlementStatus: entitlement?.status || "inactive",
       entitlementSource: entitlement?.source || "",
@@ -102,12 +107,13 @@ function offerCatalog({ fixPackCheckoutReady = false, entitlements = [] } = {}) 
   });
 }
 
-function monitoringAccessFromEntitlements(entitlements = [], activeCount = 0) {
+function monitoringAccessFromEntitlements(entitlements = [], activeCount = 0, options = {}) {
   const entitlement = (entitlements || []).find(
     (row) => (row.offer_key || row.offerKey) === OFFER_KEYS.MONITORING && row.status === "active"
   );
   const limits = parseLimits(entitlement?.limits_json || entitlement?.limitsJson);
   const limit = entitlement ? Number(limits.monitoredSites || limits.monitors || 1) : BETA_MONITOR_LIMIT;
+  const checkoutLive = Boolean(options.checkoutLive);
   return {
     offerKey: OFFER_KEYS.MONITORING,
     status: entitlement ? "active" : "beta_allowance",
@@ -115,10 +121,13 @@ function monitoringAccessFromEntitlements(entitlements = [], activeCount = 0) {
     limit,
     remaining: Math.max(0, limit - Number(activeCount || 0)),
     cadenceDays: Number(limits.cadenceDays || 7),
-    checkoutLive: false,
+    checkoutLive,
+    currentPeriodEnd: entitlement?.current_period_end || entitlement?.currentPeriodEnd || "",
     message: entitlement
       ? "Proof Monitoring entitlement is active for this workspace."
-      : "Private beta includes weekly proof monitoring while paid monitoring checkout is gated."
+      : checkoutLive
+        ? "Paid Proof Monitoring checkout is available for verified sites; access activates after the subscription webhook."
+        : "Private beta includes weekly proof monitoring while paid monitoring checkout is config-gated."
   };
 }
 

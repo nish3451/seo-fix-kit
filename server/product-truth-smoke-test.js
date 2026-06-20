@@ -9,13 +9,16 @@ const home = homeMarkdown(origin);
 const support = supportHtml(origin);
 const terms = termsHtml(origin);
 const offers = offerCatalog({ fixPackCheckoutReady: true });
+const monitoringOffers = offerCatalog({ fixPackCheckoutReady: true, monitoringCheckoutReady: true });
 const app = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const index = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const schema = homepageSchema(index);
 const schemaTypes = schemaTypesFromGraph(schema);
 
 assert.equal(sellableOffers(offers).map((offer) => offer.key).join(","), "fix_pack");
-assert.equal(llms.includes("monthly checkout remains entitlement-gated and not live"), true);
+assert.equal(sellableOffers(monitoringOffers).map((offer) => offer.key).join(","), "fix_pack,proof_monitoring");
+assert.equal(llms.includes("Proof Monitoring checkout is config-gated"), true);
+assert.equal(llms.includes("access activates from subscription webhooks"), true);
 assert.equal(llms.includes("distinct Repair Sprint checkout is not live yet"), true);
 assert.equal(llms.includes("paid Agency Workspace checkout is not live yet"), true);
 assert.equal(llms.includes("Does not claim llms.txt is required for Google Search"), true);
