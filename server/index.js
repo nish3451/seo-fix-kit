@@ -1514,6 +1514,31 @@ app.delete("/admin/session", (req, res) => {
     .json({ ok: true });
 });
 
+app.post("/admin/beta-session", (req, res) => {
+  const expected = process.env.ADMIN_EXPORT_TOKEN || "local-admin";
+  const auth = req.get("authorization") || "";
+  const bearer = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "";
+  if (bearer !== expected && cookieValue(req, ADMIN_SESSION_COOKIE) !== "local-admin") {
+    res.status(401).set("cache-control", "no-store").json({ error: "Unauthorized" });
+    return;
+  }
+  const ownerEmail = normalizeEmail(req.body?.ownerEmail || req.body?.email);
+  if (!ownerEmail) {
+    res.status(400).set("cache-control", "no-store").json({ error: "Enter a valid owner email." });
+    return;
+  }
+  const session = createLocalSession(req, ownerEmail, "founder-override");
+  res
+    .set("cache-control", "no-store")
+    .set("set-cookie", sessionCookie(req, session.token, BETA_SESSION_TTL_SECONDS))
+    .json({
+      ok: true,
+      ownerEmail,
+      accessMode: "founder-override",
+      expiresAt: session.expiresAt
+    });
+});
+
 app.get("/admin/summary", (req, res) => {
   const expected = process.env.ADMIN_EXPORT_TOKEN || "local-admin";
   const auth = req.get("authorization") || "";

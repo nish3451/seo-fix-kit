@@ -37,6 +37,7 @@ import {
 import {
   adminAccessStatus,
   adminDeniedJson,
+  createBetaSession,
   logAdminAction
 } from "../lib/auth.js";
 import {
@@ -132,6 +133,32 @@ async function exportLeadsCsv(request, env) {
       "content-type": "text/csv; charset=utf-8"
     }
   });
+}
+
+async function createAdminBetaSession(request, env) {
+  const admin = await adminAccessStatus(request, env, "create-beta-proof-session");
+  if (!admin.ok) return adminDeniedJson(admin);
+  if (!env.WAITLIST_DB) return jsonNoStore({ error: "Private beta sessions are not configured." }, 503);
+
+  const body = await request.json().catch(() => ({}));
+  const ownerEmail = normalizeEmail(body.ownerEmail || body.email);
+  if (!ownerEmail) return jsonNoStore({ error: "Enter a valid owner email." }, 400);
+
+  const session = await createBetaSession(request, env, {
+    ownerEmail,
+    inviteId: null,
+    accessMode: "founder-override"
+  });
+  await logAdminAction(request, env, "create-beta-proof-session", true, admin.actorEmail, ownerEmail);
+
+  const response = jsonNoStore({
+    ok: true,
+    ownerEmail,
+    accessMode: "founder-override",
+    expiresAt: session.expiresAt
+  });
+  response.headers.append("set-cookie", session.cookie);
+  return response;
 }
 
 async function getAdminSummary(request, env) {
@@ -798,6 +825,7 @@ async function sendDailyOpsDigest(env) {
 }
 
 export {
+  createAdminBetaSession,
   createInvite,
   exportLeadsCsv,
   fixRequestAdminResponse,

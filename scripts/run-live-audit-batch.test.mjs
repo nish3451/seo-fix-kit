@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { audit, proveFixPackForReport, recommendOffer } from "./run-live-audit-batch.mjs";
+import {
+  audit,
+  betaCookieFromResponse,
+  createAdminBetaSession,
+  proveFixPackForReport,
+  recommendOffer
+} from "./run-live-audit-batch.mjs";
 
 test("audit polls queued job and returns completed report", async () => {
   const calls = [];
@@ -204,6 +210,63 @@ test("Fix Pack proof stores checkout boundary without raw checkout URL", async (
   assert.equal(result.request.checkoutSessionIdPresent, true);
   assert.equal(result.selectedRepair.title, "Social share image incomplete on home");
   assert.doesNotMatch(JSON.stringify(result), /private-token|checkout_session_private|https:\/\/checkout/);
+});
+
+test("admin proof session helper returns only the beta cookie", async () => {
+  const calls = [];
+  const cookie = await createAdminBetaSession("proof@example.com", "admin-secret", {
+    baseUrl: "https://seofixkit.test",
+    fetcher: async (rawUrl, options = {}) => {
+      const url = new URL(rawUrl);
+      calls.push({
+        pathname: url.pathname,
+        authorization: options.headers?.authorization || "",
+        body: JSON.parse(options.body || "{}")
+      });
+      return new Response(JSON.stringify({
+        ok: true,
+        ownerEmail: "proof@example.com",
+        accessMode: "founder-override",
+        token: "must-not-be-used"
+      }), {
+        headers: {
+          "content-type": "application/json",
+          "set-cookie": "sfk_beta_session=proof-cookie; Path=/; HttpOnly; Secure"
+        }
+      });
+    }
+  });
+
+  assert.equal(cookie, "sfk_beta_session=proof-cookie");
+  assert.deepEqual(calls, [{
+    pathname: "/admin/beta-session",
+    authorization: "Bearer admin-secret",
+    body: { ownerEmail: "proof@example.com" }
+  }]);
+});
+
+test("admin proof session helper fails closed without beta cookie", async () => {
+  await assert.rejects(
+    () => createAdminBetaSession("proof@example.com", "admin-secret", {
+      baseUrl: "https://seofixkit.test",
+      fetcher: async () => jsonResponse({
+        ok: true,
+        ownerEmail: "proof@example.com",
+        accessMode: "founder-override"
+      })
+    }),
+    /did not return a beta session cookie/
+  );
+});
+
+test("beta cookie parser ignores adjacent non-beta cookies", () => {
+  const response = new Response("ok", {
+    headers: {
+      "set-cookie": "other=value; Path=/, sfk_beta_session=proof-cookie; Path=/; HttpOnly"
+    }
+  });
+
+  assert.equal(betaCookieFromResponse(response), "sfk_beta_session=proof-cookie");
 });
 
 test("Fix Pack webhook drill runs only through a sanitized test checkout proof", async () => {

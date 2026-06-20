@@ -193,6 +193,45 @@ test("Worker deep health claims the route for HEAD and unsupported methods", asy
   assert.equal(body.error, "Method not allowed.");
 });
 
+test("Worker dispatch creates admin-only beta proof sessions without exposing tokens", async () => {
+  const env = await fakeWorkerEnv();
+
+  const denied = await worker.fetch(new Request("https://seofixkit.test/admin/beta-session", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ownerEmail: "proof@example.com" })
+  }), env, fakeCtx());
+  const deniedBody = await denied.json();
+  assert.equal(denied.status, 401);
+  assert.equal(deniedBody.error, "Unauthorized");
+  assert.equal(denied.headers.get("set-cookie"), null);
+
+  const response = await worker.fetch(new Request("https://seofixkit.test/admin/beta-session", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${env.ADMIN_EXPORT_TOKEN}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({ ownerEmail: "proof@example.com" })
+  }), env, fakeCtx());
+  const body = await response.json();
+  const cookie = response.headers.get("set-cookie") || "";
+
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.ownerEmail, "proof@example.com");
+  assert.equal(body.accessMode, "founder-override");
+  assert.equal(Object.hasOwn(body, "token"), false);
+  assert.match(cookie, /sfk_beta_session=/);
+  assert.match(cookie, /HttpOnly/);
+  assert.equal(env.betaSessions.some((row) =>
+    row.owner_email === "proof@example.com" &&
+    row.access_mode === "founder-override" &&
+    !row.invite_id
+  ), true);
+  assert.doesNotMatch(JSON.stringify(body), /sfk_beta_session|test-admin-token/);
+});
+
 function fakeCtx() {
   return { waitUntil() {} };
 }
@@ -303,7 +342,9 @@ async function fakeWorkerEnv() {
     DODO_SEOFIXKIT_WEBHOOK_SECRET: "whsec_test",
     ASSETS: {
       fetch: async () => new Response("asset fallback", { status: 404 })
-    }
+    },
+    ADMIN_EXPORT_TOKEN: "test-admin-token",
+    adminAuditLog: []
   };
   env.WAITLIST_DB = {
     prepare(sql) {
@@ -387,6 +428,28 @@ function all(sql, values, env) {
 
 function run(sql, values, env) {
   if (sql.includes("UPDATE beta_sessions") || sql.includes("UPDATE api_tokens")) {
+    return { meta: { changes: 1 } };
+  }
+  if (sql.includes("INSERT INTO audit_usage")) {
+    return { meta: { changes: 1 } };
+  }
+  if (sql.includes("INSERT INTO beta_sessions")) {
+    env.betaSessions.push({
+      token_hash: values[0],
+      owner_email: values[1],
+      created_at: values[2],
+      expires_at: values[3],
+      last_seen_at: values[4],
+      ip_hash: values[5],
+      user_agent: values[6],
+      invite_id: values[7],
+      access_mode: values[8],
+      revoked_at: null
+    });
+    return { meta: { changes: 1 } };
+  }
+  if (sql.includes("INSERT INTO admin_audit_log")) {
+    env.adminAuditLog.push({ values });
     return { meta: { changes: 1 } };
   }
   if (sql.includes("INSERT INTO repair_queue_items")) {

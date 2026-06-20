@@ -27,7 +27,9 @@ async function main() {
   }
   const ownerEmail = `nish.audit.${Date.now()}@seofixkit.com`;
   const useTestMode = fixPackTestModeEnabled();
-  const adminToken = useTestMode ? "" : readAdminToken();
+  const useAdminProofSession = fixPackWebhookDrillEnabled();
+  const needsAdminToken = useAdminProofSession || !useTestMode;
+  const adminToken = needsAdminToken ? readAdminToken() : "";
   const targets = JSON.parse(await readFile(TARGETS_PATH, "utf8"));
 
   await mkdir(OUT_DIR, { recursive: true });
@@ -43,9 +45,11 @@ async function main() {
     recommendation: null
   };
 
-  const cookie = useTestMode
-    ? await login(ownerEmail, readFounderPassword())
-    : await createInvite(ownerEmail, adminToken).then((invite) => login(ownerEmail, invite.code));
+  const cookie = useAdminProofSession
+    ? await createAdminBetaSession(ownerEmail, adminToken)
+    : useTestMode
+      ? await login(ownerEmail, readFounderPassword())
+      : await createInvite(ownerEmail, adminToken).then((invite) => login(ownerEmail, invite.code));
 
   for (const target of targets) {
     console.error(`[audit-batch] checking ${target.project}: ${target.url}`);
@@ -186,6 +190,28 @@ async function createInvite(email, adminToken) {
   return payload.invite;
 }
 
+async function createAdminBetaSession(email, adminToken, options = {}) {
+  const baseUrl = options.baseUrl || BASE_URL;
+  const fetcher = options.fetcher || fetch;
+  const response = await fetchWithTimeout(`${baseUrl}/admin/beta-session`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${adminToken}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      ownerEmail: email
+    })
+  }, options.timeoutMs || 30000, fetcher);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload?.ok) {
+    throw new Error(`Could not create admin proof session: ${payload.error || response.status}`);
+  }
+  const cookie = betaCookieFromResponse(response);
+  if (!cookie) throw new Error("Admin proof session did not return a beta session cookie.");
+  return cookie;
+}
+
 async function login(email, inviteCode) {
   const response = await fetchWithTimeout(`${BASE_URL}/api/beta/login`, {
     method: "POST",
@@ -196,10 +222,17 @@ async function login(email, inviteCode) {
   if (!response.ok || !payload?.ok) {
     throw new Error(`Could not start beta session: ${payload.error || response.status}`);
   }
-  const setCookie = response.headers.get("set-cookie") || "";
-  const cookie = setCookie.split(";")[0];
+  const cookie = betaCookieFromResponse(response);
   if (!cookie) throw new Error("Beta login did not return a session cookie.");
   return cookie;
+}
+
+function betaCookieFromResponse(response) {
+  const setCookie = response.headers.get("set-cookie") || "";
+  return setCookie
+    .split(/,(?=\s*sfk_beta_session=)/)
+    .map((part) => part.trim().split(";")[0])
+    .find((part) => part.startsWith("sfk_beta_session=")) || "";
 }
 
 async function preflight(url) {
@@ -785,6 +818,8 @@ async function fetchWithTimeout(url, options, timeoutMs, fetcher = fetch) {
 export {
   audit,
   buildDodoWebhookDrillEvent,
+  createAdminBetaSession,
+  betaCookieFromResponse,
   fetchWithTimeout,
   isAuditReportPayload,
   proveFixPackForReport,
