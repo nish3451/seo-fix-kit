@@ -1,6 +1,19 @@
 import { normalizeEmail } from "./text.js";
 
 const EMAIL_PROVIDER = "cloudflare_email";
+const INTERNAL_EMAIL_HEADER = "X-Nish-Internal-Email";
+const INTERNAL_EMAIL_TAGS = new Set(["ops-alert", "ops-digest"]);
+
+function emailDomain(value) {
+  const match = String(value || "").toLowerCase().match(/@([a-z0-9.-]+\.[a-z]{2,})\b/i);
+  return match?.[1] || "";
+}
+
+function allRecipientsMatchSenderDomain(to, from) {
+  const fromDomain = emailDomain(from);
+  const recipients = Array.isArray(to) ? to : [to];
+  return Boolean(fromDomain && recipients.length && recipients.every((recipient) => emailDomain(recipient) === fromDomain));
+}
 
 function emailSender(env) {
   return String(env.SEOFIXKIT_EMAIL_FROM || "").trim();
@@ -16,15 +29,22 @@ async function sendWorkerEmail(env, { to, subject, text, html, tag }) {
   // Reply-To must use the binding's replyTo field; Email Service rejects it as
   // a custom header (only whitelisted and X-* headers are accepted). The
   // binding also takes string[] for multiple recipients directly.
+  const from = emailSender(env);
   const replyTo = normalizeEmail(env.SEOFIXKIT_REPLY_TO || "");
+  const headers = {};
+  if (tag) headers["X-SEOFIXKIT-Tag"] = tag;
+  const internalToken = String(env.INTERNAL_EMAIL_TOKEN || "").trim();
+  if (internalToken && INTERNAL_EMAIL_TAGS.has(String(tag || "")) && allRecipientsMatchSenderDomain(to, from)) {
+    headers[INTERNAL_EMAIL_HEADER] = internalToken;
+  }
   const result = await env.EMAIL.send({
-    from: emailSender(env),
+    from,
     to,
     subject,
     html: `${html || ""}${EMAIL_FOOTER_HTML}`,
     text: `${text || ""}${EMAIL_FOOTER_TEXT}`,
     ...(replyTo ? { replyTo } : {}),
-    ...(tag ? { headers: { "X-SEOFIXKIT-Tag": tag } } : {})
+    ...(Object.keys(headers).length ? { headers } : {})
   });
   return { messageId: result?.messageId || "" };
 }
