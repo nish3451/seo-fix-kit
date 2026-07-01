@@ -2,7 +2,13 @@ import { normalizeEmail } from "./text.js";
 
 const EMAIL_PROVIDER = "cloudflare_email";
 const INTERNAL_EMAIL_HEADER = "X-Nish-Internal-Email";
-const INTERNAL_EMAIL_TAGS = new Set(["ops-alert", "ops-digest"]);
+const INTERNAL_EMAIL_TAGS = new Set([
+  "fix-pack-delivery",
+  "fix-pack-payment",
+  "fix-pack-status",
+  "ops-alert",
+  "ops-digest"
+]);
 
 function emailDomain(value) {
   const match = String(value || "").toLowerCase().match(/@([a-z0-9.-]+\.[a-z]{2,})\b/i);
