@@ -63,6 +63,13 @@ test("machine-readable public surfaces list proof pages and limits", () => {
   assert.match(llms, /Does not auto-publish growth content/);
   assert.match(llms, /implementation packs and repair proof receipts are private handoff\/proof documents/i);
   assert.match(llms, /does not publish CMS changes/i);
+  assert.match(llms, /Agent-readable acquisition and action surfaces/);
+  assert.match(llms, /\/api\/developer\/tokens/);
+  assert.match(llms, /POST \/v1\/audits/);
+  assert.match(llms, /GET \/v1\/audits\/\{audit_id\}\/repair-actions\/\{action_id\}\/implementation\.md/);
+  assert.match(llms, /repair_action\.fixed/);
+  assert.match(llms, /There is no live SEO Fix Kit MCP endpoint today/);
+  assert.match(llms, /Does not expose unauthenticated agent actions/);
 });
 
 test("public demo and support pages carry enough buyer-facing detail", () => {
@@ -97,6 +104,14 @@ test("static public skill and sitemap files keep buyer-facing boundaries", () =>
   assert.match(skill, /roadmap until the required integrations, billing, and proof gates are live/i);
   assert.match(skill, /does not provide live AI-engine visibility tracking or AI citation monitoring/i);
   assert.match(skill, /does not guarantee rankings, traffic, indexing, or revenue/i);
+  assert.match(skill, /## Agent Action Catalog/);
+  assert.match(skill, /GET \/api\/developer/);
+  assert.match(skill, /POST \/api\/developer\/tokens/);
+  assert.match(skill, /POST \/v1\/audits/);
+  assert.match(skill, /GET \/v1\/audits\/\{audit_id\}\/repair-actions\/\{action_id\}\/proof\.md/);
+  assert.match(skill, /There is no live SEO Fix Kit MCP endpoint today/);
+  assert.match(skill, /normal bearer API keys cannot lease or submit rendered proof/i);
+  assert.match(skill, /must not claim SEO Fix Kit publishes CMS changes/i);
   assert.doesNotMatch(skill, /guaranteed rankings|guarantees rankings|guarantees traffic/i);
   assert.doesNotMatch(skill, /provides live AI-engine visibility tracking/i);
   assert.doesNotMatch(sitemap, /\/llms\.txt/);
