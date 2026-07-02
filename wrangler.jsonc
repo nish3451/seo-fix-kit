@@ -26,7 +26,8 @@
     "DODO_SEOFIXKIT_BRAND_ID": "brnd_0NfFwMVcHJSgp3RkhFpTi",
     "DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID": "pdt_0NfFwlntrooPljJUYoXK8",
     "DODO_SEOFIXKIT_ENVIRONMENT": "live",
-    "DODO_SEOFIXKIT_ADAPTIVE_CURRENCY_FEES_INCLUSIVE": "true"
+    "DODO_SEOFIXKIT_ADAPTIVE_CURRENCY_FEES_INCLUSIVE": "true",
+    "INTERNAL_EMAIL_DOMAINS": "0509.io,0509.in,inish.in,aiconverter.app,siterep.net,tinystudio.io,tinystudio.in,seofixkit.com"
   },
   "assets": {
     "directory": "./dist",

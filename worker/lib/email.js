@@ -15,10 +15,23 @@ function emailDomain(value) {
   return match?.[1] || "";
 }
 
-function allRecipientsMatchSenderDomain(to, from) {
-  const fromDomain = emailDomain(from);
+function configuredInternalDomains(env, from) {
+  const domains = new Set([emailDomain(from)].filter(Boolean));
+  for (const domain of String(env.INTERNAL_EMAIL_DOMAINS || "").split(",")) {
+    const normalized = domain.trim().toLowerCase().replace(/^@+/, "");
+    if (normalized) domains.add(normalized);
+  }
+  return domains;
+}
+
+function allRecipientsMatchInternalDomains(env, to, from) {
+  const domains = configuredInternalDomains(env, from);
   const recipients = Array.isArray(to) ? to : [to];
-  return Boolean(fromDomain && recipients.length && recipients.every((recipient) => emailDomain(recipient) === fromDomain));
+  return Boolean(
+    domains.size &&
+    recipients.length &&
+    recipients.every((recipient) => domains.has(emailDomain(recipient)))
+  );
 }
 
 function emailSender(env) {
@@ -40,7 +53,7 @@ async function sendWorkerEmail(env, { to, subject, text, html, tag }) {
   const headers = {};
   if (tag) headers["X-SEOFIXKIT-Tag"] = tag;
   const internalToken = String(env.INTERNAL_EMAIL_TOKEN || "").trim();
-  if (internalToken && INTERNAL_EMAIL_TAGS.has(String(tag || "")) && allRecipientsMatchSenderDomain(to, from)) {
+  if (internalToken && INTERNAL_EMAIL_TAGS.has(String(tag || "")) && allRecipientsMatchInternalDomains(env, to, from)) {
     headers[INTERNAL_EMAIL_HEADER] = internalToken;
   }
   const result = await env.EMAIL.send({

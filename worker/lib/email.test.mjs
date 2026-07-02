@@ -36,6 +36,24 @@ test("same-domain fix pack admin emails carry the internal inbox marker", async 
   assert.equal(sent[0].headers["X-Nish-Internal-Email"], "internal-token");
 });
 
+test("cross-owned ops emails carry the internal inbox marker", async () => {
+  const { env, sent } = fakeEmailEnv({
+    INTERNAL_EMAIL_DOMAINS: "seofixkit.com,tinystudio.io"
+  });
+
+  await sendWorkerEmail(env, {
+    to: "hello@tinystudio.io",
+    subject: "SEO Fix Kit ops digest: 0 paid open, 0 overdue",
+    text: "SEO Fix Kit daily ops digest.",
+    html: "<p>SEO Fix Kit daily ops digest.</p>",
+    tag: "ops-digest"
+  });
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].headers["X-SEOFIXKIT-Tag"], "ops-digest");
+  assert.equal(sent[0].headers["X-Nish-Internal-Email"], "internal-token");
+});
+
 test("external fix pack customer emails do not carry the internal inbox marker", async () => {
   const { env, sent } = fakeEmailEnv();
 
