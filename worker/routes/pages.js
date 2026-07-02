@@ -33,6 +33,15 @@ Live product claims:
 - Repair Sprint eligibility can be shown from approved proposal state, but distinct Repair Sprint checkout is not live yet.
 - Agency Workspace features run under beta limits; paid Agency Workspace checkout is not live yet.
 
+Agent-readable acquisition and action surfaces:
+- Public context for agents: ${origin}/llms.txt, ${origin}/.well-known/skill.md, ${origin}/demo, ${origin}/methodology, ${origin}/packages, ${origin}/support, and ${origin}/terms.
+- Owner setup starts inside the private beta workspace; anonymous public audits and unauthenticated repair actions are not live.
+- Self-serve API setup is owner-scoped at ${origin}/api/developer, with API keys from ${origin}/api/developer/tokens and lifecycle webhooks from ${origin}/api/developer/webhooks.
+- Bearer-token API actions agents can use today: POST /v1/audits, GET /v1/audits/{audit_id}, GET /v1/audits/{audit_id}/issues, GET /v1/audits/{audit_id}/report, GET/PATCH /v1/audits/{audit_id}/repair-queue, POST /v1/audits/{audit_id}/repair-actions, PATCH /v1/audits/{audit_id}/repair-actions/{action_id}, GET /v1/audits/{audit_id}/repair-actions/{action_id}/implementation.md, GET /v1/audits/{audit_id}/repair-actions/{action_id}/proof.md, GET /v1/projects, POST /v1/large-crawls, and GET /v1/large-crawls/{large_crawl_id}.
+- Webhook events agents can subscribe to today: audit.completed, audit.failed, repair_action.drafted, repair_action.approved, repair_action.applied, repair_action.fixed, and repair_action.regressed.
+- Worker-only large-crawl batch claim/process/proof endpoints require x-seofixkit-worker-token and are not available to normal bearer API keys.
+- There is no live SEO Fix Kit MCP endpoint today; agents should use the documented REST and markdown proof endpoints.
+
 Current product boundary:
 - Public methodology and package pages describe the live proof loop, limits, and package ladder; they are not a public anonymous audit.
 - Does not sell or claim completed 50,000-page rendered validation; large crawls are early-access staged plans until every batch has page-level proof and merge readiness is clear.
@@ -50,6 +59,7 @@ Current product boundary:
 - Implementation packs and repair proof receipts are private handoff/proof documents only; SEO Fix Kit does not publish CMS changes, open GitHub pull requests, merge code, or call provider admin APIs from the browser.
 - Does not replace Ahrefs or Semrush.
 - Does not provide anonymous public audits.
+- Does not expose unauthenticated agent actions.
 - Does not guarantee rankings, traffic, indexing, or revenue.
 
 Useful routes:
