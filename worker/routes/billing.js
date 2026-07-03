@@ -37,7 +37,7 @@ import {
 } from "../../shared/fulfillment.js";
 import { buildRepairProposalsFromReport } from "../../shared/repair-execution.js";
 import { betaAccessResponse, betaAccessStatus } from "../lib/auth.js";
-import { EMAIL_PROVIDER, sendWorkerEmail } from "../lib/email.js";
+import { EMAIL_PROVIDER, sendWorkerEmail, shouldSkipOwnedInternalEmail } from "../lib/email.js";
 import { json, jsonNoStore, secureHeaders } from "../lib/http.js";
 import { monitoringAccessForOwner, offerCatalogForOwner } from "../lib/offers.js";
 import { preserveFixRequestReports, reportJsonForRow } from "../lib/report-data.js";
@@ -2272,13 +2272,26 @@ async function sendFixPackPaymentEmail({
     payment,
     recipientType
   });
+  const tag = "fix-pack-payment";
+  if (shouldSkipOwnedInternalEmail(env, { to: recipientEmail, tag })) {
+    await logFixRequestNotification(env, {
+      fixRequestId: fixRequest.id,
+      event,
+      recipientType,
+      recipientEmail,
+      status: "skipped",
+      provider: EMAIL_PROVIDER,
+      error: "owned_internal_email"
+    });
+    return { recipientType, status: "skipped", reason: "owned_internal_email" };
+  }
   try {
     const payload = await sendWorkerEmail(env, {
       to: recipientEmail,
       subject: email.subject,
       text: email.text,
       html: email.html,
-      tag: "fix-pack-payment"
+      tag
     });
     const providerMessageId = payload.messageId;
     await logFixRequestNotification(env, {
@@ -2412,13 +2425,26 @@ async function sendFixPackStatusEmail({
     beforeAfter,
     recipientType
   });
+  const tag = event === "delivery_ready" ? "fix-pack-delivery" : "fix-pack-status";
+  if (shouldSkipOwnedInternalEmail(env, { to: recipientEmail, tag })) {
+    await logFixRequestNotification(env, {
+      fixRequestId: fixRequest.id,
+      event,
+      recipientType,
+      recipientEmail,
+      status: "skipped",
+      provider: EMAIL_PROVIDER,
+      error: "owned_internal_email"
+    });
+    return { recipientType, status: "skipped", reason: "owned_internal_email" };
+  }
   try {
     const payload = await sendWorkerEmail(env, {
       to: recipientEmail,
       subject: email.subject,
       text: email.text,
       html: email.html,
-      tag: event === "delivery_ready" ? "fix-pack-delivery" : "fix-pack-status"
+      tag
     });
     const providerMessageId = payload.messageId;
     await logFixRequestNotification(env, {
@@ -2450,7 +2476,8 @@ async function hasSentFixRequestNotification(env, fixRequestId, event, recipient
   const row = await env.WAITLIST_DB.prepare(
     `SELECT id
      FROM fix_request_notifications
-     WHERE fix_request_id = ? AND event = ? AND recipient_type = ? AND status = 'sent'
+     WHERE fix_request_id = ? AND event = ? AND recipient_type = ?
+       AND (status = 'sent' OR (status = 'skipped' AND error = 'owned_internal_email'))
      LIMIT 1`
   )
     .bind(fixRequestId, event, recipientType)

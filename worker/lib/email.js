@@ -1,7 +1,6 @@
 import { normalizeEmail } from "./text.js";
 
 const EMAIL_PROVIDER = "cloudflare_email";
-const INTERNAL_EMAIL_HEADER = "X-Nish-Internal-Email";
 const INTERNAL_EMAIL_TAGS = new Set([
   "fix-pack-delivery",
   "fix-pack-payment",
@@ -44,6 +43,16 @@ const EMAIL_FOOTER_TEXT = `\n\n--\nSEO Fix Kit · https://seofixkit.com\nQuestio
 
 const EMAIL_FOOTER_HTML = `<hr style="border:none;border-top:1px solid #dddddd;margin:24px 0 12px" /><p style="color:#666666;font-size:13px">SEO Fix Kit · <a href="https://seofixkit.com">seofixkit.com</a> · Questions or issues? Email <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.</p>`;
 
+function shouldSkipOwnedInternalEmail(env, { to, tag }) {
+  const from = emailSender(env);
+  const internalToken = String(env.INTERNAL_EMAIL_TOKEN || "").trim();
+  return Boolean(
+    internalToken &&
+    INTERNAL_EMAIL_TAGS.has(String(tag || "")) &&
+    allRecipientsMatchInternalDomains(env, to, from)
+  );
+}
+
 async function sendWorkerEmail(env, { to, subject, text, html, tag }) {
   // Reply-To must use the binding's replyTo field; Email Service rejects it as
   // a custom header (only whitelisted and X-* headers are accepted). The
@@ -52,10 +61,6 @@ async function sendWorkerEmail(env, { to, subject, text, html, tag }) {
   const replyTo = normalizeEmail(env.SEOFIXKIT_REPLY_TO || "");
   const headers = {};
   if (tag) headers["X-SEOFIXKIT-Tag"] = tag;
-  const internalToken = String(env.INTERNAL_EMAIL_TOKEN || "").trim();
-  if (internalToken && INTERNAL_EMAIL_TAGS.has(String(tag || "")) && allRecipientsMatchInternalDomains(env, to, from)) {
-    headers[INTERNAL_EMAIL_HEADER] = internalToken;
-  }
   const result = await env.EMAIL.send({
     from,
     to,
@@ -74,5 +79,6 @@ export {
   EMAIL_PROVIDER,
   SUPPORT_EMAIL,
   emailSender,
+  shouldSkipOwnedInternalEmail,
   sendWorkerEmail
 };

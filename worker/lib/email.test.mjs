@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sendWorkerEmail } from "./email.js";
+import { sendWorkerEmail, shouldSkipOwnedInternalEmail } from "./email.js";
 
 function fakeEmailEnv(overrides = {}) {
   const sent = [];
@@ -20,38 +20,24 @@ function fakeEmailEnv(overrides = {}) {
   };
 }
 
-test("same-domain fix pack admin emails carry the internal inbox marker", async () => {
-  const { env, sent } = fakeEmailEnv();
+test("same-domain fix pack admin emails are skipped at the source", async () => {
+  const { env } = fakeEmailEnv();
 
-  await sendWorkerEmail(env, {
+  assert.equal(shouldSkipOwnedInternalEmail(env, {
     to: "support@seofixkit.com",
-    subject: "SEO Fix Pack paid: seofixkit.com",
-    text: "Payment confirmed.",
-    html: "<p>Payment confirmed.</p>",
     tag: "fix-pack-payment"
-  });
-
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].headers["X-SEOFIXKIT-Tag"], "fix-pack-payment");
-  assert.equal(sent[0].headers["X-Nish-Internal-Email"], "internal-token");
+  }), true);
 });
 
-test("cross-owned ops emails carry the internal inbox marker", async () => {
-  const { env, sent } = fakeEmailEnv({
+test("cross-owned ops emails are skipped at the source", async () => {
+  const { env } = fakeEmailEnv({
     INTERNAL_EMAIL_DOMAINS: "seofixkit.com,tinystudio.io"
   });
 
-  await sendWorkerEmail(env, {
+  assert.equal(shouldSkipOwnedInternalEmail(env, {
     to: "hello@tinystudio.io",
-    subject: "SEO Fix Kit ops digest: 0 paid open, 0 overdue",
-    text: "SEO Fix Kit daily ops digest.",
-    html: "<p>SEO Fix Kit daily ops digest.</p>",
     tag: "ops-digest"
-  });
-
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].headers["X-SEOFIXKIT-Tag"], "ops-digest");
-  assert.equal(sent[0].headers["X-Nish-Internal-Email"], "internal-token");
+  }), true);
 });
 
 test("external fix pack customer emails do not carry the internal inbox marker", async () => {
@@ -68,4 +54,8 @@ test("external fix pack customer emails do not carry the internal inbox marker",
   assert.equal(sent.length, 1);
   assert.equal(sent[0].headers["X-SEOFIXKIT-Tag"], "fix-pack-payment");
   assert.equal(sent[0].headers["X-Nish-Internal-Email"], undefined);
+  assert.equal(shouldSkipOwnedInternalEmail(env, {
+    to: "customer@example.com",
+    tag: "fix-pack-payment"
+  }), false);
 });

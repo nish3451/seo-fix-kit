@@ -13,6 +13,7 @@ import {
   escapeHtml
 } from "../../shared/audit-engine.js";
 import {
+  shouldSkipOwnedInternalEmail,
   sendWorkerEmail
 } from "../lib/email.js";
 import {
@@ -754,6 +755,14 @@ async function sendUrgentOpsAlerts(env) {
       .run();
     if (inserted?.meta?.changes === 0) continue;
     try {
+      if (shouldSkipOwnedInternalEmail(env, { to: adminEmail, tag: "ops-alert" })) {
+        await env.WAITLIST_DB.prepare(
+          `UPDATE ops_digest_runs SET status = 'skipped', error = ?, updated_at = ? WHERE digest_key = ?`
+        )
+          .bind("owned_internal_email", new Date().toISOString(), alertKey)
+          .run();
+        continue;
+      }
       await sendWorkerEmail(env, {
         to: adminEmail,
         subject: `SEO Fix Kit alert: ${condition.line}`,
@@ -803,6 +812,14 @@ async function sendDailyOpsDigest(env) {
     }
 
     const email = buildOpsDigestEmail({ appOrigin, snapshot });
+    if (shouldSkipOwnedInternalEmail(env, { to: adminEmail, tag: "ops-digest" })) {
+      await env.WAITLIST_DB.prepare(
+        `UPDATE ops_digest_runs SET status = 'skipped', summary_json = ?, error = ?, updated_at = ? WHERE digest_key = ?`
+      )
+        .bind(JSON.stringify(snapshot), "owned_internal_email", new Date().toISOString(), digestKey)
+        .run();
+      return;
+    }
     await sendWorkerEmail(env, {
       to: adminEmail,
       subject: email.subject,
