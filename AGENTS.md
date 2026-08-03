@@ -1,6 +1,6 @@
 # Project AGENTS
 
-Follow `/Users/nish/.codex/AGENTS.md` first, then this repo-specific layer.
+Follow `~/.codex/AGENTS.md` first, then this repo-specific layer.
 
 ## Project Rules
 
