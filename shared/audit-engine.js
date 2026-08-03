@@ -746,10 +746,27 @@ async function extractRenderedFacts(browser, url, options = {}) {
   try {
     await installRenderRequestGuard(page, options);
 
-    const response = await page.goto(url, {
-      waitUntil: "networkidle0",
-      timeout: 25_000
-    });
+    // networkidle0 waits for zero in-flight requests, which never happens on a
+    // site with analytics beacons, polling, or a websocket. aiconverter.app
+    // failed its entire audit this way — the customer gets nothing rather than a
+    // slightly less settled page. Fall back instead of throwing away the run.
+    const navigationTimeoutMs = Number(options.navigationTimeoutMs) > 0
+      ? Number(options.navigationTimeoutMs)
+      : 25_000;
+    let response;
+    try {
+      response = await page.goto(url, {
+        waitUntil: "networkidle0",
+        timeout: navigationTimeoutMs
+      });
+    } catch (navigationError) {
+      if (!/timeout/i.test(String(navigationError?.message || ""))) throw navigationError;
+      response = await page.goto(url, {
+        waitUntil: "domcontentloaded",
+        timeout: navigationTimeoutMs
+      });
+      await wait(1500);
+    }
 
     await wait(350);
 
