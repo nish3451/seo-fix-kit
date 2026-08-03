@@ -746,10 +746,27 @@ async function extractRenderedFacts(browser, url, options = {}) {
   try {
     await installRenderRequestGuard(page, options);
 
-    const response = await page.goto(url, {
-      waitUntil: "networkidle0",
-      timeout: 25_000
-    });
+    // networkidle0 waits for zero in-flight requests, which never happens on a
+    // site with analytics beacons, polling, or a websocket. aiconverter.app
+    // failed its entire audit this way — the customer gets nothing rather than a
+    // slightly less settled page. Fall back instead of throwing away the run.
+    const navigationTimeoutMs = Number(options.navigationTimeoutMs) > 0
+      ? Number(options.navigationTimeoutMs)
+      : 25_000;
+    let response;
+    try {
+      response = await page.goto(url, {
+        waitUntil: "networkidle0",
+        timeout: navigationTimeoutMs
+      });
+    } catch (navigationError) {
+      if (!/timeout/i.test(String(navigationError?.message || ""))) throw navigationError;
+      response = await page.goto(url, {
+        waitUntil: "domcontentloaded",
+        timeout: navigationTimeoutMs
+      });
+      await wait(1500);
+    }
 
     await wait(350);
 
@@ -1162,8 +1179,14 @@ function buildFindings({ pages, startUrl, robots, sitemap, performance }) {
     const imageChecks = page.imageChecks || [];
     const brokenInternalLinks = linkChecks.filter((check) => check.kind === "internal" && isBrokenResource(check));
     const brokenExternalLinks = linkChecks.filter((check) => check.kind === "external" && isBrokenResource(check));
+    // A redirect observed while the origin was throttling us says nothing about
+    // the customer's link graph — it is where their rate limiter sent our crawler.
     const redirectedInternalLinks = linkChecks.filter(
-      (check) => check.kind === "internal" && !isBrokenResource(check) && check.redirected
+      (check) =>
+        check.kind === "internal" &&
+        !isBrokenResource(check) &&
+        !isThrottledResource(check) &&
+        check.redirected
     );
     const brokenImages = imageChecks.filter(isBrokenResource);
     const oversizedImages = imageChecks.filter(
@@ -1712,7 +1735,17 @@ function buildFindings({ pages, startUrl, robots, sitemap, performance }) {
       });
     }
 
-    if (finalUrlObject.protocol === "https:" && !headerValue(page.headers, "strict-transport-security")) {
+    // Only claim a header is missing when we actually captured headers to look
+    // at. When the static fetch does not complete — /search on 0509.io took
+    // 7.6s to settle — page.headers is an empty object, and asserting "missing"
+    // from that reports the customer's working HSTS as a defect. Absence of
+    // evidence is not evidence of absence.
+    const capturedHeaderCount = Object.keys(page.headers || {}).length;
+    if (
+      capturedHeaderCount > 0 &&
+      finalUrlObject.protocol === "https:" &&
+      !headerValue(page.headers, "strict-transport-security")
+    ) {
       add({
         type: "issue",
         severity: "notice",
@@ -2347,7 +2380,20 @@ function dedupeHreflangIssues(issues) {
   });
 }
 
+// 429 and 503 mean "ask again later", not "this page is dead". Google backs off
+// on them rather than dropping the URL. Reporting them as broken links turns our
+// own crawl rate into the customer's critical defect: auditing 0509.io produced
+// 8 critical "broken internal links" findings, all stamped confidence=verified,
+// every one of them our crawler tripping that site's rate limiter. Requesting the
+// same URLs politely returned 200 and 302.
+const THROTTLED_STATUSES = new Set([408, 425, 429, 503]);
+
+export function isThrottledResource(check) {
+  return Boolean(check && check.status && THROTTLED_STATUSES.has(check.status));
+}
+
 function isBrokenResource(check) {
+  if (isThrottledResource(check)) return false;
   return !check || !check.ok || !check.status || check.status >= 400;
 }
 
