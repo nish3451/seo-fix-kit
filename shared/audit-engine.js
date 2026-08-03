@@ -1735,7 +1735,17 @@ function buildFindings({ pages, startUrl, robots, sitemap, performance }) {
       });
     }
 
-    if (finalUrlObject.protocol === "https:" && !headerValue(page.headers, "strict-transport-security")) {
+    // Only claim a header is missing when we actually captured headers to look
+    // at. When the static fetch does not complete — /search on 0509.io took
+    // 7.6s to settle — page.headers is an empty object, and asserting "missing"
+    // from that reports the customer's working HSTS as a defect. Absence of
+    // evidence is not evidence of absence.
+    const capturedHeaderCount = Object.keys(page.headers || {}).length;
+    if (
+      capturedHeaderCount > 0 &&
+      finalUrlObject.protocol === "https:" &&
+      !headerValue(page.headers, "strict-transport-security")
+    ) {
       add({
         type: "issue",
         severity: "notice",

@@ -569,3 +569,39 @@ test("genuine failures are still not mistaken for throttling", () => {
   assert.equal(isThrottledResource(null), false);
   assert.equal(isThrottledResource({ ok: false }), false);
 });
+
+
+// Regression: 0509.io serves HSTS on every route, but /search took 7.6s to
+// settle so no headers were captured, and the audit reported the header as
+// missing. Verified with curl that the header is present for both a browser
+// and the audit's own user-agent.
+test("HSTS is not reported missing when no headers were captured", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () => fakeBrowser("https://public.example/"),
+    // A fetch that never yields headers is exactly the slow-page case.
+    fetchImpl: async () => {
+      throw new Error("fetch timed out");
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const hsts = (report.findings || []).filter((f) => /HSTS/i.test(f.title || ""));
+  assert.deepEqual(hsts, [], "an empty header capture must not prove the header is absent");
+});
+
+test("HSTS is still reported when headers were captured without it", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () => fakeBrowser("https://public.example/"),
+    fetchImpl: async () =>
+      new Response(
+        "<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof</h1><p>Useful content here.</p></body></html>",
+        { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
+      ),
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const hsts = (report.findings || []).filter((f) => /HSTS/i.test(f.title || ""));
+  assert.equal(hsts.length, 1, "a real header capture with no HSTS must still be reported");
+});
