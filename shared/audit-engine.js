@@ -1162,8 +1162,14 @@ function buildFindings({ pages, startUrl, robots, sitemap, performance }) {
     const imageChecks = page.imageChecks || [];
     const brokenInternalLinks = linkChecks.filter((check) => check.kind === "internal" && isBrokenResource(check));
     const brokenExternalLinks = linkChecks.filter((check) => check.kind === "external" && isBrokenResource(check));
+    // A redirect observed while the origin was throttling us says nothing about
+    // the customer's link graph — it is where their rate limiter sent our crawler.
     const redirectedInternalLinks = linkChecks.filter(
-      (check) => check.kind === "internal" && !isBrokenResource(check) && check.redirected
+      (check) =>
+        check.kind === "internal" &&
+        !isBrokenResource(check) &&
+        !isThrottledResource(check) &&
+        check.redirected
     );
     const brokenImages = imageChecks.filter(isBrokenResource);
     const oversizedImages = imageChecks.filter(
@@ -2347,7 +2353,20 @@ function dedupeHreflangIssues(issues) {
   });
 }
 
+// 429 and 503 mean "ask again later", not "this page is dead". Google backs off
+// on them rather than dropping the URL. Reporting them as broken links turns our
+// own crawl rate into the customer's critical defect: auditing 0509.io produced
+// 8 critical "broken internal links" findings, all stamped confidence=verified,
+// every one of them our crawler tripping that site's rate limiter. Requesting the
+// same URLs politely returned 200 and 302.
+const THROTTLED_STATUSES = new Set([408, 425, 429, 503]);
+
+export function isThrottledResource(check) {
+  return Boolean(check && check.status && THROTTLED_STATUSES.has(check.status));
+}
+
 function isBrokenResource(check) {
+  if (isThrottledResource(check)) return false;
   return !check || !check.ok || !check.status || check.status >= 400;
 }
 

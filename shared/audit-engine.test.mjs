@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createAuditEngine } from "./audit-engine.js";
+import { createAuditEngine, isThrottledResource } from "./audit-engine.js";
 import { buildBacklinkAudit } from "./backlink-audit.js";
 import { buildCrawlInventory } from "./crawl-inventory.js";
 import { buildLocalSeoAudit } from "./local-seo-audit.js";
@@ -542,3 +542,30 @@ function fakeBrowser(finalUrl, overrides = {}, hooks = {}) {
     async close() {}
   };
 }
+
+
+// Regression: auditing 0509.io produced 8 critical "broken internal links"
+// findings stamped confidence=verified. Every one was this crawler tripping that
+// site's rate limiter; the same URLs returned 200 and 302 when requested politely.
+// A product that sells proof cannot report its own footprint as the customer's bug.
+test("throttle statuses are not treated as broken resources", () => {
+  for (const status of [408, 425, 429, 503]) {
+    assert.equal(
+      isThrottledResource({ status, ok: false }),
+      true,
+      `${status} should count as throttled, not broken`
+    );
+  }
+});
+
+test("genuine failures are still not mistaken for throttling", () => {
+  for (const status of [404, 410, 500, 502]) {
+    assert.equal(
+      isThrottledResource({ status, ok: false }),
+      false,
+      `${status} is a real failure and must still be reported`
+    );
+  }
+  assert.equal(isThrottledResource(null), false);
+  assert.equal(isThrottledResource({ ok: false }), false);
+});
