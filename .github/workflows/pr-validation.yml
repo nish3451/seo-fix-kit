@@ -1,0 +1,54 @@
+# PR validation — the only CI gate this repo needs.
+#
+# Single source of truth: `npm run check` (see package.json). It runs the full
+# test suite and the production `vite build` already chained by that script.
+# Keep this workflow in sync with package.json scripts; do NOT add separate
+# lint/test jobs here — one canonical gate, one named check on every PR.
+#
+# Third-party actions are pinned to full commit SHAs (tag in the comment) so
+# a repointed tag cannot silently change what CI runs. To bump: pick the new
+# SHA from the action's release tag and update both the SHA and the comment.
+name: ci
+
+# Quoted so YAML 1.1 parsers do not coerce `on` to boolean true.
+"on":
+  pull_request:
+
+# Least privilege: this workflow only reads repository contents. It never
+# writes, so the default (write-all) token would be wasted privilege.
+permissions:
+  contents: read
+
+# Cancel a stale run when the same PR is updated; a PR only needs the latest
+# result, and cancelling keeps the repo's CI minutes spend minimal.
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-validation:
+    name: PR validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # Node 22 matches the local development toolchain (v22.23.1); Vite 8
+      # requires ^20.19.0 || >=22.12.0, so 22 is the supported LTS floor.
+      - name: Set up Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+
+      # npm ci installs strictly from package-lock.json and fails instead of
+      # rewriting it, so an out-of-sync lockfile is caught here, never mutated.
+      - name: Install dependencies (npm ci, lockfile never rewritten)
+        run: npm ci --no-audit --no-fund
+
+      # The canonical gate, run directly: its exit code and full output are
+      # the check result. No piping, no `|| true`, nothing that could hide a
+      # failure from the PR's checks list.
+      - name: Run canonical gate (npm run check)
+        run: npm run check
