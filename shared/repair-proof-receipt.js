@@ -40,6 +40,11 @@ function buildRepairProofReceipt({ report = {}, item = {}, action = {}, rerunRep
     return receiptError("Proof receipts are only available after rerun proof marks the repair fixed.", 409);
   }
 
+  const itemRerunState = cleanRerunState(item.rerunStatus || item.rerun_status);
+  if (itemRerunState !== "fixed") {
+    return receiptError("The repair was reopened after rerun proof; re-run the same-host proof before creating a proof receipt.", 409);
+  }
+
   const rerunReportId = text(action.rerun_report_id || action.rerunReportId, 160);
   if (!rerunReportId) {
     return receiptError("Attach the fixed rerun report before creating a proof receipt.", 409);
@@ -62,7 +67,10 @@ function buildRepairProofReceipt({ report = {}, item = {}, action = {}, rerunRep
 
   const freshAfterMs = rerunProofFreshAfterMs(action, report);
   const rerunTimestampMs = reportTimestampMs(rerunReport);
-  if (freshAfterMs > 0 && (!rerunTimestampMs || rerunTimestampMs <= freshAfterMs)) {
+  if (!rerunTimestampMs) {
+    return receiptError("Rerun proof report must include a capture timestamp.", 409);
+  }
+  if (freshAfterMs > 0 && rerunTimestampMs <= freshAfterMs) {
     return receiptError("Rerun proof report must be newer than the applied repair.", 409);
   }
 
@@ -86,6 +94,8 @@ function buildRepairProofReceipt({ report = {}, item = {}, action = {}, rerunRep
   const appliedAt = text(action.applied_at || action.appliedAt || "", 80);
   const fixedAt = text(action.updated_at || action.updatedAt || "", 80);
   const generatedAt = new Date().toISOString();
+  const sourceCapturedAt = timestampLabel(reportTimestampMs(report));
+  const rerunCapturedAt = timestampLabel(rerunTimestampMs);
   const filename = repairProofReceiptFilename(reportId, actionId);
 
   const markdown = [
@@ -101,6 +111,7 @@ function buildRepairProofReceipt({ report = {}, item = {}, action = {}, rerunRep
     pageUrl ? bullet("Target URL", pageUrl) : "",
     bullet("Source report", reportId),
     reportUrl ? bullet("Source report URL", reportUrl) : "",
+    sourceCapturedAt ? bullet("Source captured", sourceCapturedAt) : "",
     bullet("Queue item", queueItemId || "n/a"),
     bullet("Repair action", actionId),
     bullet("Action mode", actionModeLabel(actionMode)),
@@ -128,15 +139,24 @@ function buildRepairProofReceipt({ report = {}, item = {}, action = {}, rerunRep
     "",
     bullet("Rerun report", rerunReportId),
     rerunReportUrl ? bullet("Rerun report URL", rerunReportUrl) : "",
+    rerunCapturedAt ? bullet("Rerun proof captured", rerunCapturedAt) : "",
     bullet("Rerun host", proofHost),
     bullet("Proof result", "The rerun report passed SEOFixKit's fixed-issue proof rules for this repair action."),
+    "",
+    "## Observed Outcome",
+    "",
+    "These numbers are what the source report and the rerun report recorded for the same host. They do not attribute every change to this repair action.",
+    "",
+    ...observedOutcomeLines(report, rerunReport),
     "",
     "## Boundaries",
     "",
     "- This receipt is private to the report owner or owner API token.",
     "- SEOFixKit did not publish to a CMS, open or merge a GitHub pull request, or call provider admin APIs for this receipt.",
     "- Rankings, traffic, indexing, AI citations, and revenue are not guaranteed.",
-    "- If the site changes again, rerun the audit before using this receipt as current proof."
+    rerunCapturedAt
+      ? `- Rerun proof captured at ${rerunCapturedAt}. If the site changed after that capture, rerun the audit before using this receipt as current proof.`
+      : "- If the site changes again, rerun the audit before using this receipt as current proof."
   ].filter((part) => part !== "").join("\n");
 
   return {
@@ -155,6 +175,8 @@ function buildRepairProofReceipt({ report = {}, item = {}, action = {}, rerunRep
       executionState,
       rerunState,
       rerunReportId,
+      sourceCapturedAt,
+      rerunCapturedAt,
       generatedAt
     }
   };
@@ -164,6 +186,54 @@ function repairProofReceiptFilename(reportId = "", actionId = "") {
   const report = slug(reportId, "report");
   const action = slug(actionId, "repair-action");
   return `${report}-${action}-repair-proof.md`.slice(0, 180);
+}
+
+function observedOutcomeLines(report = {}, rerunReport = {}) {
+  return [
+    `- Score: ${scoreOutcome(report.score, rerunReport.score)}`,
+    `- Issues (excluding confirmed false positives): ${issueCountOutcome(report, rerunReport)}`,
+    `- Fixed issues recorded by the rerun report: ${fixedIssuesRecorded(rerunReport)}`
+  ];
+}
+
+function scoreOutcome(sourceScore, rerunScore) {
+  const before = finiteNumber(sourceScore);
+  const after = finiteNumber(rerunScore);
+  if (before === null || after === null) return "not recorded";
+  return `${before} -> ${after} (${signed(after - before)})`;
+}
+
+function issueCountOutcome(report = {}, rerunReport = {}) {
+  const before = issueCount(report);
+  const after = issueCount(rerunReport);
+  if (before === null || after === null) return "not recorded";
+  return `${before} -> ${after} (${signed(after - before)})`;
+}
+
+function issueCount(report = {}) {
+  if (!Array.isArray(report.findings)) return null;
+  return report.findings.filter((finding) => finding?.severity && finding.severity !== "good").length;
+}
+
+function fixedIssuesRecorded(rerunReport = {}) {
+  const delta = rerunReport.reportDelta || rerunReport.report_delta;
+  if (!delta || typeof delta !== "object") return "not recorded";
+  const camel = Array.isArray(delta.fixedIssues) ? delta.fixedIssues : [];
+  const snake = Array.isArray(delta.fixed_issues) ? delta.fixed_issues : [];
+  return String(camel.length + snake.length);
+}
+
+function finiteNumber(value) {
+  if (value === null || value === undefined || typeof value === "boolean") return null;
+  if (String(value).trim() === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function signed(value) {
+  const number = Number(value || 0);
+  if (number > 0) return `+${number}`;
+  return String(number);
 }
 
 function issueFromQueueItem(item = {}, action = {}) {
@@ -199,6 +269,10 @@ function actionTypeLabel(type = "") {
 
 function receiptError(error, status = 400) {
   return { ok: false, status, error };
+}
+
+function timestampLabel(timestampMs = 0) {
+  return Number.isFinite(timestampMs) && timestampMs > 0 ? new Date(timestampMs).toISOString() : "";
 }
 
 function bullet(label, value) {
