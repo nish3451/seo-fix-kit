@@ -1015,20 +1015,30 @@ async function abortInterceptedRequest(target) {
 function extractStaticFacts(html, url, fetchResult = {}) {
   const base = new URL(url);
   const head = html.match(/<head[\s\S]*?<\/head>/i)?.[0] || "";
+  // Static element facts (headings, links, images) are read from HTML with only
+  // script and style element bodies removed. This excludes markup that exists
+  // solely inside script or style strings (no static crawler sees that), while
+  // preserving <noscript> fallback markup, which is real crawlable content for
+  // crawlers that do not run JavaScript.
+  const staticMarkup = html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "");
+  // Word count intentionally keeps the prior behavior: script, style, and
+  // noscript bodies are all removed before body-text extraction.
   const withoutScripts = html
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<noscript[\s\S]*?<\/noscript>/gi, "");
   const body = withoutScripts.match(/<body[\s\S]*?<\/body>/i)?.[0] || withoutScripts;
   const bodyText = decodeEntities(stripTags(body)).replace(/\s+/g, " ").trim();
-  const links = [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
+  const links = [...staticMarkup.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
     .map((match) => ({
       href: absolute(match[1], base.href),
       rawHref: match[1],
       text: decodeEntities(stripTags(match[2])).replace(/\s+/g, " ").trim()
     }))
     .filter((link) => link.href?.startsWith("http"));
-  const images = [...html.matchAll(/<img\b[^>]*>/gi)].map((match) => {
+  const images = [...staticMarkup.matchAll(/<img\b[^>]*>/gi)].map((match) => {
     const alt = attr(match[0], "alt");
     return {
       src: absolute(attr(match[0], "src"), base.href),
@@ -1068,7 +1078,7 @@ function extractStaticFacts(html, url, fetchResult = {}) {
     return types;
   };
   const headings = [];
-  for (const match of html.matchAll(/<(h[1-6])\b[^>]*>([\s\S]*?)<\/\1>/gi)) {
+  for (const match of staticMarkup.matchAll(/<(h[1-6])\b[^>]*>([\s\S]*?)<\/\1>/gi)) {
     headings.push({
       level: match[1].toLowerCase(),
       text: decodeEntities(stripTags(match[2])).replace(/\s+/g, " ").trim()
