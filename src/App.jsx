@@ -3262,7 +3262,7 @@ function TeamRepairBoard({ report }) {
                       Implementation pack
                     </a>
                   )}
-                  {repairActionProofReceiptAvailable(issue.latestAction) && (
+                  {issue.rerunStatus === "fixed" && repairActionProofReceiptAvailable(issue.latestAction) && (
                     <a
                       className="action-link"
                       href={repairActionProofReceiptUrl(report.id, issue.latestAction.id)}

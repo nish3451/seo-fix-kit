@@ -257,6 +257,10 @@ test("repair action proof receipt requires owner fixed rerun proof", async () =>
   assert.match(markdown, /Missing title/);
   assert.match(markdown, /Rerun Proof/);
   assert.match(markdown, /rerun-fixed-report-1/);
+  assert.match(markdown, /## Observed Outcome/);
+  assert.match(markdown, /- Score: 85 -> 100 \(\+15\)/);
+  assert.match(markdown, /- Issues \(excluding confirmed false positives\): 1 -> 0 \(-1\)/);
+  assert.match(markdown, /- Fixed issues recorded by the rerun report: 1/);
   assert.doesNotMatch(markdown, /checkoutUrl|sfk_beta_session|DODO_SEOFIXKIT_API_KEY/i);
 
   env.ownerEmail = "other@example.com";
@@ -265,6 +269,135 @@ test("repair action proof receipt requires owner fixed rerun proof", async () =>
     env
   );
   assert.equal(otherOwnerResponse.status, 404);
+});
+
+test("repair action proof receipt names capture times and fails closed after the fixed repair is reopened", async () => {
+  const env = fakeRepairEnv();
+  const reportId = "example-report-1";
+  await getRepairQueue(sessionRequest(`/api/reports/${reportId}/repair-queue`), env);
+  await createRepairAction(
+    sessionRequest(`/api/reports/${reportId}/repair-actions`, {
+      method: "POST",
+      body: JSON.stringify({ issueId: "issue-1", proposedChange: "Draft the fixed title for review." })
+    }),
+    env
+  );
+  const applied = await updateRepairAction(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ approvalState: "approved", executionState: "applied" })
+    }),
+    env
+  );
+  assert.equal(applied.status, 200);
+  env.reports.push({
+    id: "rerun-fixed-report-2",
+    owner_email: "owner@example.com",
+    owner_invite_id: null,
+    expires_at: new Date(Date.now() + 7_200_000).toISOString(),
+    created_at: new Date(Date.now() + 60_000).toISOString(),
+    updated_at: new Date(Date.now() + 60_000).toISOString(),
+    url: "https://example.com/",
+    target_host: "example.com",
+    report_json: JSON.stringify(fixedRerunReport("rerun-fixed-report-2"))
+  });
+  const fixed = await updateRepairAction(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ rerunState: "fixed", rerunReportId: "rerun-fixed-report-2" })
+    }),
+    env
+  );
+  assert.equal(fixed.status, 200);
+
+  const receiptResponse = await getRepairActionProofReceipt(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}/proof.md`),
+    env
+  );
+  assert.equal(receiptResponse.status, 200);
+  const markdown = await receiptResponse.text();
+  assert.match(markdown, /Source captured:/);
+  assert.match(markdown, /Rerun proof captured:/);
+  assert.match(markdown, /Rerun proof captured at .*If the site changed after that capture/);
+
+  const reopened = await saveRepairQueue(
+    sessionRequest(`/api/reports/${reportId}/repair-queue`, {
+      method: "PATCH",
+      body: JSON.stringify({ items: [{ issueId: "issue-1", status: "open" }] })
+    }),
+    env
+  );
+  assert.equal(reopened.status, 200);
+  assert.equal(env.queueItems[0].status, "open");
+  assert.equal(env.queueItems[0].rerun_status, "not_run");
+
+  const staleReceiptResponse = await getRepairActionProofReceipt(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}/proof.md`),
+    env
+  );
+  assert.equal(staleReceiptResponse.status, 409);
+  assert.match((await staleReceiptResponse.json()).error, /reopened/);
+});
+
+test("repair action proof receipt keeps missing outcome numbers explicit", async () => {
+  const env = fakeRepairEnv();
+  const reportId = "example-report-1";
+  await getRepairQueue(sessionRequest(`/api/reports/${reportId}/repair-queue`), env);
+  await createRepairAction(
+    sessionRequest(`/api/reports/${reportId}/repair-actions`, {
+      method: "POST",
+      body: JSON.stringify({ issueId: "issue-1", proposedChange: "Draft the fixed title for review." })
+    }),
+    env
+  );
+  const applied = await updateRepairAction(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ approvalState: "approved", executionState: "applied" })
+    }),
+    env
+  );
+  assert.equal(applied.status, 200);
+  env.reports.push({
+    id: "rerun-no-outcome-1",
+    owner_email: "owner@example.com",
+    owner_invite_id: null,
+    expires_at: new Date(Date.now() + 7_200_000).toISOString(),
+    created_at: new Date(Date.now() + 60_000).toISOString(),
+    updated_at: new Date(Date.now() + 60_000).toISOString(),
+    url: "https://example.com/",
+    target_host: "example.com",
+    report_json: JSON.stringify({
+      id: "rerun-no-outcome-1",
+      url: "https://example.com/",
+      createdAt: new Date(Date.now() + 60_000).toISOString(),
+      score: null,
+      summary: { pagesScanned: 1 },
+      findings: [],
+      repairPlan: []
+    })
+  });
+  const fixed = await updateRepairAction(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ rerunState: "fixed", rerunReportId: "rerun-no-outcome-1" })
+    }),
+    env
+  );
+  assert.equal(fixed.status, 200);
+
+  const receiptResponse = await getRepairActionProofReceipt(
+    sessionRequest(`/api/reports/${reportId}/repair-actions/${env.actions[0].id}/proof.md`),
+    env
+  );
+  assert.equal(receiptResponse.status, 200);
+  const markdown = await receiptResponse.text();
+  assert.match(markdown, /## Observed Outcome/);
+  assert.match(markdown, /- Score: not recorded/);
+  assert.match(markdown, /- Issues \(excluding confirmed false positives\): 1 -> 0 \(-1\)/);
+  assert.match(markdown, /- Fixed issues recorded by the rerun report: not recorded/);
+  assert.doesNotMatch(markdown, /- Score: \d+ ->/);
+  assert.doesNotMatch(markdown, /- Score: 0\b/);
 });
 
 test("repair action create does not persist when the queue row disappears", async () => {
@@ -1700,6 +1833,7 @@ function fakeRepairEnv() {
         id: "example-report-1",
         url: "https://example.com/",
         createdAt: "2020-01-01T00:00:00.000Z",
+        score: 85,
         findings: [{
           id: "issue-1",
           severity: "critical",

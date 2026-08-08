@@ -24,6 +24,52 @@ test("fixed applied action returns a private repair proof receipt", () => {
   assert.doesNotMatch(receipt.markdown, /guaranteed rankings/i);
 });
 
+test("receipt records the observed before/after outcome from both reports", () => {
+  const receipt = buildRepairProofReceipt(fixtureInput());
+
+  assert.equal(receipt.ok, true);
+  assert.match(receipt.markdown, /## Observed Outcome/);
+  assert.match(receipt.markdown, /do not attribute every change to this repair action/);
+  assert.match(receipt.markdown, /- Score: 85 -> 96 \(\+11\)/);
+  assert.match(receipt.markdown, /- Issues \(excluding confirmed false positives\): 1 -> 0 \(-1\)/);
+  assert.match(receipt.markdown, /- Fixed issues recorded by the rerun report: 1/);
+});
+
+test("receipt keeps missing outcome numbers explicit instead of inventing them", () => {
+  const receipt = buildRepairProofReceipt(fixtureInput({
+    report: { score: null },
+    rerunReport: {
+      score: null,
+      findings: null,
+      summary: { pagesScanned: 1 },
+      reportDelta: null,
+      report_delta: null
+    }
+  }));
+
+  assert.equal(receipt.ok, true);
+  assert.match(receipt.markdown, /- Score: not recorded/);
+  assert.match(receipt.markdown, /- Issues \(excluding confirmed false positives\): not recorded/);
+  assert.match(receipt.markdown, /- Fixed issues recorded by the rerun report: not recorded/);
+  assert.doesNotMatch(receipt.markdown, /- Score: 0\b/);
+  assert.doesNotMatch(receipt.markdown, /- Score: \d+ ->/);
+  assert.doesNotMatch(receipt.markdown, /- Issues \(excluding confirmed false positives\): \d+ ->/);
+});
+
+test("receipt renders empty and non-numeric scores as not recorded", () => {
+  const empty = buildRepairProofReceipt(fixtureInput({ rerunReport: { score: "" } }));
+  const notANumber = buildRepairProofReceipt(fixtureInput({
+    report: { score: "not-a-number" },
+    rerunReport: { score: "not-a-number" }
+  }));
+
+  assert.equal(empty.ok, true);
+  assert.match(empty.markdown, /- Score: not recorded/);
+  assert.doesNotMatch(empty.markdown, /- Score: 0\b/);
+  assert.equal(notANumber.ok, true);
+  assert.match(notANumber.markdown, /- Score: not recorded/);
+});
+
 test("receipt requires approved applied fixed action with rerun report id", () => {
   const drafted = buildRepairProofReceipt(fixtureInput({ action: { approval_state: "drafted" } }));
   const notApplied = buildRepairProofReceipt(fixtureInput({ action: { execution_state: "recorded" } }));
@@ -98,6 +144,38 @@ test("receipt sanitizes user markdown without allowing fake sections", () => {
   assert.match(approvedSection, /SEOFixKit guaranteed rankings/);
 });
 
+test("receipt names before capture, rerun capture, and an anchored currentness warning", () => {
+  const receipt = buildRepairProofReceipt(fixtureInput());
+
+  assert.equal(receipt.ok, true);
+  assert.equal(receipt.metadata.sourceCapturedAt, "2026-06-20T10:00:00.000Z");
+  assert.equal(receipt.metadata.rerunCapturedAt, "2026-06-20T12:00:00.000Z");
+  assert.match(receipt.markdown, /Source captured: 2026-06-20T10:00:00\.000Z/);
+  assert.match(receipt.markdown, /Rerun proof captured: 2026-06-20T12:00:00\.000Z/);
+  assert.match(receipt.markdown, /Rerun proof captured at 2026-06-20T12:00:00\.000Z\. If the site changed after that capture, rerun the audit before using this receipt as current proof\./);
+});
+
+test("receipt fails closed when the repair was reopened after rerun proof", () => {
+  const reopened = buildRepairProofReceipt(fixtureInput({ item: { rerunStatus: "not_run" } }));
+  const stillOpenItem = buildRepairProofReceipt(fixtureInput({ item: { rerunStatus: "still_open" } }));
+
+  assert.equal(reopened.ok, false);
+  assert.match(reopened.error, /reopened/);
+  assert.equal(stillOpenItem.ok, false);
+  assert.match(stillOpenItem.error, /reopened/);
+});
+
+test("receipt fails closed when the rerun proof lacks a capture timestamp", () => {
+  const receipt = buildRepairProofReceipt(fixtureInput({
+    report: { createdAt: "" },
+    action: { applied_at: "" },
+    rerunReport: { createdAt: "", scannedAt: "" }
+  }));
+
+  assert.equal(receipt.ok, false);
+  assert.match(receipt.error, /capture timestamp/);
+});
+
 test("repairProofReceiptFilename returns a bounded markdown filename", () => {
   const filename = repairProofReceiptFilename("Report 1/ABC", "Action 1/DEF");
 
@@ -111,6 +189,7 @@ function fixtureInput(overrides = {}) {
     url: "https://example.com/",
     createdAt: "2026-06-20T10:00:00.000Z",
     reportUrl: "https://seofixkit.com/beta/reports/report-1",
+    score: 85,
     findings: [
       {
         id: "issue-1",
@@ -134,6 +213,7 @@ function fixtureInput(overrides = {}) {
     acceptance: "Rendered title exists.",
     actionMode: "self_serve",
     status: "fixed",
+    rerunStatus: "fixed",
     ...(overrides.item || {})
   };
   const action = {
@@ -160,6 +240,7 @@ function fixtureInput(overrides = {}) {
     createdAt: "2026-06-20T12:00:00.000Z",
     reportUrl: "https://seofixkit.com/beta/reports/rerun-report-1",
     score: 96,
+    findings: [],
     reportDelta: {
       fixedIssues: [
         {
