@@ -1,13 +1,16 @@
-# PR check: the single project-validation gate for pull requests.
+# Project check: the single validation gate for PRs and main.
 #
 # This workflow runs the canonical `npm run check` (all test suites + build)
 # against the exact package-lock.json. It is deliberately the ONLY project
 # validation workflow: no linters, no deploy, no secrets, no branch writes.
 #
-# Future main-branch protection should require exactly the "check" job below;
-# keep its job name stable. Do not add matrix axes here — they would rename
-# the check and silently break protection. If a newer runner image is ever
-# needed, bump runs-on deliberately in a reviewable commit.
+# Main-branch protection requires the "check" job below; keep its job name
+# stable. Triggers cover pull_request (PR gating), push to main (so merge
+# commits get a green required check for fleet-release), and workflow_dispatch
+# (so fleet-release can re-run the gate when a SHA has no check run yet).
+# Do not add matrix axes here — they would rename the check and silently break
+# protection. If a newer runner image is ever needed, bump runs-on deliberately
+# in a reviewable commit.
 #
 # Actions are pinned to full commit SHAs (supply-chain hardening). The tag is
 # kept in a trailing comment so Dependabot can still bump them; update the SHA
@@ -19,6 +22,13 @@ on:
     # The three default pull_request types, listed explicitly so the trigger
     # stays correct if GitHub ever changes its defaults.
     types: [opened, synchronize, reopened]
+  push:
+    # Required so the merge commit on main itself receives a "check" run.
+    # Without this, branch protection requires "check" but no workflow ever
+    # runs on main after a PR merges, and fleet-release blocks forever.
+    branches: [main]
+  workflow_dispatch:
+    # Manual / fleet-release re-run of the gate on an arbitrary SHA.
 
 permissions:
   # Only source checkout is needed; nothing here may write or deploy.
