@@ -605,3 +605,157 @@ test("HSTS is still reported when headers were captured without it", async () =>
   const hsts = (report.findings || []).filter((f) => /HSTS/i.test(f.title || ""));
   assert.equal(hsts.length, 1, "a real header capture with no HSTS must still be reported");
 });
+
+
+// Regression: markup that only exists inside <script> or <style> element bodies
+// (JS template strings, CSS content) must not be counted as static headings,
+// links, or images — no static crawler can see it.
+test("static facts exclude headings, links, and images embedded in script and style bodies", async () => {
+  const fixture = `<!doctype html>
+<html lang="en">
+  <head>
+    <title>Static fixture</title>
+  </head>
+  <body>
+    <script>
+      const template = '<h1>Script h1</h1><a href="/script-link">Script link</a><img src="/script-image.png">';
+    </script>
+    <style>
+      .decoy { background: url("/style-image.png"); content: "<h2>Style h2</h2><a href='/style-link'>Style link</a>"; }
+    </style>
+    <h1>Real h1</h1>
+    <a href="/real-link">Real link</a>
+    <img src="/real-image.png" alt="Real image" />
+  </body>
+</html>`;
+  const engine = createAuditEngine({
+    launchBrowser: async () => fakeBrowser("https://public.example/"),
+    fetchImpl: async () =>
+      new Response(fixture, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } })
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const page = report.pages[0];
+
+  assert.deepEqual(page.static.h1s, ["Real h1"]);
+  assert.deepEqual(page.static.headings, [{ level: "h1", text: "Real h1" }]);
+  assert.deepEqual(
+    page.static.internalLinks.map((link) => link.href),
+    ["https://public.example/real-link"]
+  );
+  assert.deepEqual(
+    page.static.images.map((image) => image.src),
+    ["https://public.example/real-image.png"]
+  );
+});
+
+// Regression: <noscript> fallback markup is real crawlable content for
+// crawlers that do not run JavaScript, so static headings, links, and images
+// must keep it while still excluding script-body decoys.
+test("static facts preserve noscript fallback markup", async () => {
+  const fixture = `<!doctype html>
+<html lang="en">
+  <head>
+    <title>Noscript fixture</title>
+  </head>
+  <body>
+    <script>
+      const template = '<h2>Script decoy h2</h2><a href="/script-decoy">Script decoy</a><img src="/script-decoy.png">';
+    </script>
+    <noscript>
+      <h2>Fallback h2</h2>
+      <a href="/fallback-link">Fallback link</a>
+      <img src="/fallback-image.png" alt="Fallback image" />
+    </noscript>
+    <p>Visible copy that stays in the word count.</p>
+  </body>
+</html>`;
+  const engine = createAuditEngine({
+    launchBrowser: async () => fakeBrowser("https://public.example/"),
+    fetchImpl: async () =>
+      new Response(fixture, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } })
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const page = report.pages[0];
+
+  assert.deepEqual(
+    page.static.headings.map((heading) => heading.text),
+    ["Fallback h2"]
+  );
+  assert.deepEqual(
+    page.static.links.map((link) => link.href),
+    ["https://public.example/fallback-link"]
+  );
+  assert.deepEqual(
+    page.static.images.map((image) => image.src),
+    ["https://public.example/fallback-image.png"]
+  );
+  // Word-count behavior is intentionally unchanged: noscript fallback text is
+  // still excluded from the static word count, only element facts preserve it.
+  assert.equal(page.static.wordCount, 8);
+});
+
+// Regression: the live fixture shape ships real headings/links/images inside a
+// <script> template string. Static facts must not count them, and the
+// rendered-vs-static guards must truthfully fire when the rendered DOM has them.
+test("rendered-vs-static guards stay truthful for the live script-rendered fixture shape", async () => {
+  const fixture = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Proof Demo App Shell</title>
+    <meta name="description" content="A JavaScript-rendered demo page for proving false-positive SEO audit behavior." />
+  </head>
+  <body>
+    <div id="app">Loading app shell...</div>
+    <script>
+      document.getElementById("app").innerHTML = \`
+        <main>
+          <h1>Rendered SaaS page with real content</h1>
+          <nav>
+            <a href="/fixture/rendered-page">Overview</a>
+            <a href="/fixture/rendered-page?tab=pricing">Pricing</a>
+          </nav>
+          <img src="/fixture/hero-large.jpg" alt="Large rendered demo hero" />
+        </main>
+      \`;
+    </script>
+  </body>
+</html>`;
+  const renderedLinks = [
+    { text: "Overview", href: "https://public.example/fixture/rendered-page", rawHref: "/fixture/rendered-page" },
+    { text: "Pricing", href: "https://public.example/fixture/rendered-page?tab=pricing", rawHref: "/fixture/rendered-page?tab=pricing" }
+  ];
+  const engine = createAuditEngine({
+    launchBrowser: async () => fakeBrowser("https://public.example/", {
+      h1s: ["Rendered SaaS page with real content"],
+      headings: [{ level: "h1", text: "Rendered SaaS page with real content" }],
+      links: renderedLinks,
+      internalLinks: renderedLinks,
+      images: [{ src: "https://public.example/fixture/hero-large.jpg", alt: "Large rendered demo hero", hasAlt: true }]
+    }),
+    fetchImpl: async () =>
+      new Response(fixture, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } })
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const page = report.pages[0];
+
+  assert.deepEqual(page.static.h1s, []);
+  assert.deepEqual(page.static.internalLinks, []);
+  assert.deepEqual(page.static.images, []);
+
+  const guardTitles = report.findings
+    .filter((finding) => finding.type === "guard")
+    .map((finding) => finding.title);
+  assert.ok(
+    guardTitles.some((title) => title.includes("H1 exists after render")),
+    `expected an H1 guard, got: ${guardTitles.join(" | ")}`
+  );
+  assert.ok(
+    guardTitles.some((title) => title.includes("internal links exist after render")),
+    `expected an internal-links guard, got: ${guardTitles.join(" | ")}`
+  );
+});
