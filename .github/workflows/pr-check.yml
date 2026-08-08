@@ -53,6 +53,16 @@ jobs:
         # lockfile drifts from package.json; it never rewrites the lockfile.
         run: npm ci
 
+      - name: Install the Chromium browser Playwright needs
+        # `npm ci` installs the playwright NPM package but not its browser
+        # binaries, which live in a separate cache outside node_modules. The
+        # audit suites (test:audit, test:large-crawl) launch real Chromium via
+        # server/audit/playwright-browser.js, so without this step they fail
+        # with BROWSER_BUSY masking "Executable doesn't exist". Only chromium
+        # is installed; --with-deps adds the system libraries the runner image
+        # does not ship.
+        run: npx playwright install --with-deps chromium
+
       - name: Run project check (tests + build)
         # The one canonical validation command. A nonzero exit fails the job
         # and therefore the PR check; there is no error swallowing here.
