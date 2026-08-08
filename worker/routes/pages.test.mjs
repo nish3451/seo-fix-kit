@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import http from "node:http";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { auditUrl } from "../../server/audit/engine.js";
 import { rootSitemap } from "../../shared/audit-engine.js";
+import { DEMO_PROOF, DEMO_FIXTURE_PATH } from "./demo-proof.js";
+import { renderedFixture } from "./audits.js";
 import {
   demoHtml,
   homeMarkdown,
@@ -87,6 +91,67 @@ test("public demo and support pages carry enough buyer-facing detail", () => {
   assert.match(support, /We do not log into private CMS accounts, publish changes, merge code, or call provider admin APIs/i);
   assert.match(support, /Ownership and deletion/);
   assert.match(support, /sites you own or are authorized to audit/i);
+});
+
+test("demo brief is verbatim real engine output for the public test page", async () => {
+  const server = http.createServer((req, res) => {
+    const fixtureOrigin = `http://${req.headers.host}`;
+    if (req.url.startsWith(DEMO_FIXTURE_PATH)) {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "x-robots-tag": "noindex, nofollow" });
+      res.end(renderedFixture(fixtureOrigin));
+      return;
+    }
+    if (req.url === "/llms.txt") {
+      res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+      res.end(`# SEO Fix Kit\n\nPublic proof pages:\n- ${fixtureOrigin}/demo\n- ${fixtureOrigin}/methodology\n- ${fixtureOrigin}/packages\n`);
+      return;
+    }
+    res.writeHead(404, { "content-type": "text/plain" });
+    res.end("not found");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const fixtureOrigin = `http://127.0.0.1:${server.address().port}`;
+    // Same options the Worker's private demo audit uses: appOrigin synthesis
+    // for robots/sitemap, one page, no PageSpeed pass.
+    const report = await auditUrl(`${fixtureOrigin}${DEMO_FIXTURE_PATH}`, {
+      maxPages: 1,
+      pageSpeed: false,
+      appOrigin: fixtureOrigin
+    });
+
+    const guard = report.findings.find((finding) => finding.type === "guard");
+    assert.ok(guard, "the engine must emit a guarded finding for the test page");
+    assert.equal(guard.severity, DEMO_PROOF.guard.severity);
+    assert.equal(guard.title, DEMO_PROOF.guard.title);
+    assert.equal(guard.why, DEMO_PROOF.guard.why);
+    assert.equal(guard.evidence, DEMO_PROOF.guard.evidence);
+    assert.equal(guard.fix, DEMO_PROOF.guard.fix);
+
+    const rendered = report.pages[0].rendered;
+    const staticFacts = report.pages[0].static;
+    assert.equal(staticFacts.wordCount, DEMO_PROOF.measured.staticWordCount);
+    assert.equal(rendered.wordCount, DEMO_PROOF.measured.renderedWordCount);
+    assert.equal(rendered.h1s[0], DEMO_PROOF.measured.renderedH1);
+    assert.equal(rendered.internalLinks.length, DEMO_PROOF.measured.renderedInternalLinkCount);
+    assert.equal(rendered.title, DEMO_PROOF.measured.renderedTitle);
+
+    assert.ok(report.repairPlan.length >= DEMO_PROOF.repairPlan.length);
+    for (const entry of DEMO_PROOF.repairPlan) {
+      const live = report.repairPlan.find((item) => item.title === entry.title);
+      assert.ok(live, `repair plan entry missing from live engine output: ${entry.title}`);
+      assert.equal(live.fix, entry.fix, `fix drifted for: ${entry.title}`);
+      assert.equal(live.snippet || "", entry.snippet.replaceAll("{ORIGIN}", fixtureOrigin), `snippet drifted for: ${entry.title}`);
+    }
+
+    const demo = demoHtml(origin);
+    assert.match(demo, new RegExp(DEMO_PROOF.guard.evidence.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(demo, /Real engine output for the public test page/);
+    assert.match(demo, new RegExp(`${origin}${DEMO_FIXTURE_PATH}`));
+    assert.match(demo, /verbatim output from the SEO Fix Kit audit engine/i);
+  } finally {
+    server.close();
+  }
 });
 
 test("static public skill and sitemap files keep buyer-facing boundaries", () => {
