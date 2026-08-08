@@ -1,0 +1,79 @@
+# Project check: the single validation gate for PRs and main.
+#
+# This workflow runs the canonical `npm run check` (all test suites + build)
+# against the exact package-lock.json. It is deliberately the ONLY project
+# validation workflow: no linters, no deploy, no secrets, no branch writes.
+#
+# Main-branch protection requires the "check" job below; keep its job name
+# stable. Triggers cover pull_request (PR gating), push to main (so merge
+# commits get a green required check for fleet-release), and workflow_dispatch
+# (so fleet-release can re-run the gate when a SHA has no check run yet).
+# Do not add matrix axes here — they would rename the check and silently break
+# protection. If a newer runner image is ever needed, bump runs-on deliberately
+# in a reviewable commit.
+#
+# Actions are pinned to full commit SHAs (supply-chain hardening). The tag is
+# kept in a trailing comment so Dependabot can still bump them; update the SHA
+# and comment together, never silently repoint a tag.
+name: PR check
+
+on:
+  pull_request:
+    # The three default pull_request types, listed explicitly so the trigger
+    # stays correct if GitHub ever changes its defaults.
+    types: [opened, synchronize, reopened]
+  push:
+    # Required so the merge commit on main itself receives a "check" run.
+    # Without this, branch protection requires "check" but no workflow ever
+    # runs on main after a PR merges, and fleet-release blocks forever.
+    branches: [main]
+  workflow_dispatch:
+    # Manual / fleet-release re-run of the gate on an arbitrary SHA.
+
+permissions:
+  # Only source checkout is needed; nothing here may write or deploy.
+  contents: read
+
+concurrency:
+  # One run per PR head branch; a new push cancels the stale run instead of
+  # queueing behind it.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js 22 (LTS)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          # Project runs on Node 22 (Vite 8 requires >= 20.19 / >= 22.12).
+          node-version: 22
+          # npm cache keyed on package-lock.json; restores ~/.npm only and
+          # never mutates the lockfile.
+          cache: npm
+
+      - name: Install exact dependencies from package-lock.json
+        # npm ci installs exactly what the lockfile pins and fails if the
+        # lockfile drifts from package.json; it never rewrites the lockfile.
+        run: npm ci
+
+      - name: Install the Chromium browser Playwright needs
+        # `npm ci` installs the playwright NPM package but not its browser
+        # binaries, which live in a separate cache outside node_modules. The
+        # audit suites (test:audit, test:large-crawl) launch real Chromium via
+        # server/audit/playwright-browser.js, so without this step they fail
+        # with BROWSER_BUSY masking "Executable doesn't exist". Only chromium
+        # is installed; --with-deps adds the system libraries the runner image
+        # does not ship.
+        run: npx playwright install --with-deps chromium
+
+      - name: Run project check (tests + build)
+        # The one canonical validation command. A nonzero exit fails the job
+        # and therefore the PR check; there is no error swallowing here.
+        run: npm run check
