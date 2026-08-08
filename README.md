@@ -74,6 +74,14 @@ Open `http://127.0.0.1:5173`.
 npm run check
 ```
 
+For a live spot-check that the public `/demo`, `/methodology`, and `/packages`
+pages on the deployed site still show the proof loop, stated limits, and
+package ladder the README promises:
+
+```bash
+npm run audit:live-promise
+```
+
 ## Cloudflare path
 
 Cloudflare cannot run the local Express + Chromium server directly. The deployable path is:
