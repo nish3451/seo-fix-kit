@@ -1,0 +1,34 @@
+# PR gate for SEO Fix Kit. Fail-closed: the check step must exit non-zero on
+# any failure. Nothing here runs with network access beyond dependency
+# installation; no secrets, no Cloudflare credentials, no deploy steps.
+# Required-check name for branch protection: "CI / npm run check".
+
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: npm run check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies from lockfile
+        run: npm ci
+
+      - name: Run canonical check
+        run: npm run check
