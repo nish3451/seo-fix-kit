@@ -220,9 +220,48 @@ h1 {
   padding: 12px 14px;
 }
 
-.waitlist-form {
+.access-entry {
+  align-items: center;
+  display: grid;
+  gap: clamp(18px, 3vw, 28px);
+  grid-template-columns: minmax(0, 1fr) auto;
   margin-top: 34px;
+  max-width: 760px;
+}
+
+.waitlist-form {
   max-width: 660px;
+  min-width: 0;
+}
+
+.check-entry {
+  align-items: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 240px;
+}
+
+.check-entry-note {
+  color: var(--ink-muted);
+  font-size: 13px;
+  line-height: 1.4;
+  margin: 0;
+  text-align: center;
+}
+
+.check-entry-cta {
+  align-items: center;
+  background: var(--accent);
+  border-radius: 8px;
+  color: #08110d;
+  display: inline-flex;
+  font-size: 16px;
+  font-weight: 880;
+  justify-content: center;
+  min-height: 56px;
+  padding: 0 24px;
+  text-align: center;
 }
 
 .waitlist-form label {
@@ -456,6 +495,14 @@ h1 {
   }
 
   .email-row button {
+    width: 100%;
+  }
+
+  .access-entry {
+    grid-template-columns: 1fr;
+  }
+
+  .check-entry-cta {
     width: 100%;
   }
 

@@ -187,6 +187,24 @@ test("README anonymous one-page check claim matches the Worker, page, and rate l
   assert.match(wranglerJsonc, /"\/check"/, "/check is served by the Worker before SPA assets");
 });
 
+test("README homepage anonymous-check claim matches the CTA beside the email form", () => {
+  assert.match(
+    readme,
+    /request a secure one-use email link or check one public page anonymously/i,
+    "README promises both homepage entry paths"
+  );
+  assert.match(
+    appSource,
+    /<div className="access-entry">[\s\S]*<form className="waitlist-form"/,
+    "the email access form stays beside the anonymous check entry"
+  );
+  assert.match(
+    appSource,
+    /<a className="check-entry-cta" href="\/check">/,
+    "the homepage shows a primary CTA to the anonymous one-page check"
+  );
+});
+
 // State-truthfulness pins. The numeric caps and routes above are locked to
 // code; these claims describe what is NOT live or how limits are computed, so
 // they were spot-checked once (PR #60) and are locked here so the README
