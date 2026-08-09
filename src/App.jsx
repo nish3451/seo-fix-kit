@@ -112,46 +112,58 @@ function WaitlistPage() {
           <a href="/packages">Package ladder</a>
         </nav>
 
-        <form className="waitlist-form" onSubmit={joinWaitlist}>
-          <label htmlFor="email">Email address</label>
-          <div className="email-row">
-            <input
-              autoComplete="email"
-              id="email"
-              inputMode="email"
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@example.com"
-              required
-              type="email"
-              value={email}
-            />
-            <button disabled={status === "submitting"} type="submit">
-              {status === "submitting" ? "Sending" : "Email access link"}
-            </button>
+        <div className="access-entry">
+          <form className="waitlist-form" onSubmit={joinWaitlist}>
+            <label htmlFor="email">Email address</label>
+            <div className="email-row">
+              <input
+                autoComplete="email"
+                id="email"
+                inputMode="email"
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@example.com"
+                required
+                type="email"
+                value={email}
+              />
+              <button disabled={status === "submitting"} type="submit">
+                {status === "submitting" ? "Sending" : "Email access link"}
+              </button>
+            </div>
+            <label className="honeypot" htmlFor="company">
+              Company
+              <input
+                autoComplete="off"
+                id="company"
+                onChange={(event) => setCompany(event.target.value)}
+                tabIndex="-1"
+                type="text"
+                value={company}
+              />
+            </label>
+            <p className={`form-message ${status}`} aria-live="polite">
+              {message || "We’ll only use this email for SEO Fix Kit access and outreach."}
+              {accessUrl && (
+                <>
+                  <br />
+                  <a className="inline-link" href={accessUrl}>
+                    Open local access link
+                  </a>
+                </>
+              )}
+            </p>
+          </form>
+
+          <div className="check-entry" aria-label="Anonymous one-page check">
+            <p className="check-entry-note">No account, no email</p>
+            <a className="check-entry-cta" href="/check">
+              Check one page now
+            </a>
+            <p className="check-entry-note">
+              Live rendered proof for one public page. Nothing is stored.
+            </p>
           </div>
-          <label className="honeypot" htmlFor="company">
-            Company
-            <input
-              autoComplete="off"
-              id="company"
-              onChange={(event) => setCompany(event.target.value)}
-              tabIndex="-1"
-              type="text"
-              value={company}
-            />
-          </label>
-          <p className={`form-message ${status}`} aria-live="polite">
-            {message || "We’ll only use this email for SEO Fix Kit access and outreach."}
-            {accessUrl && (
-              <>
-                <br />
-                <a className="inline-link" href={accessUrl}>
-                  Open local access link
-                </a>
-              </>
-            )}
-          </p>
-        </form>
+        </div>
 
         <div className="report-preview" aria-label="SEO Fix Kit report preview">
           <div>
