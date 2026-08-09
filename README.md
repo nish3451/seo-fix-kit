@@ -35,6 +35,7 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Report-level repair agent board with status filters, teammate assignment, notes, safe draft actions, approval/ignore controls, and no external publishing side effects.
 - Private implementation packs for owner-approved repair actions, with source proof, approved change text, mode-specific handoff steps, acceptance checks, rollback notes, and rerun-proof instructions.
 - Private repair proof receipts after fixed rerun proof, connecting the original issue, approved/applied change, and same-host rerun report without claiming SEOFixKit published or guaranteed the repair.
+- Public real repair proof receipt at `/proof`: one completed founder-owned beta repair published with consent and redaction, linking the same measurement path before and after (source report, rerun reports), the approved change, observed outcome, and the no-ranking boundary.
 - Account-level repair agent feed that ranks open repairs, drafted actions awaiting approval, applied repairs needing rerun proof, and monitor regressions across recent reports.
 - Repair proposal records tied to Fix Pack requests, with execution modes, owner approval, delivery state, final rerun proof references, and protected retention for paid proof.
 - Server-owned offer catalog and entitlement scaffolding for Proof Monitoring, Repair Sprint, SEO/GEO Repair Agent, and Agency Workspace. Proof Monitoring has a config-gated Dodo subscription checkout path; distinct Repair Sprint checkout, Repair Agent checkout, and paid Agency Workspace checkout are not live yet.
@@ -42,7 +43,7 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Cloudflare Worker target using Workers Static Assets and Browser Run.
 - Locked private-beta homepage with `/api/waitlist` and `/api/access/request` backed by D1.
 - Public anonymous one-page URL check at `/check` and `POST /api/public-check`: real browser rendering of one public page, static-vs-rendered proof, guarded false positives, actionable findings when present, per-network and per-site rate limits, nothing stored, and a handoff into private beta access with no ranking promise.
-- Public `/demo`, `/methodology`, and `/packages` pages showing the proof loop, limits, and package ladder before payment.
+- Public `/demo`, `/methodology`, `/packages`, and `/proof` pages showing the proof loop, limits, package ladder, and one real completed case before payment.
 - Hidden `/beta` private audit workbench protected by invite code login or a secure one-use email access link.
 - Expiring beta sessions backed by D1 `beta_sessions`.
 - Explicit session access modes for invite, self-serve, and founder override sessions.
@@ -76,8 +77,8 @@ npm run check
 ```
 
 For a live spot-check that the public `/check`, `/demo`, `/methodology`, `/packages`,
-`/support`, `/terms`, and `/privacy` pages on the deployed site still show the anonymous
-proof check, proof loop, stated limits, package ladder, and no-ranking promise the README
+`/proof`, `/support`, `/terms`, and `/privacy` pages on the deployed site still show the anonymous
+proof check, proof loop, stated limits, package ladder, real-case proof receipt, and no-ranking promise the README
 makes, that `/llms.txt`, `/sitemap.xml`, `/robots.txt`, `/api/health`,
 `/api/deep-health`, and the `POST /api/public-check` route are still served, and that
 `www.seofixkit.com` still 301-redirects onto the apex host:
@@ -91,7 +92,8 @@ npm run audit:live-promise
 Cloudflare cannot run the local Express + Chromium server directly. The deployable path is:
 
 - React UI served by Workers Static Assets from `dist/`
-- Public `/check`, `/demo`, `/methodology`, `/packages`, `/privacy`, `/support`, `/terms`, `/sitemap.xml`, and `/llms.txt` stay served by the Worker/public asset path
+- Public `/check`, `/demo`, `/methodology`, `/packages`, `/proof`, `/privacy`, `/support`, `/terms`, `/sitemap.xml`, and `/llms.txt` stay served by the Worker/public asset path
+- `/proof` publishes one real completed founder-owned beta repair with consent and redaction: same-host before and after report links, the approved change, rerun results, the observed outcome, and the no-ranking boundary; a markdown receipt version is served for `Accept: text/markdown`
 - `/api/health` is a shallow public runtime check; `/api/deep-health` is a public-safe readiness check for bindings, D1 schema, Dodo checkout/webhook config, and self-serve repair capabilities without exposing secrets, provider ids, checkout URLs, customer data, or table counts
 - `/api/public-check` runs the anonymous one-page URL check for any visitor: one public page rendered in a real browser, proof fields and guarded false positives from the shared audit engine, findings when present, per-network and per-site rate limits, and no stored report; `/check` is the indexable public entry page
 - `/api/waitlist` handled by `worker/index.js` and stored in D1

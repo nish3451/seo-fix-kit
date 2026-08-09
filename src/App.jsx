@@ -108,6 +108,7 @@ function WaitlistPage() {
         </p>
         <nav className="public-proof-links" aria-label="Public proof pages">
           <a href="/demo">Sample proof report</a>
+          <a href="/proof">Real repair proof</a>
           <a href="/methodology">Methodology and limits</a>
           <a href="/packages">Package ladder</a>
         </nav>
@@ -254,6 +255,7 @@ function WaitlistPage() {
       <footer className="site-footer">
         <span>Audit it. Prove it. Fix it.</span>
         <a href="/demo">Demo</a>
+        <a href="/proof">Proof</a>
         <a href="/methodology">Methodology</a>
         <a href="/packages">Packages</a>
         <a href="/support">Support</a>

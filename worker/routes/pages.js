@@ -1,4 +1,5 @@
 import { escapeHtml } from "../../shared/audit-engine.js";
+import { REAL_REPAIR_CASE } from "../../shared/real-repair-case.js";
 
 const FIX_PACK_PUBLIC_PRICE = "$99.00 one-time";
 
@@ -24,6 +25,7 @@ Live product claims:
 - Reports include proof-derived AI Answer Readiness checks for rendered content depth, helpful schema, canonical/internal-link clarity, question-led structure, sitemap context, and optional llms.txt reachability.
 - Reports include draft-only growth briefs from verified keyword, competitor, AI-readiness, and crawl gaps.
 - Reports include a private repair queue with proof, acceptance checks, status, safe draft action records, approval state, owner-approved implementation packs, and proof receipts after fixed rerun proof.
+- A public real repair proof receipt at ${origin}/proof publishes one completed founder-owned beta repair with same-host before/after report links, the approved change, rerun results, and the no-ranking boundary.
 - The account dashboard includes a repair-agent feed that ranks open repairs, drafted actions, applied items needing rerun proof, and monitor regressions.
 - Developer API issue/report responses include safe repair_queue status. Approved-action implementation packs are fetched from /v1/audits/{audit_id}/repair-actions/{action_id}/implementation.md; fixed-action proof receipts are fetched from /v1/audits/{audit_id}/repair-actions/{action_id}/proof.md; repair-action lifecycle webhooks are supported.
 - Reports include SEO/GEO readiness checks for crawlable answer content, entity clarity, useful schema, internal context, and optional llms.txt boundaries.
@@ -35,7 +37,7 @@ Live product claims:
 - Agency Workspace features run under beta limits; paid Agency Workspace checkout is not live yet.
 
 Agent-readable acquisition and action surfaces:
-- Public context for agents: ${origin}/llms.txt, ${origin}/.well-known/skill.md, ${origin}/demo, ${origin}/methodology, ${origin}/packages, ${origin}/support, and ${origin}/terms.
+- Public context for agents: ${origin}/llms.txt, ${origin}/.well-known/skill.md, ${origin}/demo, ${origin}/methodology, ${origin}/packages, ${origin}/support, ${origin}/terms, and ${origin}/proof.
 - Owner setup starts inside the private beta workspace; anonymous one-page checks are live at ${origin}/check, while full multi-page audits and unauthenticated repair actions are not live.
 - Self-serve API setup is owner-scoped at ${origin}/api/developer, with API keys from ${origin}/api/developer/tokens and lifecycle webhooks from ${origin}/api/developer/webhooks.
 - Bearer-token API actions agents can use today: POST /v1/audits, GET /v1/audits/{audit_id}, GET /v1/audits/{audit_id}/issues, GET /v1/audits/{audit_id}/report, GET/PATCH /v1/audits/{audit_id}/repair-queue, POST /v1/audits/{audit_id}/repair-actions, PATCH /v1/audits/{audit_id}/repair-actions/{action_id}, GET /v1/audits/{audit_id}/repair-actions/{action_id}/implementation.md, GET /v1/audits/{audit_id}/repair-actions/{action_id}/proof.md, GET /v1/projects, POST /v1/large-crawls, and GET /v1/large-crawls/{large_crawl_id}.
@@ -76,6 +78,7 @@ Useful routes:
 - ${origin}/demo
 - ${origin}/methodology
 - ${origin}/packages
+- ${origin}/proof
 `;
 }
 
@@ -91,6 +94,7 @@ Public proof before payment:
 - Sample proof report: ${origin}/demo
 - Methodology and limits: ${origin}/methodology
 - Package ladder: ${origin}/packages
+- Real repair proof receipt: ${origin}/proof
 
 Start at ${origin}/.
 `;
@@ -207,7 +211,7 @@ ${pageSocialHead({ origin, title: "Proof-Backed SEO Repair Demo - SEO Fix Kit", 
       </section>
       <section>
         <h2>What this sample does not claim</h2>
-        <p>This page is a sample, not an audit of your site. Anonymous one-page checks are live at ${origin}/check: paste a public URL and get rendered proof, guarded false positives, and actionable findings when present — with no account and nothing stored. Full reports still run inside the private beta after secure email access and, for deeper crawls, site verification. Neither the sample nor the one-page check promises rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility. The product standard is the same everywhere: prove the issue, avoid false positives, ask for approval, then rerun the same measurement after the fix.</p>
+        <p>This page is a sample, not an audit of your site. Anonymous one-page checks are live at ${origin}/check: paste a public URL and get rendered proof, guarded false positives, and actionable findings when present — with no account and nothing stored. Full reports still run inside the private beta after secure email access and, for deeper crawls, site verification. A real completed beta repair with same-host before and after proof is published at ${origin}/proof. Neither the sample nor the one-page check promises rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility. The product standard is the same everywhere: prove the issue, avoid false positives, ask for approval, then rerun the same measurement after the fix.</p>
       </section>
       <p><a class="cta" href="${origin}/check">Check one page now</a></p>
       <p><a href="${origin}/">Request private access</a> · <a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a> · <a href="${origin}/support">Support and refunds</a></p>
@@ -256,6 +260,10 @@ function methodologyHtml(origin) {
       <section class="band">
         <h2>Acceptance standard</h2>
         <p>A repair is treated as proof-backed only when the report names the issue, shows source evidence, gives a concrete fix, and includes an acceptance check that can be rerun. Rankings, traffic, indexing, citations, and revenue are never guaranteed.</p>
+      </section>
+      <section class="band">
+        <h2>A real completed case</h2>
+        <p>One real completed beta repair, with same-host before and after report links, the approved change, rerun results, and the fixed outcome, is published at <a href="${origin}/proof">${origin}/proof</a>.</p>
       </section>
     `
   });
@@ -528,6 +536,143 @@ function termsHtml(origin) {
   });
 }
 
+function proofCaseMarkdown(origin) {
+  const c = REAL_REPAIR_CASE;
+  return `# SEOFixKit Repair Proof Receipt: ${c.siteLabel}
+
+This is a real completed beta repair published with consent and redaction. It is the founder's own site (${c.siteUrl}), not a third-party paying customer outcome. It connects the observed issues to the same-host rerun reports that marked them fixed. It does not mean SEOFixKit published, merged, indexed, ranked, or guaranteed the change.
+
+## Repair Summary
+
+- Site: ${c.siteLabel} (${c.siteUrl})
+- Repair target host: ${c.host}
+- Captured: ${c.captured}
+- Outcome: ${c.outcome.status} (same-host rerun proof)
+
+## Before Proof
+
+- Source report: ${c.before.reportUrl}
+- Score: ${c.before.score} (${c.before.pages} pages audited)
+- Findings: ${c.before.findings}
+${c.before.issues.map((issue) => `  - ${issue.title} (${issue.page})`).join("\n")}
+
+## Approved Change
+
+${c.repair.summary}
+- Applied by: ${c.repair.appliedBy}
+${c.repair.pullRequests.map((pr) => `- ${pr.label}: merged commit ${pr.mergedCommit}; deploy ${pr.deployUrl}`).join("\n")}
+- Changes:
+${c.repair.changes.map((change) => `  - ${change}`).join("\n")}
+- Effort: ${c.repair.effort}
+
+## Rerun Proof
+
+${c.reruns.map((rerun) => `- ${rerun.label}: ${rerun.reportUrl}; score ${rerun.score}; findings ${rerun.findings}${rerun.guardedFalsePositives !== undefined ? `; guarded false positives ${rerun.guardedFalsePositives}` : ""}. ${rerun.note}`).join("\n")}
+
+## Observed Outcome
+
+- Score: ${c.outcome.scoreBefore} -> ${c.outcome.scoreAfter} (+${c.outcome.scoreAfter - c.outcome.scoreBefore})
+- Issues (excluding confirmed false positives): ${c.outcome.findingsBefore} -> ${c.outcome.findingsAfter}
+- Time to proof: ${c.outcome.timeToProof}
+
+## Boundaries
+
+${c.boundaries.map((boundary) => `- ${boundary}`).join("\n")}
+
+Public context: ${origin}/proof
+`;
+}
+
+function proofCaseHtml(origin) {
+  const c = REAL_REPAIR_CASE;
+  const issueRows = c.before.issues
+    .map(
+      (issue) =>
+        `<li><code>${escapeHtml(issue.page)}</code> — ${escapeHtml(issue.title)}</li>`
+    )
+    .join("\n          ");
+  const changeRows = c.repair.changes
+    .map((change) => `<li>${escapeHtml(change)}</li>`)
+    .join("\n          ");
+  const prRows = c.repair.pullRequests
+    .map(
+      (pr) =>
+        `<li><strong>${escapeHtml(pr.label)}</strong> — merged commit <code>${escapeHtml(pr.mergedCommit)}</code> · <a href="${pr.deployUrl}" rel="noopener">deploy</a></li>`
+    )
+    .join("\n          ");
+  const rerunRows = c.reruns
+    .map(
+      (rerun) =>
+        `<li><strong>${escapeHtml(rerun.label)}</strong>: <a href="${rerun.reportUrl}" rel="noopener">same-host report</a> — score ${rerun.score}, findings ${rerun.findings}${rerun.guardedFalsePositives !== undefined ? `, guarded false positives ${rerun.guardedFalsePositives}` : ""}. ${escapeHtml(rerun.note)}</li>`
+    )
+    .join("\n          ");
+  const boundaryRows = c.boundaries
+    .map((boundary) => `<li>${escapeHtml(boundary)}</li>`)
+    .join("\n          ");
+  return publicProductPageHtml({
+    origin,
+    path: "/proof",
+    title: "Real Repair Proof Receipt",
+    description: "One real completed beta repair with same-host before and after proof: observed issues, source report, approved change, rerun result, and fixed outcome.",
+    eyebrow: "Real case",
+    heading: "One real repair, proven before and after.",
+    lead: "This page publishes one completed beta repair with consent and redaction: the same measurement path before the repair and after the rerun. It shows observed issues, source proof, the approved change, and the fixed outcome without promising rankings.",
+    body: `
+      <section class="band">
+        <h2>Repair summary</h2>
+        <ul class="check-list">
+          <li><strong>Site:</strong> <a href="${c.siteUrl}" rel="noopener">${escapeHtml(c.siteLabel)}</a> (${escapeHtml(c.host)})</li>
+          <li><strong>Repair target:</strong> ${escapeHtml(c.siteLabel)} portfolio</li>
+          <li><strong>Captured:</strong> ${escapeHtml(c.captured)}</li>
+          <li><strong>Outcome:</strong> ${escapeHtml(c.outcome.status)} — marked fixed by a same-host rerun report</li>
+        </ul>
+      </section>
+      <section class="band">
+        <h2>Before proof</h2>
+        <p><a href="${c.before.reportUrl}" rel="noopener">Source report</a> — score ${c.before.score}, ${c.before.pages} pages audited, ${c.before.findings} findings:</p>
+        <ul class="check-list">
+          ${issueRows}
+        </ul>
+      </section>
+      <section class="band">
+        <h2>Approved change</h2>
+        <p>${escapeHtml(c.repair.summary)} Applied by ${escapeHtml(c.repair.appliedBy)}.</p>
+        <ul class="check-list">
+          ${prRows}
+        </ul>
+        <p>Changes:</p>
+        <ul class="check-list">
+          ${changeRows}
+        </ul>
+        <p>Effort: ${escapeHtml(c.repair.effort)}</p>
+      </section>
+      <section class="band">
+        <h2>Rerun proof</h2>
+        <ul class="check-list">
+          ${rerunRows}
+        </ul>
+      </section>
+      <section class="band">
+        <h2>Observed outcome</h2>
+        <ul class="check-list">
+          <li>Score: <strong>${c.outcome.scoreBefore} → ${c.outcome.scoreAfter}</strong> (+${c.outcome.scoreAfter - c.outcome.scoreBefore})</li>
+          <li>Issues (excluding confirmed false positives): <strong>${c.outcome.findingsBefore} → ${c.outcome.findingsAfter}</strong></li>
+          <li>Time to proof: ${escapeHtml(c.outcome.timeToProof)}</li>
+        </ul>
+      </section>
+      <section class="band">
+        <h2>Boundaries</h2>
+        <ul class="check-list">
+          ${boundaryRows}
+        </ul>
+      </section>
+      <section class="band">
+        <p><a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/check">Check one page now</a></p>
+      </section>
+    `
+  });
+}
+
 function policyPageHtml({ origin, title, description, body, path = "/" }) {
   return `<!doctype html>
 <html lang="en">
@@ -566,6 +711,8 @@ export {
   packagesHtml,
   policyPageHtml,
   privacyHtml,
+  proofCaseHtml,
+  proofCaseMarkdown,
   supportHtml,
   termsHtml
 };

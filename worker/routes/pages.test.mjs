@@ -9,6 +9,8 @@ import {
   llmsText,
   methodologyHtml,
   packagesHtml,
+  proofCaseHtml,
+  proofCaseMarkdown,
   supportHtml
 } from "./pages.js";
 
@@ -21,7 +23,8 @@ const expectedSitemapUrls = [
   `${origin}/packages`,
   `${origin}/privacy`,
   `${origin}/support`,
-  `${origin}/terms`
+  `${origin}/terms`,
+  `${origin}/proof`
 ];
 
 test("public proof pages expose methodology and package ladder without overclaims", () => {
@@ -45,13 +48,38 @@ test("public proof pages expose methodology and package ladder without overclaim
   assert.doesNotMatch(combined, /guaranteed rankings/i);
 });
 
+test("real repair proof page publishes the completed beta case with boundaries", () => {
+  const proof = proofCaseHtml(origin);
+  const markdown = proofCaseMarkdown(origin);
+  const combined = `${proof}\n${markdown}`;
+
+  assert.match(proof, /Real Repair Proof Receipt/);
+  assert.match(proof, /One real repair, proven before and after\./);
+  assert.match(proof, /tinystudio\.in/);
+  assert.match(proof, /tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b/, "before report id is real");
+  assert.match(proof, /tinystudio-in-0a45637f-1354-4d26-ace3-d3b594162961/, "final rerun report id is real");
+  assert.match(proof, /07acd07b3e11ee7504a0d95292a42cdd6f8a1ba1/, "merged repair commit is real");
+  assert.match(proof, /a83e0e2ade3085725779a17b3837355f9abb02f7/, "merged HSTS commit is real");
+  assert.match(proof, /score 85/, "before score is real");
+  assert.match(proof, /score 100/, "after score is real");
+  assert.match(proof, /7 findings/, "before finding count is real");
+  assert.match(proof, /findings 0/, "after finding count is real");
+  assert.match(proof, /Outcome: fixed|fixed — marked fixed/, "outcome states fixed");
+  assert.match(combined, /not a third-party paying customer outcome/i, "case does not pretend to be a customer case");
+  assert.match(combined, /did not publish to a CMS, open or merge a GitHub pull request/i, "no publishing claim");
+  assert.match(combined, /Rankings, traffic, indexing, AI citations, and revenue are not guaranteed/i, "no-ranking boundary kept");
+  assert.match(combined, /only as current as the final rerun capture/i, "currentness boundary kept");
+  assert.match(combined, new RegExp(`${origin}/proof`), "page links its own public surface");
+  assert.doesNotMatch(combined, /guarantees rankings|guarantees traffic/i);
+});
+
 test("machine-readable public surfaces list proof pages and limits", () => {
   const llms = llmsText(origin);
   const markdown = homeMarkdown(origin);
   const sitemap = rootSitemap(origin);
 
   assert.deepEqual(parseSitemapUrls(sitemap), expectedSitemapUrls);
-  for (const path of ["/demo", "/methodology", "/packages", "/check"]) {
+  for (const path of ["/demo", "/methodology", "/packages", "/check", "/proof"]) {
     assert.match(llms, new RegExp(`${origin}${path}`));
     assert.match(markdown, new RegExp(`${origin}${path}`));
     assert.match(sitemap, new RegExp(`${origin}${path}`));
@@ -121,7 +149,7 @@ test("static public skill and sitemap files keep buyer-facing boundaries", () =>
   const sitemap = readFileSync(new URL("../../public/sitemap.xml", import.meta.url), "utf8");
 
   assert.deepEqual(parseSitemapUrls(sitemap), expectedSitemapUrls);
-  for (const path of ["/demo", "/methodology", "/packages", "/check", "/support", "/terms"]) {
+  for (const path of ["/demo", "/methodology", "/packages", "/check", "/support", "/terms", "/proof"]) {
     assert.match(skill, new RegExp(`${origin}${path}`));
     assert.match(sitemap, new RegExp(`${origin}${path}`));
   }
@@ -151,7 +179,7 @@ test("Cloudflare asset routing sends public proof pages through the Worker", () 
   const wrangler = JSON.parse(readFileSync(new URL("../../wrangler.jsonc", import.meta.url), "utf8"));
   const runWorkerFirst = new Set(wrangler.assets?.run_worker_first || []);
 
-  for (const path of ["/demo", "/methodology", "/packages", "/check", "/support", "/terms", "/privacy"]) {
+  for (const path of ["/demo", "/methodology", "/packages", "/check", "/proof", "/support", "/terms", "/privacy"]) {
     assert.equal(runWorkerFirst.has(path), true, `${path} must be served by the Worker before SPA assets`);
   }
 });

@@ -108,11 +108,23 @@ test("README weekly monitor promise matches the schedule interval", () => {
 });
 
 test("README public page promise matches Worker routing and copy", () => {
-  assert.match(liveSection, /Public `\/demo`, `\/methodology`, and `\/packages` pages/i);
-  for (const path of ["/demo", "/methodology", "/packages", "/check"]) {
+  assert.match(liveSection, /Public `\/demo`, `\/methodology`, `\/packages`, and `\/proof` pages/i);
+  for (const path of ["/demo", "/methodology", "/packages", "/check", "/proof"]) {
     assert.ok(workerIndex.includes(`url.pathname === "${path}"`), `Worker must route ${path}`);
   }
   assert.match(pagesSource, /FIX_PACK_PUBLIC_PRICE/, "packages page price constant exists");
+});
+
+test("README real repair proof receipt claim matches the published case source", () => {
+  assert.match(liveSection, /Public real repair proof receipt at `\/proof`/i);
+  assert.ok(workerIndex.includes('url.pathname === "/proof"'), "Worker must route /proof");
+  const realCaseSource = readFileSync(new URL("./real-repair-case.js", import.meta.url), "utf8");
+  assert.match(realCaseSource, /tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b/, "before report id is real");
+  assert.match(realCaseSource, /tinystudio-in-0a45637f-1354-4d26-ace3-d3b594162961/, "final rerun report id is real");
+  assert.match(realCaseSource, /founder's own site/i, "case is labeled founder-owned, not a customer case");
+  assert.match(realCaseSource, /not a third-party paying customer outcome/i, "case does not pretend to be a customer case");
+  assert.match(realCaseSource, /Rankings, traffic, indexing, AI citations, and revenue are not guaranteed/i, "no-ranking boundary kept");
+  assert.match(wranglerJsonc, /"\/proof"/, "/proof is served by the Worker before SPA assets");
 });
 
 test("README Cloudflare path routes are actually registered in the Worker", () => {
@@ -157,6 +169,7 @@ test("README Cloudflare path routes are actually registered in the Worker", () =
     "/methodology",
     "/packages",
     "/check",
+    "/proof",
     "/api/public-check",
     "/beta"
   ];
