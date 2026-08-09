@@ -52,6 +52,8 @@ const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "ut
 const reportsSource = readFileSync(new URL("../worker/routes/reports.js", import.meta.url), "utf8");
 const reportDataSource = readFileSync(new URL("../worker/lib/report-data.js", import.meta.url), "utf8");
 const serverEngineSource = readFileSync(new URL("../server/audit/engine.js", import.meta.url), "utf8");
+const dbSource = readFileSync(new URL("../worker/lib/db.js", import.meta.url), "utf8");
+const largeRenderedCrawlSource = readFileSync(new URL("./large-rendered-crawl.js", import.meta.url), "utf8");
 const migrationsDir = new URL("../migrations", import.meta.url);
 const allMigrations = readdirSync(migrationsDir)
   .filter((file) => file.endsWith(".sql"))
@@ -555,4 +557,83 @@ test("README public support, terms, and privacy pages keep no-ranking-guarantee 
     /No ranking, indexing, traffic, revenue, or search-engine outcome is promised/,
     "support page carries no ranking promise"
   );
+});
+
+// Lane-1 audit refinement. A fresh spot-check of every 'What is live in this
+// repo' bullet found eleven sub-claims inside already-pinned bullets that had
+// no regression pin of their own. Each pin below ties the README wording to
+// the exact code that must keep backing it.
+
+test("README inventory claim keeps robots.txt and sitemap discovery", () => {
+  assert.match(liveSection, /High-scale crawl inventory from robots\.txt and sitemaps/i);
+  assert.match(crawlInventorySource, /sitemapSeeds\(start, options\.robots, options\.sitemap\)/, "inventory seeds from robots.txt and sitemaps");
+  assert.match(crawlInventorySource, /source: "robots-and-sitemaps"/, "inventory rows carry the robots/sitemap source");
+});
+
+test("README large-crawl claim keeps stored frontier, proof, and retry state", () => {
+  assert.match(liveSection, /stored frontier\/proof\/retry state/i);
+  assert.ok(migrationHas("large_crawl_frontier"), "large-crawl frontier table exists");
+  assert.ok(migrationHas("large_crawl_url_proofs"), "large-crawl proof table exists");
+  assert.match(largeRenderedCrawlSource, /retryLargeRenderedCrawlFailures/, "large-crawl retry logic exists");
+  assert.match(largeCrawlsSource, /retryLargeRenderedCrawlFailures/, "large-crawl routes expose retries");
+});
+
+test("README competitor claim keeps competitor-backed repair gaps in reports and briefs", () => {
+  assert.match(liveSection, /with competitor-backed repair gaps added to reports and briefs/i);
+  assert.match(auditEngineSource, /competitorBenchmarkBriefLines/, "briefs include competitor-backed repair lines");
+  assert.match(auditEngineSource, /competitorBenchmark: report\.competitorBenchmark/, "reports embed competitor benchmark gaps");
+});
+
+test("README AI readiness claim keeps optional /llms.txt reachability checks", () => {
+  assert.match(liveSection, /optional `\/llms\.txt` reachability/i);
+  assert.match(aiReadinessSource, /normalizeDiscoveryFile\(options\.llmsTxt/, "AI readiness accepts optional llms.txt proof");
+  assert.match(aiReadinessSource, /discoveryFilesCheck/, "llms.txt reachability is checked");
+});
+
+test("README repair queue claim keeps acceptance checks, status, and action mode", () => {
+  assert.match(liveSection, /Persistent repair queue records for saved reports/i);
+  assert.match(repairQueueSource, /acceptance: cleanText\(/, "queue records keep acceptance checks");
+  assert.match(repairQueueSource, /actionMode: cleanActionMode\(/, "queue records keep action mode");
+  assert.match(allMigrations, /action_mode TEXT/, "queue items store action mode");
+  assert.match(allMigrations, /status TEXT/i, "queue items store status");
+});
+
+test("README repair board claim keeps no external publishing side effects", () => {
+  assert.match(liveSection, /and no external publishing side effects/i);
+  assert.match(appSource, /Drafts are saved for review and do not publish anything\./, "board drafts never publish externally");
+});
+
+test("README implementation pack claim keeps approved change text", () => {
+  assert.match(liveSection, /with source proof, approved change text/i);
+  assert.match(implementationPackSource, /Implementation pack needs an approved proposed change\./, "pack requires an approved change");
+  assert.match(implementationPackSource, /Apply only the approved change above\./, "pack instructs applying only the approved change");
+});
+
+test("README proposal claim keeps execution modes, owner approval, and delivery state", () => {
+  assert.match(liveSection, /with execution modes, owner approval, delivery state/i);
+  assert.match(allMigrations, /execution_mode TEXT/, "proposals store execution mode");
+  assert.match(allMigrations, /approval_status TEXT/, "proposals store owner approval");
+  assert.match(allMigrations, /delivery_status TEXT/, "proposals store delivery state");
+  assert.match(reportsSource, /SET approval_status = \?/, "approve endpoint updates owner approval");
+});
+
+test("README schedule claim keeps dashboard add and pause controls", () => {
+  assert.match(liveSection, /with dashboard controls to add or pause monitors/i);
+  assert.match(appSource, /Adding weekly monitor\./, "dashboard adds monitors");
+  assert.match(appSource, /await pauseAuditSchedule\(/, "dashboard pauses monitors");
+});
+
+test("README developer API claim keeps safe repair_queue issue status", () => {
+  assert.match(liveSection, /safe `repair_queue` issue status/i);
+  assert.match(developerApiSource, /Safe per-issue queue status\./, "API documents queue status as safe");
+  assert.match(developerApiSource, /Draft text is only returned/, "draft change text stays owner-scoped");
+});
+
+test("README retention claim keeps cleanup for expired reports, sessions, and quota buckets", () => {
+  assert.match(liveSection, /30-day report retention with cleanup/i);
+  assert.match(dbSource, /cleanupExpiredRows/, "scheduled cleanup exists");
+  assert.match(dbSource, /deleteReportRowsWithBlobs/, "expired reports are cleaned");
+  assert.match(dbSource, /SELECT id, report_json FROM audit_reports/, "expired report rows are selected for cleanup");
+  assert.match(dbSource, /DELETE FROM beta_sessions/, "expired sessions are cleaned");
+  assert.match(dbSource, /DELETE FROM audit_usage/, "quota buckets are cleaned");
 });
