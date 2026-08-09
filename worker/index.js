@@ -137,6 +137,22 @@ import {
   saveLargeRenderedCrawlBatchProof
 } from "./routes/large-crawls.js";
 
+// Canonical host: `www.seofixkit.com` is a serving alias that 301-redirects
+// onto the apex host, and every URL the Worker emits (page canonicals, social
+// tags, robots.txt, sitemap.xml, llms.txt, fixture URLs) is generated from the
+// apex origin. This keeps canonicals, robots, and sitemap apex-only no matter
+// which hostname carried the request, while the redirect converges crawlers
+// and visitors on one host.
+const CANONICAL_HOST = "seofixkit.com";
+const CANONICAL_ORIGIN = `https://${CANONICAL_HOST}`;
+
+function canonicalOrigin(url) {
+  const hostname = url.hostname.toLowerCase();
+  return hostname === CANONICAL_HOST || hostname === `www.${CANONICAL_HOST}`
+    ? CANONICAL_ORIGIN
+    : url.origin;
+}
+
 export default {
   async scheduled(_event, env, ctx) {
     if (env.WAITLIST_DB) {
@@ -167,6 +183,18 @@ export default {
 
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    // Canonical host: permanently redirect every www.seofixkit.com request
+    // onto the apex host with its path and query intact before any route
+    // logic runs, so no content or API response is ever served from www.
+    if (url.hostname.toLowerCase() === `www.${CANONICAL_HOST}`) {
+      return new Response(null, {
+        status: 301,
+        headers: secureHeaders({ Location: `${CANONICAL_ORIGIN}${url.pathname}${url.search}` })
+      });
+    }
+
+    const origin = canonicalOrigin(url);
 
     try {
       if (url.pathname === "/api/health") {
@@ -554,7 +582,7 @@ export default {
       }
 
       if (url.pathname === "/fixture/rendered-page") {
-        return new Response(renderedFixture(url.origin), {
+        return new Response(renderedFixture(origin), {
           headers: secureHeaders({
             "content-type": "text/html; charset=utf-8",
             "x-robots-tag": "noindex, nofollow"
@@ -563,74 +591,74 @@ export default {
       }
 
       if (url.pathname === "/fixture/robots.txt") {
-        return new Response(`User-agent: *\nAllow: /\n\nSitemap: ${url.origin}/fixture/sitemap.xml\n`, {
+        return new Response(`User-agent: *\nAllow: /\n\nSitemap: ${origin}/fixture/sitemap.xml\n`, {
           headers: secureHeaders({ "content-type": "text/plain; charset=utf-8" })
         });
       }
 
       if (url.pathname === "/fixture/sitemap.xml") {
         return new Response(
-          `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${url.origin}/fixture/rendered-page</loc></url></urlset>`,
+          `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${origin}/fixture/rendered-page</loc></url></urlset>`,
           { headers: secureHeaders({ "content-type": "application/xml; charset=utf-8" }) }
         );
       }
 
       if (url.pathname === "/robots.txt") {
-        return new Response(`User-agent: *\nAllow: /\n\nSitemap: ${url.origin}/sitemap.xml\n`, {
+        return new Response(`User-agent: *\nAllow: /\n\nSitemap: ${origin}/sitemap.xml\n`, {
           headers: secureHeaders({ "content-type": "text/plain; charset=utf-8" })
         });
       }
 
       if (url.pathname === "/sitemap.xml") {
-        return new Response(rootSitemap(url.origin), {
+        return new Response(rootSitemap(origin), {
           headers: secureHeaders({ "content-type": "application/xml; charset=utf-8" })
         });
       }
 
       if (url.pathname === "/llms.txt") {
-        return new Response(llmsText(url.origin), {
+        return new Response(llmsText(origin), {
           headers: secureHeaders({ "content-type": "text/plain; charset=utf-8" })
         });
       }
 
       if (url.pathname === "/privacy") {
-        return new Response(privacyHtml(url.origin), {
+        return new Response(privacyHtml(origin), {
           headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
         });
       }
 
       if (url.pathname === "/support") {
-        return new Response(supportHtml(url.origin), {
+        return new Response(supportHtml(origin), {
           headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
         });
       }
 
       if (url.pathname === "/terms") {
-        return new Response(termsHtml(url.origin), {
+        return new Response(termsHtml(origin), {
           headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
         });
       }
 
       if (url.pathname === "/demo") {
-        return new Response(demoHtml(url.origin), {
+        return new Response(demoHtml(origin), {
           headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
         });
       }
 
       if (url.pathname === "/check") {
-        return new Response(checkHtml(url.origin), {
+        return new Response(checkHtml(origin), {
           headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
         });
       }
 
       if (url.pathname === "/methodology") {
-        return new Response(methodologyHtml(url.origin), {
+        return new Response(methodologyHtml(origin), {
           headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
         });
       }
 
       if (url.pathname === "/packages") {
-        return new Response(packagesHtml(url.origin), {
+        return new Response(packagesHtml(origin), {
           headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
         });
       }
@@ -645,7 +673,7 @@ export default {
         url.pathname === "/" &&
         (request.headers.get("accept") || "").includes("text/markdown")
       ) {
-        return new Response(homeMarkdown(url.origin), {
+        return new Response(homeMarkdown(origin), {
           headers: secureHeaders({ "content-type": "text/markdown; charset=utf-8" })
         });
       }

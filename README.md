@@ -78,8 +78,9 @@ npm run check
 For a live spot-check that the public `/check`, `/demo`, `/methodology`, `/packages`,
 `/support`, `/terms`, and `/privacy` pages on the deployed site still show the anonymous
 proof check, proof loop, stated limits, package ladder, and no-ranking promise the README
-makes, and that `/llms.txt`, `/sitemap.xml`, `/robots.txt`, `/api/health`,
-`/api/deep-health`, and the `POST /api/public-check` route are still served:
+makes, that `/llms.txt`, `/sitemap.xml`, `/robots.txt`, `/api/health`,
+`/api/deep-health`, and the `POST /api/public-check` route are still served, and that
+`www.seofixkit.com` still 301-redirects onto the apex host:
 
 ```bash
 npm run audit:live-promise
@@ -202,7 +203,7 @@ Access-link, payment-success, repair-started, delivery-ready, and daily ops dige
 
 ## Custom domain
 
-`seofixkit.com` is the production domain. The Worker config attaches both the apex and `www` hostnames:
+`seofixkit.com` is the canonical host. The Worker config attaches both the apex and `www` hostnames:
 
 ```jsonc
 "routes": [
@@ -210,6 +211,12 @@ Access-link, payment-success, repair-started, delivery-ready, and daily ops dige
   { "pattern": "www.seofixkit.com", "custom_domain": true }
 ]
 ```
+
+The `www` hostname stays attached only so its requests reach the Worker, which
+permanently 301-redirects every `www.seofixkit.com` request onto the apex host
+with the path and query intact. Every URL the Worker serves (page canonicals,
+social tags, `robots.txt`, `sitemap.xml`, `llms.txt`, and fixture URLs) is
+generated from the apex origin, so canonicals and the sitemap are apex-only.
 
 ## Product boundary
 
