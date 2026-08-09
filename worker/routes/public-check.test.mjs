@@ -6,6 +6,7 @@ import { renderedFixture } from "./audits.js";
 import {
   buildPublicCheckResponse,
   checkHtml,
+  checkJsonLd,
   publicCheckQuotaChecks,
   validatePublicCheckUrl
 } from "./public-check.js";
@@ -67,6 +68,50 @@ test("public check page is searchable and hands off into private access", () => 
   assert.match(html, /Request private access/);
   assert.match(html, /href="https:\/\/seofixkit\.com\/">SEO Fix Kit<\/a>/);
   assert.doesNotMatch(html, /noindex/i, "the entry page must stay searchable");
+});
+
+test("public check page carries WebPage and truthful FAQ JSON-LD", () => {
+  const blocks = jsonLdBlocks(checkHtml(origin));
+  assert.ok(blocks.length >= 1, "check page should emit WebPage and FAQPage JSON-LD");
+  const graph = blocks.flatMap((block) => (Array.isArray(block["@graph"]) ? block["@graph"] : [block]));
+  const webpage = graph.find((node) => node["@type"] === "WebPage");
+  const faq = graph.find((node) => node["@type"] === "FAQPage");
+
+  assert.ok(webpage, "WebPage JSON-LD is present");
+  assert.equal(webpage.name, "Check One Page for SEO Proof - SEO Fix Kit");
+  assert.equal(webpage.url, "https://seofixkit.com/check");
+  assert.equal(webpage.isPartOf.name, "SEO Fix Kit");
+  assert.equal(webpage.publisher["@type"], "Organization");
+  assert.equal(webpage.mainEntity["@id"], "https://seofixkit.com/check#faq");
+
+  assert.ok(faq, "FAQPage JSON-LD is present");
+  assert.ok(Array.isArray(faq.mainEntity) && faq.mainEntity.length >= 4, "FAQ has the visible questions");
+  const questionNames = faq.mainEntity.map((question) => question.name);
+  assert.ok(questionNames.includes("What does the one-page check measure?"));
+  assert.ok(questionNames.includes("Is anything about my check stored?"));
+  assert.ok(questionNames.includes("Is this a full site audit?"));
+  assert.ok(questionNames.includes("Does this check promise rankings or traffic?"));
+  for (const question of faq.mainEntity) {
+    assert.ok(question.acceptedAnswer?.text, "every FAQ question has an answer");
+  }
+
+  const serialized = JSON.stringify(graph);
+  assert.doesNotMatch(serialized, /guarantees rankings|guarantees traffic|guaranteed rankings/i, "schema must not overclaim");
+  const noPromiseAnswer = faq.mainEntity.find((question) => question.name === "Does this check promise rankings or traffic?");
+  assert.match(noPromiseAnswer.acceptedAnswer.text, /does not guarantee rankings, traffic, indexing, revenue, AI citations/i);
+  const storedAnswer = faq.mainEntity.find((question) => question.name === "Is anything about my check stored?");
+  assert.match(storedAnswer.acceptedAnswer.text, /nothing about your check is saved/i);
+
+  // Every schema answer is a claim a visitor can read in the rendered page.
+  const html = checkHtml(origin);
+  for (const question of faq.mainEntity) {
+    assert.match(html, new RegExp(escapeRegex(question.name)), `visible page shows the question: ${question.name}`);
+    assert.match(html, new RegExp(escapeRegex(question.acceptedAnswer.text.slice(0, 60))), `visible page backs the answer for: ${question.name}`);
+  }
+
+  // The standalone builder must produce the same script the page embeds.
+  assert.ok(checkJsonLd(origin).includes('"@type":"WebPage"'));
+  assert.ok(checkJsonLd(origin).includes('"@type":"FAQPage"'));
 });
 
 // The fixture is the same public test page the private demo audit renders:
@@ -193,4 +238,13 @@ function visibleWordCount(html) {
     .trim()
     .split(/\s+/)
     .filter(Boolean).length;
+}
+
+function jsonLdBlocks(html) {
+  return [...String(html).matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)]
+    .map((match) => JSON.parse(match[1]));
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

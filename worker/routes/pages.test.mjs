@@ -113,6 +113,11 @@ test("public one-page check page is a truthful, searchable entry path", () => {
   assert.match(check, /Request private access/);
   assert.match(check, /Rate-limited per network and per site/i);
   assert.match(check, /nothing about your check is stored/i);
+  assert.match(check, /Frequently asked questions/);
+  assert.match(check, /What does the one-page check measure\?/);
+  assert.match(check, /Is anything about my check stored\?/);
+  assert.match(check, /Is this a full site audit\?/);
+  assert.match(check, /Does this check promise rankings or traffic\?/);
   assert.doesNotMatch(check, /noindex/i, "the entry page must stay searchable");
 });
 
