@@ -18,6 +18,8 @@ import {
   methodologyHtml,
   packagesHtml,
   privacyHtml,
+  proofCaseHtml,
+  proofCaseMarkdown,
   supportHtml,
   termsHtml
 } from "../worker/routes/pages.js";
@@ -1833,6 +1835,14 @@ app.get("/methodology", (req, res) => {
 app.get("/packages", (req, res) => {
   const origin = `http://${req.get("host")}`;
   res.set("content-type", "text/html; charset=utf-8").send(packagesHtml(origin));
+});
+
+app.get("/proof", (req, res) => {
+  const origin = `http://${req.get("host")}`;
+  const acceptsMarkdown = String(req.get("accept") || "").includes("text/markdown");
+  res
+    .set("content-type", acceptsMarkdown ? "text/markdown; charset=utf-8" : "text/html; charset=utf-8")
+    .send(acceptsMarkdown ? proofCaseMarkdown(origin) : proofCaseHtml(origin));
 });
 
 app.get("/privacy", (req, res) => {

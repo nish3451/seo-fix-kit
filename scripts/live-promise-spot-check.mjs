@@ -218,6 +218,21 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "link to support", match: `href="${baseUrl}/support"` },
         { reason: "link to the anonymous check", match: `href="${baseUrl}/check"` }
       ]
+    },
+    {
+      path: "/proof",
+      name: "real repair proof page publishes the completed beta case",
+      isPage: true,
+      acceptStatuses: [200],
+      expectations: [
+        { reason: "real-case headline", match: "One real repair, proven before and after." },
+        { reason: "real before report link", match: "tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b" },
+        { reason: "real final rerun report link", match: "tinystudio-in-0a45637f-1354-4d26-ace3-d3b594162961" },
+        { reason: "before score", match: "score 85" },
+        { reason: "after score", match: "score 100" },
+        { reason: "founder-owned boundary, not a customer case", match: "not a third-party paying customer outcome" },
+        { reason: "no-ranking boundary", match: "Rankings, traffic, indexing, AI citations, and revenue are not guaranteed" }
+      ]
     }
   ];
 }
