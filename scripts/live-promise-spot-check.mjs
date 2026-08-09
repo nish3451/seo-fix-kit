@@ -159,7 +159,8 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "limits section", match: "Limits we state up front" },
         { reason: "AI visibility tracking is not live", match: "No AI visibility tracking" },
         { reason: "no hidden site writes", match: "No hidden site writes" },
-        { reason: "50K crawl staged, not complete", match: "No fake scale claim" }
+        { reason: "50K crawl staged, not complete", match: "No fake scale claim" },
+        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` }
       ]
     },
     {
