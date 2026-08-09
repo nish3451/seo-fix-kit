@@ -89,6 +89,18 @@ export function publicPageSpotChecks(baseUrl) {
       ]
     },
     {
+      path: "/check",
+      name: "one-page check page shows the anonymous proof entry",
+      expectations: [
+        { reason: "one-page check headline", match: "Check One Page for SEO Proof" },
+        { reason: "URL check form", match: 'id="check-form"' },
+        { reason: "no-account proof promise", match: "No account, no email, no stored report" },
+        { reason: "guarded false positives promise", match: "Guarded false positives" },
+        { reason: "no-overclaim section", match: "What this check does not claim" },
+        { reason: "handoff into private access", match: "Request private access" }
+      ]
+    },
+    {
       path: "/methodology",
       name: "methodology page states limits up front",
       expectations: [

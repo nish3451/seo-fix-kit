@@ -9,6 +9,7 @@ SEO Fix Kit is a private-beta, self-serve SEO audit and paid Fix Pack workflow.
 
 Live product claims:
 - Visitors can request a secure email access link.
+- Anyone can anonymously check one public page URL at /check and see rendered proof, guarded false positives, and actionable findings when present, with no account and no stored report.
 - Verified sessions can run rate-limited private audits and save owner-only reports.
 - Verified sessions can choose self-serve crawl depth up to 1,000 pages per queued audit.
 - Reports include robots.txt and sitemap crawl inventory up to 50,000 discovered URLs.
@@ -35,7 +36,7 @@ Live product claims:
 
 Agent-readable acquisition and action surfaces:
 - Public context for agents: ${origin}/llms.txt, ${origin}/.well-known/skill.md, ${origin}/demo, ${origin}/methodology, ${origin}/packages, ${origin}/support, and ${origin}/terms.
-- Owner setup starts inside the private beta workspace; anonymous public audits and unauthenticated repair actions are not live.
+- Owner setup starts inside the private beta workspace; anonymous one-page checks are live at ${origin}/check, while full multi-page audits and unauthenticated repair actions are not live.
 - Self-serve API setup is owner-scoped at ${origin}/api/developer, with API keys from ${origin}/api/developer/tokens and lifecycle webhooks from ${origin}/api/developer/webhooks.
 - Bearer-token API actions agents can use today: POST /v1/audits, GET /v1/audits/{audit_id}, GET /v1/audits/{audit_id}/issues, GET /v1/audits/{audit_id}/report, GET/PATCH /v1/audits/{audit_id}/repair-queue, POST /v1/audits/{audit_id}/repair-actions, PATCH /v1/audits/{audit_id}/repair-actions/{action_id}, GET /v1/audits/{audit_id}/repair-actions/{action_id}/implementation.md, GET /v1/audits/{audit_id}/repair-actions/{action_id}/proof.md, GET /v1/projects, POST /v1/large-crawls, and GET /v1/large-crawls/{large_crawl_id}.
 - Webhook events agents can subscribe to today: audit.completed, audit.failed, repair_action.drafted, repair_action.approved, repair_action.applied, repair_action.fixed, and repair_action.regressed.
@@ -58,12 +59,14 @@ Current product boundary:
 - Does not log into WordPress, Shopify, WooCommerce, Magento, or private CMS/plugin admin settings.
 - Implementation packs and repair proof receipts are private handoff/proof documents only; SEO Fix Kit does not publish CMS changes, open GitHub pull requests, merge code, or call provider admin APIs from the browser.
 - Does not replace Ahrefs or Semrush.
-- Does not provide anonymous public audits.
+- Does not provide anonymous multi-page audits; the anonymous surface is a single-page proof check with per-network and per-site rate limits.
 - Does not expose unauthenticated agent actions.
 - Does not guarantee rankings, traffic, indexing, or revenue.
 
 Useful routes:
 - ${origin}/
+- ${origin}/check
+- ${origin}/api/public-check
 - ${origin}/api/health
 - ${origin}/api/deep-health
 - ${origin}/llms.txt
@@ -84,6 +87,7 @@ Proof-backed SEO audits, self-serve repair queue, private implementation packs, 
 Request a secure email access link to run a rate-limited private audit. The paid Fix Pack is one proof-backed repair pass for one report plus one rerun after fixes. No ranking promise is made.
 
 Public proof before payment:
+- Anonymous one-page check: ${origin}/check
 - Sample proof report: ${origin}/demo
 - Methodology and limits: ${origin}/methodology
 - Package ladder: ${origin}/packages
@@ -203,10 +207,10 @@ ${pageSocialHead({ origin, title: "Proof-Backed SEO Repair Demo - SEO Fix Kit", 
       </section>
       <section>
         <h2>What this sample does not claim</h2>
-        <p>This is a public proof page, not a public anonymous audit. Full reports run inside the private beta after secure email access and, for deeper crawls, site verification. The demo does not promise rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility. It shows the product standard: prove the issue, avoid false positives, ask for approval, then rerun the same measurement after the fix.</p>
+        <p>This page is a sample, not an audit of your site. Anonymous one-page checks are live at ${origin}/check: paste a public URL and get rendered proof, guarded false positives, and actionable findings when present — with no account and nothing stored. Full reports still run inside the private beta after secure email access and, for deeper crawls, site verification. Neither the sample nor the one-page check promises rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility. The product standard is the same everywhere: prove the issue, avoid false positives, ask for approval, then rerun the same measurement after the fix.</p>
       </section>
-      <p><a class="cta" href="${origin}/">Request access</a></p>
-      <p><a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a> · <a href="${origin}/support">Support and refunds</a></p>
+      <p><a class="cta" href="${origin}/check">Check one page now</a></p>
+      <p><a href="${origin}/">Request private access</a> · <a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a> · <a href="${origin}/support">Support and refunds</a></p>
     </main>
   </body>
 </html>`;
@@ -233,6 +237,7 @@ function methodologyHtml(origin) {
       <section class="band">
         <h2>What is live today</h2>
         <ul class="check-list">
+          <li>Anonymous one-page checks at ${origin}/check: paste a public URL and get rendered proof, guarded false positives, and actionable findings when present, with no account and nothing stored.</li>
           <li>Private self-serve audits for authorized sites, with 1-page Lite checks and verified-host crawl depths up to 1,000 pages.</li>
           <li>Rendered page proof, sitemap inventory up to 50,000 discovered URLs, crawl intelligence, resource waterfall proof, platform SEO checks, proof-derived AI Answer Readiness, draft-only growth briefs, competitor homepage benchmarks, and supplied backlink/local/keyword imports.</li>
           <li>Private report repair queues with proof, status, safe drafts, approval state, owner-approved implementation packs, proof receipts after fixed reruns, teammate assignment, account-level next actions, and one Fix Pack checkout path when real fixes exist.</li>
@@ -270,13 +275,14 @@ function packagesHtml(origin) {
         <article class="package-card live">
           <span>Live beta</span>
           <h2>Private audit</h2>
-          <p>Run a rate-limited proof audit from a secure access link. Verified hosts unlock normal self-serve crawl depth.</p>
+          <p>Run a rate-limited proof audit from a secure access link. Verified hosts unlock normal self-serve crawl depth. New: check one public page anonymously with no account.</p>
           <ul>
             <li>Rendered proof report</li>
             <li>Repair queue when issues are proven</li>
             <li>Account next actions</li>
           </ul>
           <a href="${origin}/">Request access</a>
+          <a href="${origin}/check">Check one page now</a>
         </article>
         <article class="package-card live">
           <span>Live checkout when eligible</span>

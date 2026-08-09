@@ -30,6 +30,7 @@ import {
   supportHtml,
   termsHtml
 } from "./routes/pages.js";
+import { checkHtml, runPublicCheck } from "./routes/public-check.js";
 import {
   betaLogin,
   betaLogout,
@@ -548,6 +549,10 @@ export default {
         return runPrivateDemoAudit(request, env);
       }
 
+      if (url.pathname === "/api/public-check" && request.method === "POST") {
+        return runPublicCheck(request, env);
+      }
+
       if (url.pathname === "/fixture/rendered-page") {
         return new Response(renderedFixture(url.origin), {
           headers: secureHeaders({
@@ -608,6 +613,12 @@ export default {
 
       if (url.pathname === "/demo") {
         return new Response(demoHtml(url.origin), {
+          headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
+        });
+      }
+
+      if (url.pathname === "/check") {
+        return new Response(checkHtml(url.origin), {
           headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
         });
       }

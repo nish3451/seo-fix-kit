@@ -22,6 +22,12 @@ import {
   termsHtml
 } from "../worker/routes/pages.js";
 import {
+  buildPublicCheckResponse,
+  checkHtml,
+  publicCheckQuotaChecks,
+  validatePublicCheckUrl
+} from "../worker/routes/public-check.js";
+import {
   backlinkRowsKey,
   parseBacklinkRows
 } from "../shared/backlink-audit.js";
@@ -43,6 +49,7 @@ import {
   buildCrawlInventory
 } from "../shared/crawl-inventory.js";
 import { resolvesToPrivateAddress } from "../shared/url-safety.js";
+import { requestIpHash } from "../worker/lib/security.js";
 import {
   agentActionResponse,
   apiRepairQueueStatusResponse,
@@ -130,6 +137,28 @@ const localRepairQueueRows = new Map();
 const localRepairActionRows = new Map();
 const siteClaims = new Map();
 const fixRequests = [];
+// In-memory rate-limit counters for the anonymous one-page check, mirroring
+// the Worker's D1-backed buckets (worker/routes/public-check.js). Entries
+// expire by age so a long-running dev server does not leak memory.
+const publicCheckQuotaCounts = new Map();
+
+function localPublicCheckQuota(checks) {
+  const now = Date.now();
+  for (const check of checks) {
+    const entry = publicCheckQuotaCounts.get(check.bucket) || { count: 0, createdAt: now };
+    if (entry.count >= check.limit) {
+      return { ok: false, error: check.error, resetAt: check.resetAt.toISOString() };
+    }
+    entry.count += 1;
+    publicCheckQuotaCounts.set(check.bucket, entry);
+  }
+  for (const [key, entry] of publicCheckQuotaCounts) {
+    if (now - entry.createdAt > 48 * 60 * 60 * 1000) {
+      publicCheckQuotaCounts.delete(key);
+    }
+  }
+  return { ok: true };
+}
 const VERSION = "0.9.0";
 const SESSION_COOKIE = "sfk_beta_session";
 const ADMIN_SESSION_COOKIE = "sfk_admin_session";
@@ -1791,6 +1820,11 @@ app.get("/demo", (req, res) => {
   res.set("content-type", "text/html; charset=utf-8").send(demoHtml(origin));
 });
 
+app.get("/check", (req, res) => {
+  const origin = `http://${req.get("host")}`;
+  res.set("content-type", "text/html; charset=utf-8").send(checkHtml(origin));
+});
+
 app.get("/methodology", (req, res) => {
   const origin = `http://${req.get("host")}`;
   res.set("content-type", "text/html; charset=utf-8").send(methodologyHtml(origin));
@@ -1842,6 +1876,39 @@ app.get("/api/demo-audit", async (req, res) => {
     res.status(500).json({
       error: error.message || "The demo audit failed."
     });
+  }
+});
+
+app.post("/api/public-check", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const input = typeof body.url === "string" ? body.url : "";
+    const validated = validatePublicCheckUrl(input);
+    if (!validated.ok) {
+      res.status(400).set("cache-control", "no-store").json({ error: validated.error });
+      return;
+    }
+    const hostname = new URL(validated.url).hostname;
+    if (await resolvesToPrivateAddress(hostname)) {
+      res.status(400).set("cache-control", "no-store").json({
+        error: "This URL points at a private or internal address and cannot be checked."
+      });
+      return;
+    }
+    const ipHash = await requestIpHash({
+      headers: { get: (name) => String(req.headers[name.toLowerCase()] || "") }
+    });
+    const quota = localPublicCheckQuota(publicCheckQuotaChecks(ipHash, hostname));
+    if (!quota.ok) {
+      res.status(429).set("cache-control", "no-store").json({ error: quota.error, resetAt: quota.resetAt });
+      return;
+    }
+    const origin = `http://${req.get("host")}`;
+    const report = await auditUrl(validated.url, { maxPages: 1, appOrigin: origin });
+    res.set("cache-control", "no-store").json(buildPublicCheckResponse(report));
+  } catch (error) {
+    const message = String(error?.message || "The check failed. Try another public URL.").slice(0, 260);
+    res.status(422).set("cache-control", "no-store").json({ error: message });
   }
 });
 

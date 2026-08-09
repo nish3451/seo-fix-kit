@@ -6,7 +6,8 @@ SEO Fix Kit is a private-beta SEO audit and paid Fix Pack workflow.
 
 - Request access at https://seofixkit.com/.
 - Public health surfaces are https://seofixkit.com/api/health and https://seofixkit.com/api/deep-health. Deep health reports safe readiness booleans only, not secrets, provider ids, checkout URLs, customer data, or table counts.
-- Public proof pages: https://seofixkit.com/demo, https://seofixkit.com/methodology, https://seofixkit.com/packages, https://seofixkit.com/support, and https://seofixkit.com/terms.
+- Public proof pages: https://seofixkit.com/demo, https://seofixkit.com/check, https://seofixkit.com/methodology, https://seofixkit.com/packages, https://seofixkit.com/support, and https://seofixkit.com/terms.
+- Anyone can check one public page anonymously at https://seofixkit.com/check via POST https://seofixkit.com/api/public-check; results are ephemeral (nothing stored) and rate-limited per network and per site.
 - Use SEO Fix Kit only for sites you own or are authorized to audit.
 - Private audits create proof-backed reports from rendered page evidence.
 - Private reports include proof-derived AI Answer Readiness checks; this is not live AI-engine sampling.
@@ -23,11 +24,11 @@ SEO Fix Kit is a private-beta SEO audit and paid Fix Pack workflow.
 
 ## Agent Action Catalog
 
-- Public context for agents: https://seofixkit.com/llms.txt, https://seofixkit.com/.well-known/skill.md, https://seofixkit.com/demo, https://seofixkit.com/methodology, https://seofixkit.com/packages, https://seofixkit.com/support, and https://seofixkit.com/terms.
-- Owner setup starts inside the private beta workspace. Anonymous public audits and unauthenticated repair actions are not live.
+- Public context for agents: https://seofixkit.com/llms.txt, https://seofixkit.com/.well-known/skill.md, https://seofixkit.com/demo, https://seofixkit.com/check, https://seofixkit.com/methodology, https://seofixkit.com/packages, https://seofixkit.com/support, and https://seofixkit.com/terms.
+- Owner setup starts inside the private beta workspace. Anonymous one-page checks are live at https://seofixkit.com/check; full multi-page audits, saved reports, and unauthenticated repair actions are not live.
 - Self-serve API setup is owner-scoped at `GET /api/developer`; API keys are created from `POST /api/developer/tokens`; lifecycle webhooks are created from `POST /api/developer/webhooks`.
 - Bearer-token API actions live today: `POST /v1/audits`, `GET /v1/audits/{audit_id}`, `GET /v1/audits/{audit_id}/issues`, `GET /v1/audits/{audit_id}/report`, `GET /v1/audits/{audit_id}/repair-queue`, `PATCH /v1/audits/{audit_id}/repair-queue`, `POST /v1/audits/{audit_id}/repair-actions`, `PATCH /v1/audits/{audit_id}/repair-actions/{action_id}`, `GET /v1/audits/{audit_id}/repair-actions/{action_id}/implementation.md`, `GET /v1/audits/{audit_id}/repair-actions/{action_id}/proof.md`, `GET /v1/projects`, `POST /v1/large-crawls`, and `GET /v1/large-crawls/{large_crawl_id}`.
 - Webhook events live today: `audit.completed`, `audit.failed`, `repair_action.drafted`, `repair_action.approved`, `repair_action.applied`, `repair_action.fixed`, and `repair_action.regressed`.
 - Worker-only large-crawl batch claim/process/proof endpoints require `x-seofixkit-worker-token`; normal bearer API keys cannot lease or submit rendered proof.
 - There is no live SEO Fix Kit MCP endpoint today. Agents should use the documented REST and markdown proof endpoints.
-- Agents must not claim SEO Fix Kit publishes CMS changes, opens GitHub pull requests, calls provider admin APIs, runs anonymous public audits, or exposes unauthenticated agent actions.
+- Agents must not claim SEO Fix Kit publishes CMS changes, opens GitHub pull requests, calls provider admin APIs, runs anonymous multi-page audits, or exposes unauthenticated agent actions. The only anonymous surface is the single-page proof check at https://seofixkit.com/check.

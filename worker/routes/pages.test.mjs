@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { rootSitemap } from "../../shared/audit-engine.js";
+import { checkHtml } from "./public-check.js";
 import {
   demoHtml,
   homeMarkdown,
@@ -15,6 +16,7 @@ const origin = "https://seofixkit.com";
 const expectedSitemapUrls = [
   `${origin}/`,
   `${origin}/demo`,
+  `${origin}/check`,
   `${origin}/methodology`,
   `${origin}/packages`,
   `${origin}/privacy`,
@@ -49,11 +51,13 @@ test("machine-readable public surfaces list proof pages and limits", () => {
   const sitemap = rootSitemap(origin);
 
   assert.deepEqual(parseSitemapUrls(sitemap), expectedSitemapUrls);
-  for (const path of ["/demo", "/methodology", "/packages"]) {
+  for (const path of ["/demo", "/methodology", "/packages", "/check"]) {
     assert.match(llms, new RegExp(`${origin}${path}`));
     assert.match(markdown, new RegExp(`${origin}${path}`));
     assert.match(sitemap, new RegExp(`${origin}${path}`));
   }
+  assert.match(llms, /anonymous one-page check/i);
+  assert.match(llms, /single-page proof check with per-network and per-site rate limits/i);
   assert.match(llms, new RegExp(`${origin}/llms\\.txt`));
   assert.match(llms, new RegExp(`${origin}/api/deep-health`));
   assert.doesNotMatch(sitemap, /\/llms\.txt/);
@@ -70,6 +74,7 @@ test("machine-readable public surfaces list proof pages and limits", () => {
   assert.match(llms, /repair_action\.fixed/);
   assert.match(llms, /There is no live SEO Fix Kit MCP endpoint today/);
   assert.match(llms, /Does not expose unauthenticated agent actions/);
+  assert.match(markdown, new RegExp(`Anonymous one-page check: ${origin}/check`));
 });
 
 test("public demo and support pages carry enough buyer-facing detail", () => {
@@ -80,8 +85,10 @@ test("public demo and support pages carry enough buyer-facing detail", () => {
   assert.ok(visibleWordCount(support) >= 250, "support page should not look thin to rendered audits");
   assert.match(demo, /What this sample proves/);
   assert.match(demo, /What this sample does not claim/);
-  assert.match(demo, /not a public anonymous audit/i);
-  assert.match(demo, /does not promise rankings, traffic, indexing, revenue, AI citations/i);
+  assert.match(demo, new RegExp(`Anonymous one-page checks are live at ${origin}/check`));
+  assert.match(demo, /Check one page now/);
+  assert.match(demo, /Neither the sample nor the one-page check promises rankings, traffic, indexing, revenue, AI citations/i);
+  assert.doesNotMatch(demo, /not a public anonymous audit/i, "the demo no longer claims anonymous checks are unavailable");
   assert.match(support, /Delivery expectations/);
   assert.match(support, /do not send secrets, private keys, passwords, payment card numbers, or production credentials/i);
   assert.match(support, /We do not log into private CMS accounts, publish changes, merge code, or call provider admin APIs/i);
@@ -89,12 +96,32 @@ test("public demo and support pages carry enough buyer-facing detail", () => {
   assert.match(support, /sites you own or are authorized to audit/i);
 });
 
+test("public one-page check page is a truthful, searchable entry path", () => {
+  const check = checkHtml(origin);
+
+  assert.ok(visibleWordCount(check) >= 250, "check page should not look thin to rendered audits");
+  assert.match(check, /Check One Page for SEO Proof/);
+  assert.match(check, new RegExp(`rel="canonical" href="${origin}/check"`));
+  assert.match(check, /id="check-form"/);
+  assert.match(check, /Check this page/);
+  assert.match(check, new RegExp(`${origin}/api/public-check`));
+  assert.match(check, /Rendered evidence/);
+  assert.match(check, /Guarded false positives/);
+  assert.match(check, /Findings when present/);
+  assert.match(check, /Measured handoff/);
+  assert.match(check, /does not guarantee rankings, traffic, indexing, revenue, AI citations/i);
+  assert.match(check, /Request private access/);
+  assert.match(check, /Rate-limited per network and per site/i);
+  assert.match(check, /nothing about your check is stored/i);
+  assert.doesNotMatch(check, /noindex/i, "the entry page must stay searchable");
+});
+
 test("static public skill and sitemap files keep buyer-facing boundaries", () => {
   const skill = readFileSync(new URL("../../public/.well-known/skill.md", import.meta.url), "utf8");
   const sitemap = readFileSync(new URL("../../public/sitemap.xml", import.meta.url), "utf8");
 
   assert.deepEqual(parseSitemapUrls(sitemap), expectedSitemapUrls);
-  for (const path of ["/demo", "/methodology", "/packages", "/support", "/terms"]) {
+  for (const path of ["/demo", "/methodology", "/packages", "/check", "/support", "/terms"]) {
     assert.match(skill, new RegExp(`${origin}${path}`));
     assert.match(sitemap, new RegExp(`${origin}${path}`));
   }
@@ -104,6 +131,8 @@ test("static public skill and sitemap files keep buyer-facing boundaries", () =>
   assert.match(skill, /roadmap until the required integrations, billing, and proof gates are live/i);
   assert.match(skill, /does not provide live AI-engine visibility tracking or AI citation monitoring/i);
   assert.match(skill, /does not guarantee rankings, traffic, indexing, or revenue/i);
+  assert.match(skill, /Anonymous one-page checks are live/i);
+  assert.match(skill, /single-page proof check/i);
   assert.match(skill, /## Agent Action Catalog/);
   assert.match(skill, /GET \/api\/developer/);
   assert.match(skill, /POST \/api\/developer\/tokens/);
@@ -122,7 +151,7 @@ test("Cloudflare asset routing sends public proof pages through the Worker", () 
   const wrangler = JSON.parse(readFileSync(new URL("../../wrangler.jsonc", import.meta.url), "utf8"));
   const runWorkerFirst = new Set(wrangler.assets?.run_worker_first || []);
 
-  for (const path of ["/demo", "/methodology", "/packages", "/support", "/terms", "/privacy"]) {
+  for (const path of ["/demo", "/methodology", "/packages", "/check", "/support", "/terms", "/privacy"]) {
     assert.equal(runWorkerFirst.has(path), true, `${path} must be served by the Worker before SPA assets`);
   }
 });

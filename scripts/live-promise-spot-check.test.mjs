@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { demoHtml, methodologyHtml, packagesHtml } from "../worker/routes/pages.js";
+import { checkHtml } from "../worker/routes/public-check.js";
 import { publicPageSpotChecks, spotCheckPublicPages } from "./live-promise-spot-check.mjs";
 
 const origin = "https://seofixkit.com";
 const pages = {
   "/demo": demoHtml(origin),
+  "/check": checkHtml(origin),
   "/methodology": methodologyHtml(origin),
   "/packages": packagesHtml(origin)
 };
@@ -27,16 +29,16 @@ function htmlResponse(body, status = 200) {
   return new Response(body, { status, headers: { "content-type": "text/html" } });
 }
 
-test("live spot-check covers the three promised public pages", () => {
+test("live spot-check covers the four promised public pages", () => {
   assert.deepEqual(
     publicPageSpotChecks(origin).map((check) => check.path),
-    ["/demo", "/methodology", "/packages"]
+    ["/demo", "/check", "/methodology", "/packages"]
   );
 });
 
 test("live spot-check passes against the shipped public page copy", async () => {
   const results = await spotCheckPublicPages({ baseUrl: origin, fetcher: pageFetcher() });
-  assert.equal(results.length, 3);
+  assert.equal(results.length, 4);
   for (const result of results) {
     assert.deepEqual(result.failures, [], `${result.path} must pass: ${result.name}`);
   }
