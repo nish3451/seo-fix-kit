@@ -3,7 +3,7 @@ import test from "node:test";
 import { rootSitemap } from "../shared/audit-engine.js";
 import { demoHtml, llmsText, methodologyHtml, packagesHtml, privacyHtml, supportHtml, termsHtml } from "../worker/routes/pages.js";
 import { checkHtml } from "../worker/routes/public-check.js";
-import { publicPageSpotChecks, publicSurfaceSpotChecks, spotCheckPublicPages } from "./live-promise-spot-check.mjs";
+import { canonicalHostSpotChecks, publicPageSpotChecks, publicSurfaceSpotChecks, spotCheckPublicPages } from "./live-promise-spot-check.mjs";
 
 const origin = "https://seofixkit.com";
 const pages = {
@@ -45,6 +45,14 @@ const surfaces = {
 function pageFetcher(overrides = {}) {
   return async (rawUrl, options = {}) => {
     const url = new URL(rawUrl);
+    if (url.hostname.startsWith("www.")) {
+      const apexUrl = new URL(rawUrl);
+      apexUrl.hostname = apexUrl.hostname.replace(/^www\./, "");
+      return new Response(null, {
+        status: 301,
+        headers: { location: apexUrl.toString() }
+      });
+    }
     if (url.pathname in surfaces) {
       return surfaces[url.pathname]();
     }
@@ -80,9 +88,20 @@ test("live spot-check covers the public machine surfaces", () => {
   );
 });
 
+test("live spot-check covers the www-to-apex canonical redirect", () => {
+  assert.deepEqual(
+    canonicalHostSpotChecks(origin).map((check) => check.path),
+    ["www.seofixkit.com/", "www.seofixkit.com/check"]
+  );
+  for (const check of canonicalHostSpotChecks(origin)) {
+    assert.equal(check.redirectManual, true, "redirect checks must observe the 301 itself");
+    assert.equal(check.acceptStatuses[0], 301);
+  }
+});
+
 test("live spot-check passes against the shipped public page copy", async () => {
   const results = await spotCheckPublicPages({ baseUrl: origin, fetcher: pageFetcher() });
-  assert.equal(results.length, 13);
+  assert.equal(results.length, 15);
   for (const result of results) {
     assert.deepEqual(result.failures, [], `${result.path} must pass: ${result.name}`);
   }
@@ -134,6 +153,42 @@ test("live spot-check flags a stale Worker serving the SPA fallback", async () =
   );
   const demo = results.find((result) => result.path === "/demo");
   assert.deepEqual(demo.failures, [], "worker-rendered pages must not be flagged as stale");
+});
+
+test("live spot-check flags a www host that stops redirecting to the apex", async () => {
+  const noRedirectFetcher = async (rawUrl, options = {}) => {
+    const url = new URL(rawUrl);
+    if (url.hostname.startsWith("www.")) {
+      return htmlResponse("<!doctype html><div id=\"root\"></div>");
+    }
+    return pageFetcher()(rawUrl, options);
+  };
+  const results = await spotCheckPublicPages({ baseUrl: origin, fetcher: noRedirectFetcher });
+  const redirect = results.find((result) => result.name.includes("301-redirects onto the apex host"));
+  assert.ok(
+    redirect.failures.some((failure) => failure.includes("HTTP 200")),
+    "a www host serving 200 instead of 301 must be reported"
+  );
+  assert.ok(
+    redirect.failures.some((failure) => failure.includes("redirects to the apex root")),
+    "a redirect without the apex Location header must be reported"
+  );
+});
+
+test("live spot-check flags a www redirect that drops the path or query", async () => {
+  const rootOnlyFetcher = async (rawUrl, options = {}) => {
+    const url = new URL(rawUrl);
+    if (url.hostname.startsWith("www.")) {
+      return new Response(null, { status: 301, headers: { location: `${origin}/` } });
+    }
+    return pageFetcher()(rawUrl, options);
+  };
+  const results = await spotCheckPublicPages({ baseUrl: origin, fetcher: rootOnlyFetcher });
+  const redirect = results.find((result) => result.name.includes("path and query intact"));
+  assert.ok(
+    redirect.failures.some((failure) => failure.includes("redirect preserves the path and query")),
+    "a redirect that drops the path and query must be reported"
+  );
 });
 
 test("live spot-check flags llms.txt that no longer lists the anonymous check", async () => {

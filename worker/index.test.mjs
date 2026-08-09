@@ -170,6 +170,50 @@ test("Worker dispatch routes public pages and repair APIs", async () => {
   assert.match(await apiProof.text(), /# SEOFixKit Repair Proof Receipt/);
 });
 
+test("Worker dispatch 301-redirects www.seofixkit.com onto the apex host", async () => {
+  const env = await fakeWorkerEnv();
+
+  const root = await worker.fetch(new Request("https://www.seofixkit.com/"), env, fakeCtx());
+  assert.equal(root.status, 301);
+  assert.equal(root.headers.get("location"), "https://seofixkit.com/");
+  assert.match(root.headers.get("strict-transport-security") || "", /max-age=31536000/);
+
+  const deep = await worker.fetch(new Request("https://www.seofixkit.com/packages?utm_source=scout"), env, fakeCtx());
+  assert.equal(deep.status, 301);
+  assert.equal(deep.headers.get("location"), "https://seofixkit.com/packages?utm_source=scout");
+
+  const api = await worker.fetch(new Request("https://www.seofixkit.com/api/health"), env, fakeCtx());
+  assert.equal(api.status, 301);
+  assert.equal(api.headers.get("location"), "https://seofixkit.com/api/health");
+
+  const sitemap = await worker.fetch(new Request("https://www.seofixkit.com/sitemap.xml"), env, fakeCtx());
+  assert.equal(sitemap.status, 301);
+  assert.equal(sitemap.headers.get("location"), "https://seofixkit.com/sitemap.xml");
+});
+
+test("Worker dispatch serves apex-only canonicals, robots, sitemap, and llms.txt", async () => {
+  const env = await fakeWorkerEnv();
+
+  const sitemap = await worker.fetch(new Request("https://seofixkit.com/sitemap.xml"), env, fakeCtx());
+  assert.equal(sitemap.status, 200);
+  const sitemapBody = await sitemap.text();
+  assert.match(sitemapBody, /<loc>https:\/\/seofixkit\.com\/<\/loc>/);
+  assert.doesNotMatch(sitemapBody, /www\.seofixkit\.com/);
+
+  const robots = await worker.fetch(new Request("https://seofixkit.com/robots.txt"), env, fakeCtx());
+  assert.equal(robots.status, 200);
+  assert.match(await robots.text(), /Sitemap: https:\/\/seofixkit\.com\/sitemap\.xml/);
+
+  const methodology = await worker.fetch(new Request("https://seofixkit.com/methodology"), env, fakeCtx());
+  assert.equal(methodology.status, 200);
+  const methodologyBody = await methodology.text();
+  assert.match(methodologyBody, /rel="canonical" href="https:\/\/seofixkit\.com\/methodology"/);
+  assert.doesNotMatch(methodologyBody, /www\.seofixkit\.com/);
+
+  const llms = await worker.fetch(new Request("https://seofixkit.com/llms.txt"), env, fakeCtx());
+  assert.match(await llms.text(), /https:\/\/seofixkit\.com\/check/);
+});
+
 test("Worker dispatch exposes public-safe deep health readiness", async () => {
   const env = await fakeWorkerEnv();
   const response = await worker.fetch(new Request("https://seofixkit.test/api/deep-health"), env, fakeCtx());

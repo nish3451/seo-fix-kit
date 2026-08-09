@@ -3,13 +3,14 @@ import { pathToFileURL } from "node:url";
 // Live spot-check for the public promise surfaces the README "What is live in
 // this repo" section relies on: /demo (proof loop), /methodology (limits),
 // /packages (package ladder), /check (anonymous one-page check), the
-// no-ranking /support, /terms, and /privacy pages, and the machine surfaces
+// no-ranking /support, /terms, and /privacy pages, the machine surfaces
 // the README says stay served by the Worker (/llms.txt, /sitemap.xml,
 // /robots.txt, /api/health, /api/deep-health, and the POST /api/public-check
-// route). Each must be served by the deployed Worker with the copy that backs
-// the claims. This is the repeatable "spot-check" half of the lane-2 promise
-// audit; the offline regression lock lives in shared/promise-audit.test.mjs
-// and worker/routes/pages.test.mjs.
+// route), and the canonical-host promise that every www.seofixkit.com request
+// 301-redirects onto the apex host. Each must be served by the deployed Worker
+// with the copy that backs the claims. This is the repeatable "spot-check"
+// half of the lane-2 promise audit; the offline regression lock lives in
+// shared/promise-audit.test.mjs and worker/routes/pages.test.mjs.
 //
 // Opt-in script, not part of `npm run check` (CI stays offline-only; the
 // offline regression lock for the same claims is in the check pipeline):
@@ -67,13 +68,17 @@ export async function spotCheckPublicPages({
   fetcher = fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS
 }) {
-  const checks = [...publicPageSpotChecks(baseUrl), ...publicSurfaceSpotChecks(baseUrl)];
+  const checks = [
+    ...publicPageSpotChecks(baseUrl),
+    ...publicSurfaceSpotChecks(baseUrl),
+    ...canonicalHostSpotChecks(baseUrl)
+  ];
   const results = [];
   for (const check of checks) {
     const { method = "GET", body } = check;
     const response = await fetchWithTimeout(
-      `${baseUrl}${check.path}`,
-      { method, body },
+      check.url || `${baseUrl}${check.path}`,
+      { method, body, ...(check.redirectManual ? { redirect: "manual" } : {}) },
       timeoutMs,
       fetcher
     );
@@ -89,7 +94,13 @@ export async function spotCheckPublicPages({
     if (check.contentType && !new RegExp(check.contentType, "i").test(contentType)) {
       failures.push(`served as ${contentType || "no content-type"} instead of ${check.contentType}`);
     }
-    for (const { reason, match } of check.expectations) {
+    for (const { name, value, reason } of check.expectedHeaders || []) {
+      const header = response.headers.get(name) || "";
+      if (!hasContent(header, value)) {
+        failures.push(reason || `missing ${name} header matching ${typeof value === "string" ? value : value.toString()}`);
+      }
+    }
+    for (const { reason, match } of check.expectations || []) {
       if (!hasContent(text, match)) {
         failures.push(reason);
       }
@@ -272,6 +283,42 @@ export function publicSurfaceSpotChecks(baseUrl) {
       contentType: "application/json",
       expectations: [
         { reason: "route rejects invalid input with a JSON error", match: '"error"' }
+      ]
+    }
+  ];
+}
+
+// Canonical-host promise: the README "Custom domain" section claims every
+// www.seofixkit.com request 301-redirects onto the apex host with its path and
+// query intact, so canonicals, robots.txt, and sitemap.xml stay apex-only.
+// Redirects are checked with `redirect: "manual"` so the 301 itself is
+// observable instead of being silently followed.
+export function canonicalHostSpotChecks(baseUrl) {
+  const apex = new URL(baseUrl);
+  const wwwOrigin = `https://www.${apex.hostname}`;
+  return [
+    {
+      path: "www.seofixkit.com/",
+      name: "www.seofixkit.com 301-redirects onto the apex host",
+      url: `${wwwOrigin}/`,
+      redirectManual: true,
+      acceptStatuses: [301],
+      expectedHeaders: [
+        { name: "location", value: `${baseUrl}/`, reason: "redirects to the apex root" }
+      ]
+    },
+    {
+      path: "www.seofixkit.com/check",
+      name: "www.seofixkit.com deep paths redirect with path and query intact",
+      url: `${wwwOrigin}/check?utm_source=spot-check`,
+      redirectManual: true,
+      acceptStatuses: [301],
+      expectedHeaders: [
+        {
+          name: "location",
+          value: `${baseUrl}/check?utm_source=spot-check`,
+          reason: "redirect preserves the path and query"
+        }
       ]
     }
   ];
