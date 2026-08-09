@@ -37,9 +37,21 @@ async function main() {
   }
 
   if (failed.length > 0) {
-    console.error(
-      `Spot-check failed on ${failed.length} page(s). Fix the deployed copy or the claim in the spot-check, then rerun.`
+    const staleDeploys = results.filter((result) =>
+      result.failures.some((reason) => reason.includes("deployed Worker is stale"))
     );
+    if (staleDeploys.length > 0) {
+      console.error(
+        `Spot-check failed on ${failed.length} page(s): ${staleDeploys.length} served by the static-asset ` +
+          `fallback instead of the Worker route. The deployed Worker is behind main — deploy the current ` +
+          `Worker (npx wrangler deploy) and rerun. If a page still fails after a fresh deploy, fix the ` +
+          `deployed copy or the claim in the spot-check.`
+      );
+    } else {
+      console.error(
+        `Spot-check failed on ${failed.length} page(s). Fix the deployed copy or the claim in the spot-check, then rerun.`
+      );
+    }
     process.exitCode = 1;
     return;
   }
@@ -65,6 +77,12 @@ export async function spotCheckPublicPages({
       if (!hasContent(text, match)) {
         failures.push(reason);
       }
+    }
+    if (failures.length > 0 && isSpaFallback(text, response.headers.get("content-type") || "")) {
+      failures.push(
+        `deployed Worker is stale: ${check.path} was served by the static-asset SPA fallback instead of the ` +
+          `Worker route (deploy main, then rerun)`
+      );
     }
     results.push({ path: check.path, name: check.name, failures });
   }
@@ -128,6 +146,18 @@ export function publicPageSpotChecks(baseUrl) {
 
 function hasContent(text, match) {
   return typeof match === "string" ? text.includes(match) : match.test(text);
+}
+
+// Worker-rendered promise pages are served as `text/html; charset=utf-8` with
+// their own body copy. The static-asset SPA fallback serves index.html
+// instead: `text/html` without a charset and a `<div id="root">` root element.
+// A promise page that comes back as the SPA shell means the deployed Worker
+// predates the route the README promises — a deploy gap, not a copy drift.
+function isSpaFallback(text, contentType) {
+  const html = /text\/html/i.test(contentType);
+  const withoutCharset = !/charset/i.test(contentType);
+  const hasSpaRoot = text.includes('<div id="root"');
+  return html && withoutCharset && hasSpaRoot;
 }
 
 async function fetchWithTimeout(url, options, timeoutMs, fetcher = fetch) {

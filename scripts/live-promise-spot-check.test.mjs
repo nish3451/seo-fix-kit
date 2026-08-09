@@ -59,3 +59,28 @@ test("live spot-check flags a missing page", async () => {
     "missing page must be reported as HTTP 404"
   );
 });
+
+test("live spot-check flags a stale Worker serving the SPA fallback", async () => {
+  const spaShell =
+    '<!doctype html><html><head><title>SEO Fix Kit - Proof-Backed SEO Repair Beta</title></head>' +
+    '<body><div id="root"></div></body></html>';
+  const spaFetcher = async (rawUrl) => {
+    const url = new URL(rawUrl);
+    if (url.pathname === "/check") {
+      return new Response(spaShell, { headers: { "content-type": "text/html" } });
+    }
+    return htmlResponse(pages[url.pathname]);
+  };
+  const results = await spotCheckPublicPages({ baseUrl: origin, fetcher: spaFetcher });
+  const check = results.find((result) => result.path === "/check");
+  assert.ok(
+    check.failures.some((failure) => failure.includes("deployed Worker is stale")),
+    "SPA fallback must be reported as a stale deploy, not just missing copy"
+  );
+  assert.ok(
+    check.failures.some((failure) => failure.includes("/check")),
+    "the stale-deploy failure must name the affected route"
+  );
+  const demo = results.find((result) => result.path === "/demo");
+  assert.deepEqual(demo.failures, [], "worker-rendered pages must not be flagged as stale");
+});
