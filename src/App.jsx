@@ -26,6 +26,7 @@ import {
   repairActionRerunPatch,
   repairActionUpdateRequest
 } from "./repair-action-requests.js";
+import { funnelEvent } from "./funnel-events.js";
 
 const BETA_SESSION_KEY = "seofixkit_beta_unlocked";
 const BETA_EMAIL_KEY = "seofixkit_beta_email";
@@ -48,6 +49,11 @@ function WaitlistPage() {
 
   useEffect(() => {
     document.title = "SEO Fix Kit - Proof-Backed SEO Repair Beta";
+    // First-party funnel events for the public private-beta funnel: the page
+    // view and the email access form being shown are the top of the funnel.
+    // Access-request success/failure is recorded server-side.
+    funnelEvent("page_view", "/");
+    funnelEvent("access_form_shown", "/");
   }, []);
 
   async function joinWaitlist(event) {
@@ -107,9 +113,9 @@ function WaitlistPage() {
           offered when real fixes exist.
         </p>
         <nav className="public-proof-links" aria-label="Public proof pages">
-          <a href="/demo">Sample proof report</a>
-          <a href="/methodology">Methodology and limits</a>
-          <a href="/packages">Package ladder</a>
+          <a href="/demo" onClick={() => funnelEvent("cta_activation", "/demo")}>Sample proof report</a>
+          <a href="/methodology" onClick={() => funnelEvent("cta_activation", "/methodology")}>Methodology and limits</a>
+          <a href="/packages" onClick={() => funnelEvent("cta_activation", "/packages")}>Package ladder</a>
         </nav>
 
         <div className="access-entry">
@@ -156,7 +162,7 @@ function WaitlistPage() {
 
           <div className="check-entry" aria-label="Anonymous one-page check">
             <p className="check-entry-note">No account, no email</p>
-            <a className="check-entry-cta" href="/check">
+            <a className="check-entry-cta" href="/check" onClick={() => funnelEvent("cta_activation", "/check")}>
               Check one page now
             </a>
             <p className="check-entry-note">

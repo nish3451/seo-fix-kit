@@ -26,6 +26,7 @@ import {
   repairActionRerunPatch,
   repairActionUpdateRequest
 } from "./repair-action-requests.js";
+import { funnelEventPayload } from "./funnel-events.js";
 
 test("developer webhook UI subscribes to all repair lifecycle events", () => {
   const request = developerWebhookRequest("https://example.com/seofixkit-webhook");
@@ -258,4 +259,17 @@ test("billing delivery readiness copy hides unknown backend blocker labels", () 
   assert.equal(text, "We are still preparing this repair pass.");
   assert.equal(text.includes("payment-secret-123"), false);
   assert.equal(text.includes("Attach"), false);
+});
+
+test("funnel beacon payloads are allow-listed event names with plain page paths only", () => {
+  assert.deepEqual(funnelEventPayload("page_view", "/"), { event: "page_view", page: "/" });
+  assert.deepEqual(funnelEventPayload("access_form_shown", "/"), { event: "access_form_shown", page: "/" });
+  assert.deepEqual(funnelEventPayload("cta_activation", "/check"), { event: "cta_activation", page: "/check" });
+
+  assert.equal(funnelEventPayload("click", "/"), null, "unknown events never leave the browser");
+  assert.equal(funnelEventPayload("page_view", ""), null);
+  assert.equal(funnelEventPayload("page_view", "/demo?email=x@y.com"), null, "query strings never leave the browser");
+  assert.equal(funnelEventPayload("page_view", "/demo#top"), null);
+  assert.equal(funnelEventPayload("page_view", "https://evil.example/"), null);
+  assert.equal(funnelEventPayload("page_view", "/a/../b"), null);
 });

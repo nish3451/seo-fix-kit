@@ -1,4 +1,5 @@
 import { escapeHtml } from "../../shared/audit-engine.js";
+import { funnelBeaconScript } from "./funnel.js";
 
 const FIX_PACK_PUBLIC_PRICE = "$99.00 one-time";
 
@@ -209,9 +210,10 @@ ${pageSocialHead({ origin, title: "Proof-Backed SEO Repair Demo - SEO Fix Kit", 
         <h2>What this sample does not claim</h2>
         <p>This page is a sample, not an audit of your site. Anonymous one-page checks are live at ${origin}/check: paste a public URL and get rendered proof, guarded false positives, and actionable findings when present — with no account and nothing stored. Full reports still run inside the private beta after secure email access and, for deeper crawls, site verification. Neither the sample nor the one-page check promises rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility. The product standard is the same everywhere: prove the issue, avoid false positives, ask for approval, then rerun the same measurement after the fix.</p>
       </section>
-      <p><a class="cta" href="${origin}/check">Check one page now</a></p>
-      <p><a href="${origin}/">Request private access</a> · <a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a> · <a href="${origin}/support">Support and refunds</a></p>
+      <p><a class="cta" data-funnel-cta href="${origin}/check">Check one page now</a></p>
+      <p><a data-funnel-cta href="${origin}/">Request private access</a> · <a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a> · <a href="${origin}/support">Support and refunds</a></p>
     </main>
+    ${funnelBeaconScript()}
   </body>
 </html>`;
 }
@@ -281,8 +283,8 @@ function packagesHtml(origin) {
             <li>Repair queue when issues are proven</li>
             <li>Account next actions</li>
           </ul>
-          <a href="${origin}/">Request access</a>
-          <a href="${origin}/check">Check one page now</a>
+          <a data-funnel-cta href="${origin}/">Request access</a>
+          <a data-funnel-cta href="${origin}/check">Check one page now</a>
         </article>
         <article class="package-card live">
           <span>Live checkout when eligible</span>
@@ -330,7 +332,7 @@ function packagesHtml(origin) {
             <li>No backlink exchange network</li>
             <li>No unqualified AI citation claims</li>
           </ul>
-          <a href="${origin}/demo">View proof sample</a>
+          <a data-funnel-cta href="${origin}/demo">View proof sample</a>
         </article>
       </section>
       <section class="band">
@@ -398,6 +400,7 @@ ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })
       </section>
       ${body}
     </main>
+    ${funnelBeaconScript()}
   </body>
 </html>`;
 }
@@ -431,12 +434,13 @@ ${pageSocialHead({ origin, title: "Privacy - SEO Fix Kit", description: "SEO Fix
         <li>Private audits store the website URL, rendered-page audit findings, screenshots or extracted page facts when available, report owner, beta session reference, target host, and report expiry timestamp.</li>
         <li>Fix Pack records store checkout status, Dodo payment identifiers, payment amount and currency, fulfillment notes, final rerun report links, delivery notifications, and admin audit events. We never see or store your card details; Dodo Payments processes payment as merchant of record under its own privacy policy.</li>
         <li>Cookies and local browser storage: we set only essential, HttpOnly session cookies (beta login, admin login, and report-unlock state), and the beta dashboard may keep your access email and dashboard state in sessionStorage on your device. No advertising, analytics, or cross-site tracking cookies are set.</li>
+        <li>Funnel events: to measure the private-beta funnel we record lightweight first-party activity events — page view, access form shown, access-request success/failure, and public CTA clicks — with only the event name, the page path, and a timestamp. These events never include your email, company, IP address, user agent, referrer, or any URL query string, are kept for 90 days, and are used only to understand how visitors move through the public site. You can opt out of event collection the same way you avoid any site telemetry, and event rows are deleted automatically after 90 days.</li>
         <li>Processors: Cloudflare (hosting, database, email delivery, browser rendering — data may be processed on Cloudflare's global network) and Dodo Payments (checkout and payment webhooks).</li>
         <li>Retention: reports expire after 30 days, except reports tied to a paid Fix Pack, which stay available while we operate the service. Admin logs, payment records, and notification logs are kept for operating, support, abuse prevention, and payment reconciliation. Rate-limit counters expire automatically.</li>
         <li>We do not sell your personal data and do not send unrelated promotions.</li>
         <li>Deletion and access: email <a href="mailto:support@seofixkit.com">support@seofixkit.com</a> (or reply to any email we send) to request a copy or deletion of your beta data. We honor verified requests within 30 days, except records we must keep for payment reconciliation or abuse prevention.</li>
       </ul>
-      <p>Last updated: June 15, 2026.</p>
+      <p>Last updated: August 10, 2026.</p>
     </main>
   </body>
 </html>`;
