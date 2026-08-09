@@ -75,9 +75,11 @@ Open `http://127.0.0.1:5173`.
 npm run check
 ```
 
-For a live spot-check that the public `/check`, `/demo`, `/methodology`, and `/packages`
-pages on the deployed site still show the anonymous proof check, proof loop, stated
-limits, and package ladder the README promises:
+For a live spot-check that the public `/check`, `/demo`, `/methodology`, `/packages`,
+`/support`, `/terms`, and `/privacy` pages on the deployed site still show the anonymous
+proof check, proof loop, stated limits, package ladder, and no-ranking promise the README
+makes, and that `/llms.txt`, `/sitemap.xml`, `/robots.txt`, `/api/health`,
+`/api/deep-health`, and the `POST /api/public-check` route are still served:
 
 ```bash
 npm run audit:live-promise
