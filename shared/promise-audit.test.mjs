@@ -50,6 +50,7 @@ const fixPackCheckoutSource = readFileSync(new URL("../src/fix-pack-checkout.js"
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
 const reportsSource = readFileSync(new URL("../worker/routes/reports.js", import.meta.url), "utf8");
+const reportDataSource = readFileSync(new URL("../worker/lib/report-data.js", import.meta.url), "utf8");
 const serverEngineSource = readFileSync(new URL("../server/audit/engine.js", import.meta.url), "utf8");
 const migrationsDir = new URL("../migrations", import.meta.url);
 const allMigrations = readdirSync(migrationsDir)
@@ -521,4 +522,37 @@ test("README sitemap inventory claim keeps rendered repair proof separate", () =
   assert.match(liveSection, /discovering up to 50,000 sitemap URLs while keeping rendered repair proof separate/i);
   assert.match(crawlInventorySource, /CRAWLRAVEN_PUBLIC_CRAWL_PAGES|50000/, "inventory cap is 50,000 URLs");
   assert.ok(migrationHas("large_crawl_url_proofs"), "large-crawl proof stored separately");
+});
+
+test("README queued-job claim matches status polling before the private report loads", () => {
+  assert.match(liveSection, /Queued audit jobs backed by D1 `audit_jobs`, with status polling before the private report loads/i);
+  assert.match(appSource, /async function pollAuditJob/, "the UI polls job status before the report loads");
+  assert.match(appSource, /\/api\/audit\/jobs\//, "polling hits the job status endpoint");
+});
+
+test("README saved-report claim matches owner email and invite-bound ownership", () => {
+  assert.match(
+    liveSection,
+    /Saved private report URLs backed by D1 `audit_reports`, tied to the beta owner email and invite where available/i
+  );
+  assert.match(
+    reportDataSource,
+    /INSERT INTO audit_reports[\s\S]*owner_email[\s\S]*owner_invite_id/,
+    "reports are stored with owner email and invite id"
+  );
+  assert.match(auditsSource, /owner_invite_id: access\.inviteId/, "queued audits carry the owner invite");
+});
+
+test("README public support, terms, and privacy pages keep no-ranking-guarantee copy", () => {
+  assert.match(
+    liveSection,
+    /Public `\/support`, `\/terms`, and `\/privacy` pages with no ranking guarantees/i
+  );
+  assert.match(pagesSource, /No ranking or traffic guarantee/, "terms page carries no ranking guarantee");
+  assert.match(pagesSource, /No ranking, traffic, or revenue promise is made/, "privacy page carries no ranking promise");
+  assert.match(
+    pagesSource,
+    /No ranking, indexing, traffic, revenue, or search-engine outcome is promised/,
+    "support page carries no ranking promise"
+  );
 });
