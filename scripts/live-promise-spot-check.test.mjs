@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { rootSitemap } from "../shared/audit-engine.js";
-import { demoHtml, llmsText, methodologyHtml, packagesHtml, privacyHtml, supportHtml, termsHtml } from "../worker/routes/pages.js";
+import {
+  aiAnswerReadinessHtml,
+  demoHtml,
+  llmsText,
+  methodologyHtml,
+  packagesHtml,
+  privacyHtml,
+  renderedVsStaticAuditHtml,
+  smallBusinessSeoAuditHtml,
+  supportHtml,
+  termsHtml
+} from "../worker/routes/pages.js";
 import { checkHtml } from "../worker/routes/public-check.js";
 import { canonicalHostSpotChecks, publicPageSpotChecks, publicSurfaceSpotChecks, spotCheckPublicPages } from "./live-promise-spot-check.mjs";
 
@@ -11,6 +22,9 @@ const pages = {
   "/check": checkHtml(origin),
   "/methodology": methodologyHtml(origin),
   "/packages": packagesHtml(origin),
+  "/small-business-seo-audit": smallBusinessSeoAuditHtml(origin),
+  "/rendered-vs-static-seo-audit": renderedVsStaticAuditHtml(origin),
+  "/ai-answer-readiness": aiAnswerReadinessHtml(origin),
   "/support": supportHtml(origin),
   "/terms": termsHtml(origin),
   "/privacy": privacyHtml(origin)
@@ -74,10 +88,21 @@ function textResponse(body, contentType = "text/plain; charset=utf-8") {
   return new Response(body, { status: 200, headers: { "content-type": contentType } });
 }
 
-test("live spot-check covers the seven promised public pages", () => {
+test("live spot-check covers the ten promised public pages", () => {
   assert.deepEqual(
     publicPageSpotChecks(origin).map((check) => check.path),
-    ["/demo", "/check", "/methodology", "/packages", "/support", "/terms", "/privacy"]
+    [
+      "/demo",
+      "/check",
+      "/methodology",
+      "/packages",
+      "/small-business-seo-audit",
+      "/rendered-vs-static-seo-audit",
+      "/ai-answer-readiness",
+      "/support",
+      "/terms",
+      "/privacy"
+    ]
   );
 });
 
@@ -101,7 +126,7 @@ test("live spot-check covers the www-to-apex canonical redirect", () => {
 
 test("live spot-check passes against the shipped public page copy", async () => {
   const results = await spotCheckPublicPages({ baseUrl: origin, fetcher: pageFetcher() });
-  assert.equal(results.length, 15);
+  assert.equal(results.length, 18);
   for (const result of results) {
     assert.deepEqual(result.failures, [], `${result.path} must pass: ${result.name}`);
   }

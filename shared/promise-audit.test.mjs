@@ -115,6 +115,24 @@ test("README public page promise matches Worker routing and copy", () => {
   assert.match(pagesSource, /FIX_PACK_PUBLIC_PRICE/, "packages page price constant exists");
 });
 
+test("README intent-landing-page promise matches routes, sitemap, and schema boundaries", () => {
+  const landingPaths = ["/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness"];
+  for (const path of landingPaths) {
+    assert.ok(workerIndex.includes(`url.pathname === "${path}"`), `Worker must route ${path}`);
+    assert.match(liveSection, new RegExp(`\`${path}\``, "i"), `README must name ${path}`);
+    assert.match(wranglerJsonc, new RegExp(`"${path}"`), `${path} must be served by the Worker before SPA assets`);
+  }
+  const sitemapSource = readFileSync(new URL("../public/sitemap.xml", import.meta.url), "utf8");
+  for (const path of landingPaths) {
+    assert.match(sitemapSource, new RegExp(`https://seofixkit\\.com${path}`), `static sitemap must list ${path}`);
+  }
+  assert.match(pagesSource, /"@type": "SoftwareApplication"/, "landing pages carry SoftwareApplication schema");
+  assert.match(pagesSource, /"@type": "FAQPage"/, "landing pages carry FAQPage schema from the visible FAQ copy");
+  assert.match(pagesSource, /does not provide live AI citation monitoring or answer-engine sampling/i, "landing pages keep the AI boundary");
+  assert.doesNotMatch(pagesSource, /live AI citation monitoring is live/i, "no landing page may claim live citation monitoring");
+  assert.match(workerIndex, new RegExp(`url.pathname === "${landingPaths[2]}"`), "AI readiness page must be Worker-routed");
+});
+
 test("README Cloudflare path routes are actually registered in the Worker", () => {
   const claimedRoutes = [
     "/api/health",
@@ -157,6 +175,9 @@ test("README Cloudflare path routes are actually registered in the Worker", () =
     "/methodology",
     "/packages",
     "/check",
+    "/small-business-seo-audit",
+    "/rendered-vs-static-seo-audit",
+    "/ai-answer-readiness",
     "/api/public-check",
     "/beta"
   ];
