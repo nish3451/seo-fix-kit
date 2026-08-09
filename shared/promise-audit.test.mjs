@@ -200,7 +200,7 @@ test("README homepage anonymous-check claim matches the CTA beside the email for
   );
   assert.match(
     appSource,
-    /<a className="check-entry-cta" href="\/check">/,
+    /<a className="check-entry-cta" href="\/check"[^>]*>/,
     "the homepage shows a primary CTA to the anonymous one-page check"
   );
   assert.match(

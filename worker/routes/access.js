@@ -27,6 +27,7 @@ import {
   normalizeDnsTxt,
   normalizeEmail
 } from "../lib/text.js";
+import { recordFunnelEvent, sanitizeFunnelEvent } from "./funnel.js";
 
 const ACCESS_LINK_TTL_SECONDS = 60 * 15;
 
@@ -123,12 +124,16 @@ async function requestAccessLink(request, env) {
   }
 
   const ownerEmail = normalizeEmail(body.email || body.ownerEmail);
-  if (!ownerEmail) return jsonNoStore({ error: "Enter a valid email address." }, 400);
+  if (!ownerEmail) {
+    await recordAccessFunnelEvent(env, body, "access_request_failure");
+    return jsonNoStore({ error: "Enter a valid email address." }, 400);
+  }
 
   const quota = await accessLinkQuotaStatus(request, env, ownerEmail);
   if (!quota.ok) return jsonNoStore({ error: quota.error, resetAt: quota.resetAt }, 429);
 
   if (!isEmailConfigured(env)) {
+    await recordAccessFunnelEvent(env, body, "access_request_failure");
     return jsonNoStore({ error: "Access email is not configured yet. Use an invite code for now." }, 503);
   }
 
@@ -165,14 +170,30 @@ async function requestAccessLink(request, env) {
     });
   } catch (error) {
     await env.WAITLIST_DB.prepare("DELETE FROM access_tokens WHERE token_hash = ?").bind(tokenHash).run();
+    await recordAccessFunnelEvent(env, body, "access_request_failure");
     return jsonNoStore({ error: error?.message || "Access email could not be sent." }, 503);
   }
 
+  await recordAccessFunnelEvent(env, body, "access_request_success");
   return jsonNoStore({
     ok: true,
     status: "sent",
     message: "Check your email for a secure access link.",
     expiresAt
+  });
+}
+
+// Best-effort funnel recording for the access-request outcome. The page path
+// is the visitor's landing path only when it survives sanitization (no query
+// strings, no PII); otherwise it falls back to "/". Never throws.
+async function recordAccessFunnelEvent(env, body = {}, eventName) {
+  const clean = sanitizeFunnelEvent({
+    event: eventName,
+    page: cleanText(body.landingPath || body.landing_path || "/", 200)
+  });
+  await recordFunnelEvent(env, {
+    eventName,
+    pagePath: clean.ok ? clean.pagePath : "/"
   });
 }
 

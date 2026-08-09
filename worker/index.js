@@ -32,6 +32,10 @@ import {
 } from "./routes/pages.js";
 import { checkHtml, runPublicCheck } from "./routes/public-check.js";
 import {
+  getFunnelSummary,
+  trackFunnelEvent
+} from "./routes/funnel.js";
+import {
   betaLogin,
   betaLogout,
   betaSession,
@@ -215,6 +219,14 @@ export default {
 
       if (url.pathname === "/api/waitlist" && request.method === "POST") {
         return joinWaitlist(request, env);
+      }
+
+      if (url.pathname === "/api/funnel-event" && request.method === "POST") {
+        return trackFunnelEvent(request, env);
+      }
+
+      if (url.pathname === "/admin/funnel-summary") {
+        return getFunnelSummary(request, env);
       }
 
       if (url.pathname === "/api/access/request" && request.method === "POST") {

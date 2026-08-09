@@ -20,6 +20,7 @@ import { resolvesToPrivateAddress } from "../../shared/url-safety.js";
 import { jsonNoStore } from "../lib/http.js";
 import { checkQuotaSet, requestIpHash, sha256Hex } from "../lib/security.js";
 import { dayWindow, hourWindow } from "../lib/text.js";
+import { funnelBeaconScript } from "./funnel.js";
 import { auditUrl } from "./audits.js";
 
 export const CHECK_PAGE_PATH = "/check";
@@ -377,7 +378,7 @@ export function checkHtml(origin) {
       <section class="band next-step">
         <h2>After the check</h2>
         <p>To turn proof into a repair workflow, request a secure email access link: verified sessions get saved proof reports, crawl depth up to 1,000 pages per queued audit, and a repair queue with acceptance checks and one rerun after fixes.</p>
-        <p><a class="cta" href="${origin}/">Request private access</a></p>
+        <p><a class="cta" data-funnel-cta href="${origin}/">Request private access</a></p>
       </section>
       <p><a href="${origin}/demo">View proof sample</a> · <a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a> · <a href="${origin}/support">Support and refunds</a> · <a href="${origin}/terms">Terms</a> · <a href="${origin}/privacy">Privacy</a></p>
     </main>
@@ -477,6 +478,7 @@ export function checkHtml(origin) {
             result.appendChild(el("p", ""));
             const cta = el("a", "Continue to private access", "cta");
             cta.href = "${origin}/";
+            cta.dataset.funnelCta = "";
             result.appendChild(cta);
           } catch (error) {
             result.replaceChildren(el("div", "Could not reach the check service. Try again in a moment.", "error-box"));
@@ -487,6 +489,7 @@ export function checkHtml(origin) {
         });
       })();
     </script>
+    ${funnelBeaconScript()}
   </body>
 </html>`;
 }
