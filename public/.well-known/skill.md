@@ -7,7 +7,7 @@ SEO Fix Kit is a private-beta SEO audit and paid Fix Pack workflow.
 - Request access at https://seofixkit.com/.
 - Public health surfaces are https://seofixkit.com/api/health and https://seofixkit.com/api/deep-health. Deep health reports safe readiness booleans only, not secrets, provider ids, checkout URLs, customer data, or table counts.
 - Public proof pages: https://seofixkit.com/demo, https://seofixkit.com/check, https://seofixkit.com/methodology, https://seofixkit.com/packages, https://seofixkit.com/support, and https://seofixkit.com/terms.
-- Anyone can check one public page anonymously at https://seofixkit.com/check via POST https://seofixkit.com/api/public-check; results are ephemeral (nothing stored) and rate-limited per network and per site.
+- Anyone can check one public page anonymously at https://seofixkit.com/check via POST https://seofixkit.com/api/public-check; results are ephemeral (no report or URL is stored; only short-lived anonymous rate-limit counters are kept) and rate-limited per network and per site.
 - Use SEO Fix Kit only for sites you own or are authorized to audit.
 - Private audits create proof-backed reports from rendered page evidence.
 - Private reports include proof-derived AI Answer Readiness checks; this is not live AI-engine sampling.
