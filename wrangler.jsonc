@@ -33,7 +33,7 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/", "/api/*", "/v1/*", "/admin/*", "/beta", "/beta/*", "/demo", "/methodology", "/packages", "/r/*", "/.well-known/seofixkit-report-domain.txt", "/llms.txt", "/privacy", "/support", "/terms", "/robots.txt", "/sitemap.xml", "/fixture/*"]
+    "run_worker_first": ["/", "/api/*", "/v1/*", "/admin/*", "/beta", "/beta/*", "/demo", "/methodology", "/packages", "/check", "/r/*", "/.well-known/seofixkit-report-domain.txt", "/llms.txt", "/privacy", "/support", "/terms", "/robots.txt", "/sitemap.xml", "/fixture/*"]
   },
   "r2_buckets": [
     {

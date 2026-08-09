@@ -2,7 +2,7 @@
 
 SEO Fix Kit is a proof-backed SEO repair tool for sites that need clear fixes, not generic audit homework.
 
-The public homepage is currently a private-beta access page. Visitors can request a secure one-use email link; anonymous public audits stay disabled.
+The public homepage is currently a private-beta access page. Visitors can request a secure one-use email link or check one public page anonymously before requesting access; full multi-page audits stay inside the private beta.
 
 It is not trying to replace Ahrefs or Semrush keyword and backlink databases. The first wedge is narrower and sharper:
 
@@ -41,6 +41,7 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Founder-friendly React interface.
 - Cloudflare Worker target using Workers Static Assets and Browser Run.
 - Locked private-beta homepage with `/api/waitlist` and `/api/access/request` backed by D1.
+- Public anonymous one-page URL check at `/check` and `POST /api/public-check`: real browser rendering of one public page, static-vs-rendered proof, guarded false positives, actionable findings when present, per-network and per-site rate limits, nothing stored, and a handoff into private beta access with no ranking promise.
 - Public `/demo`, `/methodology`, and `/packages` pages showing the proof loop, limits, and package ladder before payment.
 - Hidden `/beta` private audit workbench protected by invite code login or a secure one-use email access link.
 - Expiring beta sessions backed by D1 `beta_sessions`.
@@ -74,9 +75,9 @@ Open `http://127.0.0.1:5173`.
 npm run check
 ```
 
-For a live spot-check that the public `/demo`, `/methodology`, and `/packages`
-pages on the deployed site still show the proof loop, stated limits, and
-package ladder the README promises:
+For a live spot-check that the public `/check`, `/demo`, `/methodology`, and `/packages`
+pages on the deployed site still show the anonymous proof check, proof loop, stated
+limits, and package ladder the README promises:
 
 ```bash
 npm run audit:live-promise
@@ -87,8 +88,9 @@ npm run audit:live-promise
 Cloudflare cannot run the local Express + Chromium server directly. The deployable path is:
 
 - React UI served by Workers Static Assets from `dist/`
-- Public `/demo`, `/methodology`, `/packages`, `/privacy`, `/support`, `/terms`, `/sitemap.xml`, and `/llms.txt` stay served by the Worker/public asset path
+- Public `/check`, `/demo`, `/methodology`, `/packages`, `/privacy`, `/support`, `/terms`, `/sitemap.xml`, and `/llms.txt` stay served by the Worker/public asset path
 - `/api/health` is a shallow public runtime check; `/api/deep-health` is a public-safe readiness check for bindings, D1 schema, Dodo checkout/webhook config, and self-serve repair capabilities without exposing secrets, provider ids, checkout URLs, customer data, or table counts
+- `/api/public-check` runs the anonymous one-page URL check for any visitor: one public page rendered in a real browser, proof fields and guarded false positives from the shared audit engine, findings when present, per-network and per-site rate limits, and no stored report; `/check` is the indexable public entry page
 - `/api/waitlist` handled by `worker/index.js` and stored in D1
 - `/admin/summary` powers the private ops dashboard, and `/admin/leads.csv` exports waitlist leads when called with the admin export token
 - `/admin/invites` creates invite codes for specific emails

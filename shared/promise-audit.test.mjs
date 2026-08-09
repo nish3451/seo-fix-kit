@@ -109,7 +109,7 @@ test("README weekly monitor promise matches the schedule interval", () => {
 
 test("README public page promise matches Worker routing and copy", () => {
   assert.match(liveSection, /Public `\/demo`, `\/methodology`, and `\/packages` pages/i);
-  for (const path of ["/demo", "/methodology", "/packages"]) {
+  for (const path of ["/demo", "/methodology", "/packages", "/check"]) {
     assert.ok(workerIndex.includes(`url.pathname === "${path}"`), `Worker must route ${path}`);
   }
   assert.match(pagesSource, /FIX_PACK_PUBLIC_PRICE/, "packages page price constant exists");
@@ -156,6 +156,8 @@ test("README Cloudflare path routes are actually registered in the Worker", () =
     "/demo",
     "/methodology",
     "/packages",
+    "/check",
+    "/api/public-check",
     "/beta"
   ];
   for (const route of claimedRoutes) {
@@ -165,10 +167,24 @@ test("README Cloudflare path routes are actually registered in the Worker", () =
 
 test("README abuse-control claim matches D1 buckets for every listed surface", () => {
   assert.match(liveSection, /D1-backed abuse controls/i);
-  for (const bucket of ["waitlist:ip", "login:ip", "access:ip", "audit:ip", "audit:session", "audit:target", "audit:lite-day"]) {
-    const source = bucket.startsWith("audit") ? auditsSource : readFileSync(new URL("../worker/routes/access.js", import.meta.url), "utf8");
+  for (const bucket of ["waitlist:ip", "login:ip", "access:ip", "audit:ip", "audit:session", "audit:target", "audit:lite-day", "check:ip-hour", "check:target-hour"]) {
+    let source = auditsSource;
+    if (bucket.startsWith("audit")) source = auditsSource;
+    else if (bucket.startsWith("check")) source = readFileSync(new URL("../worker/routes/public-check.js", import.meta.url), "utf8");
+    else source = readFileSync(new URL("../worker/routes/access.js", import.meta.url), "utf8");
     assert.ok(source.includes(`bucket: \`${bucket}`), `abuse control must cover ${bucket}`);
   }
+});
+
+test("README anonymous one-page check claim matches the Worker, page, and rate limits", () => {
+  assert.match(liveSection, /anonymous one-page URL check/i);
+  assert.ok(workerIndex.includes('url.pathname === "/check"'), "Worker must route /check");
+  assert.ok(workerIndex.includes('url.pathname === "/api/public-check"'), "Worker must route /api/public-check");
+  const publicCheckSource = readFileSync(new URL("../worker/routes/public-check.js", import.meta.url), "utf8");
+  assert.match(publicCheckSource, /maxPages: 1/, "the public check is a one-page run");
+  assert.match(publicCheckSource, /check:target-day/, "the check is rate-limited per site");
+  assert.match(publicCheckSource, /does not guarantee rankings, traffic, indexing, revenue, AI citations/i, "the public check keeps the no-ranking boundary");
+  assert.match(wranglerJsonc, /"\/check"/, "/check is served by the Worker before SPA assets");
 });
 
 // State-truthfulness pins. The numeric caps and routes above are locked to
