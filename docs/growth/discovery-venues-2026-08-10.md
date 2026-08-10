@@ -16,6 +16,20 @@ evidence collected with receipts, exact approved copy finalized
 (`docs/growth/discovery-venues-copy-2026-08-10.txt`), machine gate receipts
 captured, and the exact resume path per venue documented.
 
+Re-verified 2026-08-11 (lane-1 packet run): `venue-policy.json` allowlist still
+EMPTY (updated 2026-08-08) and `venues.json` still has zero active claims, so
+the block stands unchanged. Live absence re-confirmed for the pending venues
+folded in from the backlog still-seen note (2026-08-10 15:30 IST): GeoIndex
+(geodes.ai) 80-vendor directory fetched live — no SEO Fix Kit entry; Primary
+Position GEO list fetched live — no SEO Fix Kit entry. Direct probes: SaaSHub
+`/seo-fix-kit` HTTP 404; SaaS Hive `/seo-fix-kit` soft-404 (returns generic
+homepage, zero `seofixkit` string). AlternativeTo and Product Hunt return HTTP
+403 to plain curl (bot-walled; prior Camoufox receipts from 2026-08-10 stand).
+Fleet-infra note: `/home/nish/.local/bin/venue-claim` was NOT present on this
+box on 2026-08-11 (its contract test suite errors with FileNotFoundError), so
+fresh `venue-claim check` gate receipts could not be produced here; the
+authoritative JSON policy/ledger files above were read directly instead.
+
 Canonical copy inputs (everything in the copy file traces to the live site,
 `https://seofixkit.com/llms.txt`, or `https://seofixkit.com/packages`; see
 "Canonical copy inputs" below).
@@ -47,6 +61,8 @@ and would exit 4, so **no browser submission was attempted anywhere** — see
 | 12 | SaaS Hive | `site:saashive.com seofixkit` → no results; only FreeViralKit (unrelated) (DuckDuckGo via Camoufox) | Official "Launch Your Product" → https://saashive.com/launch-product redirects to https://saashive.com/join-as-founder ("Become a Founder on SaaS Hive"); site JSON-LD says "Free to browse. Founders can list products on free or paid plans." Permanent structured product pages (live, 2026-08-10) | unknown (not reviewed) → manual-only | Manual founder signup + product launch with copy file |
 | 13 | GitHub `Suganthan-Mohanadasan/awesome-seo-tools` | Official README (fetched live, 2026-08-10): no `seofixkit` / `SEO Fix Kit` entry; has "Technical SEO and Site Auditing", "LLM Visibility Tracking", "AI SEO Tools" categories | Official README contribution policy: fork + pull request; "Only submit tools with a proven track record, real users, and decent reviews"; rejects self-promotional submissions without genuine utility (re-verified in fleet packet `growth-loop/packets/seo-fix-kit/awesome-seo-tools-manual-listing-20260809.md`, checked 2026-08-09) | manual-only (PR workflow) | Owner-authored fork + PR **only** with proven-track-record evidence; no unattended account/fork/PR activity |
 | 14 | GitHub `best-of-ai/awesome-ai-seo` | Official README (fetched live, 2026-08-10): no `seofixkit` / `SEO Fix Kit` entry | PR-based curated list; same manual-only contributor workflow | manual-only (PR workflow) | Owner-authored fork + PR **only**; no unattended activity |
+| 15 | GeoIndex (Geodes) | 80-vendor GEO/AEO/AI-search directory fetched live 2026-08-11 (`https://www.geodes.ai/geo-aeo-and-ai-search-vendor-directory`): no SEO Fix Kit entry | Official "Add a vendor or request an edit" page (`https://www.geodes.ai/geo-index-listing`, live 2026-08-11) exposes a contact form plus email/WhatsApp ("Reach us directly"); ToS (live, 2026-08-11) grants no unattended-automation permission — submissions are evaluated/accepted/declined at Geodes' sole discretion (§4 "Inquiries and Services") | unknown (not reviewed) → manual-only | Manual vendor submission via the contact form/email with copy file; record listing URL + indexed title/description when accepted |
+| 16 | Primary Position GEO tools list | Editorial list fetched live 2026-08-11 (`https://primaryposition.com/blog/geo-visibility-tools/`): no SEO Fix Kit entry | Editorial blog post by an SEO agency (David Quaid, 2026-02-27); no submission route, no "add your tool" path, no vendor form | unknown → **not applicable as a listing venue** (editorial coverage, not a directory) | Optional manual editorial outreach via the site's contact form; treat as buyer-discovery evidence, not a submission target |
 
 Prior fleet packets for this product already cover #1, #2, and #13 in detail and
 are incorporated here by reference (do not duplicate submissions):
@@ -99,8 +115,9 @@ Every venue above is manual-only this run:
 
 1. **Free listing venues (manual, no payment):** AlternativeTo (sign up, verify
    email, "Suggest new application"), SaaSHub (submit form), SaaS Hive (founder
-   signup + launch), G2/Capterra/GetApp (vendor profile via G2 Digital Markets
-   with business-email validation), Product Hunt (only as a real founder-led
+   signup + launch), GeoIndex (contact-form vendor request, no account),
+   G2/Capterra/GetApp (vendor profile via G2 Digital Markets with
+   business-email validation), Product Hunt (only as a real founder-led
    launch — manual, never automated; PH ToS bars crawling/scraping). Use the
    exact copy in `docs/growth/discovery-venues-copy-2026-08-10.txt`; each listing
    must link to `https://seofixkit.com/demo` and `/methodology`, state
@@ -138,9 +155,13 @@ Every venue above is manual-only this run:
 1. AlternativeTo (review backlog — submit first, it is the slowest gate).
 2. SaaSHub (free submit flow).
 3. SaaS Hive (free founder listing; AI-search-oriented, matches GEO positioning).
-4. G2 → Capterra → GetApp vendor profiles (business-email validation; one G2
+4. GeoIndex (free "add a vendor" contact form; GEO/AEO directory that matches
+   the site-proof AI Answer Readiness positioning; low friction, no account
+   signup needed).
+5. G2 → Capterra → GetApp vendor profiles (business-email validation; one G2
    Digital Markets account covers all three).
-5. GitHub awesome-lists only after real-user evidence exists.
-6. Product Hunt only as a planned founder-led launch.
-7. Crunchbase / StackShare / Trustpilot: optional, low fit.
-8. StartupSubmit and any paid boosts: NEEDS-NISH.
+6. GitHub awesome-lists only after real-user evidence exists.
+7. Product Hunt only as a planned founder-led launch.
+8. Crunchbase / StackShare / Trustpilot: optional, low fit.
+9. Primary Position: editorial outreach only (optional, manual contact form).
+10. StartupSubmit and any paid boosts: NEEDS-NISH.
