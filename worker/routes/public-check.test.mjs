@@ -27,13 +27,28 @@ test("public check URL validation rejects malformed and private targets", () => 
   assert.equal(ok.url, "https://example.com/about?q=1");
 });
 
-test("public check quota buckets cover per-network and per-site windows", () => {
-  const checks = publicCheckQuotaChecks("iphash123", "Example.COM");
+test("public check quota buckets cover per-network and per-site windows without storing the target host", async () => {
+  const checks = await publicCheckQuotaChecks("iphash123", "Example.COM");
   const keys = checks.map((check) => check.bucket);
   assert.ok(keys.some((key) => key.startsWith("check:ip-hour:") && key.endsWith(":iphash123")), "per-IP hourly bucket");
   assert.ok(keys.some((key) => key.startsWith("check:ip-day:")), "per-IP daily bucket");
-  assert.ok(keys.some((key) => key.startsWith("check:target-hour:") && key.includes("example.com")), "per-site hourly bucket");
+  const targetHourKey = keys.find((key) => key.startsWith("check:target-hour:"));
+  assert.ok(targetHourKey, "per-site hourly bucket");
   assert.ok(keys.some((key) => key.startsWith("check:target-day:")), "per-site daily bucket");
+  assert.doesNotMatch(targetHourKey, /example\.com/i, "the target host must never be stored in plaintext");
+  assert.ok(/^check:target-hour:[^:]+:[0-9a-f]{32}$/.test(targetHourKey), "the target bucket ends in a 32-hex host hash");
+  const sameHost = await publicCheckQuotaChecks("iphash123", "Example.COM");
+  assert.deepEqual(
+    sameHost.map((check) => check.bucket),
+    keys,
+    "the same host hashes to the same bucket keys"
+  );
+  const otherHost = await publicCheckQuotaChecks("iphash123", "other-site.example");
+  assert.notDeepEqual(
+    otherHost.map((check) => check.bucket),
+    keys,
+    "a different host hashes to different bucket keys"
+  );
   assert.ok(checks.every((check) => Number(check.limit) > 0), "all limits are positive");
 });
 
@@ -63,7 +78,8 @@ test("public check page is searchable and hands off into private access", () => 
   assert.match(html, /rel="canonical" href="https:\/\/seofixkit\.com\/check"/);
   assert.match(html, /id="check-form"/);
   assert.match(html, /https:\/\/seofixkit\.com\/api\/public-check/);
-  assert.match(html, /nothing about your check is stored/i);
+  assert.match(html, /no report or URL is stored/i);
+  assert.match(html, /short-lived anonymous rate-limit counters/i);
   assert.match(html, /Request private access/);
   assert.match(html, /href="https:\/\/seofixkit\.com\/">SEO Fix Kit<\/a>/);
   assert.doesNotMatch(html, /noindex/i, "the entry page must stay searchable");
