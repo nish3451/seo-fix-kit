@@ -86,6 +86,15 @@ makes, that `/llms.txt`, `/sitemap.xml`, `/robots.txt`, `/api/health`,
 npm run audit:live-promise
 ```
 
+## Founder-led ICP experiment
+
+`docs/research/2026-08-09-founder-led-icp-acquisition-experiment.md` is the written log for the
+founder-led seven-day ICP acquisition experiment: up to 20 permission-safe, founder-sent
+invitations to JavaScript-heavy SaaS founders to run their own URL through `/check`, with four
+numeric gates (10 visits, 3 completed checks, 1 private-access request, 1 eligible Fix Pack
+conversation or purchase) and a keep/kill decision on whether "JS SaaS founder who wants proven
+fixes, not audit noise" remains the ICP. Outreach is founder-owned, never unattended promotion.
+
 ## Cloudflare path
 
 Cloudflare cannot run the local Express + Chromium server directly. The deployable path is:
