@@ -299,7 +299,7 @@ export function checkHtml(origin) {
         <p>To turn proof into a repair workflow, request a secure email access link: verified sessions get saved proof reports, crawl depth up to 1,000 pages per queued audit, and a repair queue with acceptance checks and one rerun after fixes.</p>
         <p><a class="cta" href="${origin}/">Request private access</a></p>
       </section>
-      <p><a href="${origin}/demo">View proof sample</a> · <a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a></p>
+      <p><a href="${origin}/demo">View proof sample</a> · <a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a> · <a href="${origin}/support">Support and refunds</a> · <a href="${origin}/terms">Terms</a> · <a href="${origin}/privacy">Privacy</a></p>
     </main>
     <script>
       (function () {

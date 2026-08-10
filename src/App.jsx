@@ -216,10 +216,12 @@ function WaitlistPage() {
           <article>
             <h3>What happens after I enter a URL?</h3>
             <p>
-              You get a rate-limited private audit. A one-page Lite check can run
-              before verification; verified sites unlock deeper self-serve crawls,
-              imports, saved reports, monitoring controls, and owner-scoped repair
-              queues.
+              Anyone can check one public page now at{" "}
+              <a href="/check">/check</a> with no account. After a secure email
+              access link you get a rate-limited private audit: a one-page Lite
+              check can run before verification, and verified sites unlock deeper
+              self-serve crawls, imports, saved reports, monitoring controls, and
+              owner-scoped repair queues.
             </p>
           </article>
           <article>
