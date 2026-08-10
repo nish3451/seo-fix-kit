@@ -291,6 +291,17 @@ export function publicSurfaceSpotChecks(baseUrl) {
       expectations: [
         { reason: "route rejects invalid input with a JSON error", match: '"error"' }
       ]
+    },
+    {
+      path: "/api/public-check",
+      name: "anonymous one-page check route rejects non-http URL schemes instead of mangling them",
+      method: "POST",
+      body: JSON.stringify({ url: "ftp://example.com" }),
+      acceptStatuses: [400],
+      contentType: "application/json",
+      expectations: [
+        { reason: "route rejects unsupported schemes before any browser render", match: "Enter a valid public website URL." }
+      ]
     }
   ];
 }

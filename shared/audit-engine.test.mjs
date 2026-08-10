@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createAuditEngine, isThrottledResource } from "./audit-engine.js";
+import { createAuditEngine, isThrottledResource, normalizeUrl } from "./audit-engine.js";
 import { buildBacklinkAudit } from "./backlink-audit.js";
 import { buildCrawlInventory } from "./crawl-inventory.js";
 import { buildLocalSeoAudit } from "./local-seo-audit.js";
@@ -758,4 +758,21 @@ test("rendered-vs-static guards stay truthful for the live script-rendered fixtu
     guardTitles.some((title) => title.includes("internal links exist after render")),
     `expected an internal-links guard, got: ${guardTitles.join(" | ")}`
   );
+});
+
+test("normalizeUrl adds https to scheme-less input and keeps valid http(s) URLs intact", () => {
+  assert.equal(normalizeUrl("example.com/about?q=1"), "https://example.com/about?q=1");
+  assert.equal(normalizeUrl("  example.com  "), "https://example.com/");
+  assert.equal(normalizeUrl("//example.com/about"), "https://example.com/about");
+  assert.equal(normalizeUrl("https://example.com/a?b=c#frag"), "https://example.com/a?b=c");
+  assert.equal(normalizeUrl("HTTP://EXAMPLE.COM/a"), "http://example.com/a");
+  assert.equal(normalizeUrl("example.com:8080/page"), "https://example.com:8080/page");
+});
+
+test("normalizeUrl rejects non-http schemes and embedded credentials instead of mangling them", () => {
+  assert.throws(() => normalizeUrl("ftp://example.com"), /Unsupported URL scheme "ftp"/);
+  assert.throws(() => normalizeUrl("javascript://example.com/x"), /Unsupported URL scheme "javascript"/);
+  assert.throws(() => normalizeUrl("mailto:hello@example.com"), /embedded credentials/i);
+  assert.throws(() => normalizeUrl("https://user:pass@example.com/"), /embedded credentials/i);
+  assert.throws(() => normalizeUrl("https://user@example.com/"), /embedded credentials/i);
 });

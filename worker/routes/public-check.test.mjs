@@ -21,10 +21,18 @@ test("public check URL validation rejects malformed and private targets", () => 
   assert.equal(validatePublicCheckUrl("http://[::1]/").ok, false);
   assert.equal(validatePublicCheckUrl("http://my-site.local/").ok, false);
   assert.equal(validatePublicCheckUrl("https://my-site.internal/").ok, false);
+  assert.equal(validatePublicCheckUrl("ftp://example.com/").ok, false);
+  assert.equal(validatePublicCheckUrl("ftp://example.com/file.pdf").ok, false);
+  assert.equal(validatePublicCheckUrl("mailto:hello@example.com").ok, false);
+  assert.equal(validatePublicCheckUrl("https://user:pass@example.com/").ok, false);
 
   const ok = validatePublicCheckUrl("example.com/about?q=1");
   assert.equal(ok.ok, true);
   assert.equal(ok.url, "https://example.com/about?q=1");
+
+  const protocolRelative = validatePublicCheckUrl("//example.com/about");
+  assert.equal(protocolRelative.ok, true);
+  assert.equal(protocolRelative.url, "https://example.com/about");
 });
 
 test("public check quota buckets cover per-network and per-site windows without storing the target host", async () => {
@@ -77,6 +85,11 @@ test("public check page is searchable and hands off into private access", () => 
   assert.ok(visibleWordCount(html) >= 250, "check page should not look thin to rendered audits");
   assert.match(html, /rel="canonical" href="https:\/\/seofixkit\.com\/check"/);
   assert.match(html, /id="check-form"/);
+  assert.match(
+    html,
+    /id="url-input" name="url" type="text" inputmode="url"/,
+    "the URL input must not block scheme-less entries client-side"
+  );
   assert.match(html, /https:\/\/seofixkit\.com\/api\/public-check/);
   assert.match(html, /no report or URL is stored/i);
   assert.match(html, /short-lived anonymous rate-limit counters/i);
