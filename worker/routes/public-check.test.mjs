@@ -95,6 +95,9 @@ test("public check page is searchable and hands off into private access", () => 
   assert.match(html, /short-lived anonymous rate-limit counters/i);
   assert.match(html, /Request private access/);
   assert.match(html, /href="https:\/\/seofixkit\.com\/">SEO Fix Kit<\/a>/);
+  assert.match(html, /href="https:\/\/seofixkit\.com\/support"/, "the anonymous check links to support");
+  assert.match(html, /href="https:\/\/seofixkit\.com\/terms"/, "the anonymous check links to terms");
+  assert.match(html, /href="https:\/\/seofixkit\.com\/privacy"/, "the anonymous check links to the privacy policy that backs its nothing-stored copy");
   assert.doesNotMatch(html, /noindex/i, "the entry page must stay searchable");
 });
 

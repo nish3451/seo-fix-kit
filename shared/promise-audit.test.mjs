@@ -203,6 +203,11 @@ test("README homepage anonymous-check claim matches the CTA beside the email for
     /<a className="check-entry-cta" href="\/check">/,
     "the homepage shows a primary CTA to the anonymous one-page check"
   );
+  assert.match(
+    appSource,
+    /Anyone can check one public page now at[\s\S]*<a href="\/check">\/check<\/a>[\s\S]*with no account/,
+    "the homepage FAQ names the anonymous /check entry path"
+  );
 });
 
 // State-truthfulness pins. The numeric caps and routes above are locked to
