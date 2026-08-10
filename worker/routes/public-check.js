@@ -194,6 +194,69 @@ export async function runPublicCheck(request, env) {
   }
 }
 
+// WebPage and FAQPage JSON-LD for the live /check surface. Every question
+// and answer mirrors text a visitor can read on the page itself, and the
+// answers keep the same no-ranking boundary the page and the API pin. The
+// `\\u003c` escape keeps "</script>" out of the block, same as pages.js.
+export function checkJsonLd(origin) {
+  const url = `${origin}/check`;
+  const jsonLd = JSON.stringify({
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebPage",
+        "@id": `${url}#webpage`,
+        name: "Check One Page for SEO Proof - SEO Fix Kit",
+        description:
+          "Paste any public page URL and see what a browser-rendered, proof-backed audit finds: static-vs-rendered evidence, guarded false positives, and actionable findings when present. No account, no ranking promises.",
+        url,
+        isPartOf: { "@type": "WebSite", name: "SEO Fix Kit", url: origin },
+        publisher: { "@type": "Organization", name: "SEO Fix Kit", url: origin },
+        mainEntity: { "@id": `${url}#faq` }
+      },
+      {
+        "@type": "FAQPage",
+        "@id": `${url}#faq`,
+        mainEntity: [
+          {
+            "@type": "Question",
+            name: "What does the one-page check measure?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: "It opens one public page in a real browser and compares the raw HTML with the rendered page: static vs rendered word count, rendered H1, rendered title, and internal links. It also shows guarded false positives and actionable findings when the shared audit engine finds them. No account, no email, and no stored report."
+            }
+          },
+          {
+            "@type": "Question",
+            name: "Is anything about my check stored?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: "No. The check is anonymous and ephemeral: nothing about your check is saved. The only records are rate-limit counters hashed per network and per target site."
+            }
+          },
+          {
+            "@type": "Question",
+            name: "Is this a full site audit?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: "No. This is one public page at one moment, not a full multi-page audit. Full reports, deeper crawls, saved proof reports, and the repair queue run in the private beta after secure email access."
+            }
+          },
+          {
+            "@type": "Question",
+            name: "Does this check promise rankings or traffic?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: "No. The one-page check does not guarantee rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility, and it does not replace a private multi-page report."
+            }
+          }
+        ]
+      }
+    ]
+  }).replace(/</g, "\\u003c");
+  return `<script type="application/ld+json">${jsonLd}</script>`;
+}
+
 export function checkHtml(origin) {
   return `<!doctype html>
 <html lang="en">
@@ -214,6 +277,7 @@ export function checkHtml(origin) {
     <meta name="twitter:title" content="Check One Page for SEO Proof - SEO Fix Kit" />
     <meta name="twitter:description" content="Paste any public page URL and see browser-rendered SEO proof. No account, no ranking promises." />
     <meta name="twitter:image" content="${origin}/og-image.svg" />
+    ${checkJsonLd(origin)}
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
       * { box-sizing: border-box; }
@@ -298,6 +362,17 @@ export function checkHtml(origin) {
       <section class="band">
         <h2>What this check does not claim</h2>
         <p>This is one public page at one moment, not a full site audit. No report or URL is stored: only short-lived anonymous rate-limit counters (a hash of your network and a hash of the checked site) are kept, and they expire automatically. It does not guarantee rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility. It does not replace a private multi-page report.</p>
+      </section>
+      <section class="band" aria-label="Frequently asked questions">
+        <h2>Frequently asked questions</h2>
+        <h3>What does the one-page check measure?</h3>
+        <p>It opens one public page in a real browser and compares the raw HTML with the rendered page: static vs rendered word count, rendered H1, rendered title, and internal links. It also shows guarded false positives and actionable findings when the shared audit engine finds them. No account, no email, and no stored report.</p>
+        <h3>Is anything about my check stored?</h3>
+        <p>No. The check is anonymous and ephemeral: nothing about your check is saved. The only records are rate-limit counters hashed per network and per target site.</p>
+        <h3>Is this a full site audit?</h3>
+        <p>No. This is one public page at one moment, not a full multi-page audit. Full reports, deeper crawls, saved proof reports, and the repair queue run in the private beta after secure email access.</p>
+        <h3>Does this check promise rankings or traffic?</h3>
+        <p>No. The one-page check does not guarantee rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility, and it does not replace a private multi-page report.</p>
       </section>
       <section class="band next-step">
         <h2>After the check</h2>
