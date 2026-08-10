@@ -102,7 +102,7 @@ test("live spot-check covers the www-to-apex canonical redirect", () => {
 
 test("live spot-check passes against the shipped public page copy", async () => {
   const results = await spotCheckPublicPages({ baseUrl: origin, fetcher: pageFetcher() });
-  assert.equal(results.length, 16);
+  assert.equal(results.length, 17);
   for (const result of results) {
     assert.deepEqual(result.failures, [], `${result.path} must pass: ${result.name}`);
   }
