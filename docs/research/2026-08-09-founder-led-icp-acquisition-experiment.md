@@ -1,0 +1,145 @@
+# Founder-Led ICP Acquisition Experiment: JS-Heavy SaaS Founders via `/check`
+
+Created: 2026-08-09 (scout 2026-08-09, backlog item "Run a seven-day founder-led ICP acquisition
+experiment for JS-heavy SaaS founders via `/check`")
+Status: READY FOR FOUNDER EXECUTION — outreach is founder-owned (never unattended spam), so this
+file is the written experiment log and kit. The founder sends the invitations and records every
+row; the log is the verification artifact.
+
+## One change this experiment tests
+
+Whether the product's core wedge — rendered proof with guarded false positives, then proven fixes —
+creates activation and revenue for one sharp ICP. Without this bounded test, more surface polish
+cannot prove the wedge converts a buyer.
+
+## Hypothesis and ICP
+
+> **ICP:** JavaScript-heavy SaaS founder whose site is prone to static-crawler false positives
+> (Next.js/React/SPA-heavy marketing sites) and who wants proven fixes, not audit noise.
+
+- Sites in this ICP routinely get "missing content" findings from static crawlers; a rendered
+  browser proof that shows the real DOM, plus evidence-backed findings with guarded false positives,
+  is the wedge that should matter to them.
+- The experiment also decides whether this stays the ICP worth keeping.
+
+## Preconditions (verified by scout 2026-08-09)
+
+- `/check` and `POST /api/public-check` are live (anonymous one-page URL check, rendered proof,
+  guarded false positives, rate-limited, nothing stored, handoff to private access).
+- Homepage has a primary "Check one page now" CTA beside the email-access form (merged #71).
+- `npm run audit:live-promise` spot-check green on all public surfaces.
+- Known limitation: public-check false 522/523 criticals and fabricated snippets are owned by a
+  separate open backlog item; if a prospect hits a false critical during this window, log it as an
+  objection and do not defend it — it is a known defect with an owner.
+
+## Numeric gates (seven-day window)
+
+Window starts on the day the first invitation is sent. Record `window_start` and `window_end`
+(dates) below.
+
+| Gate | Threshold | Target by | Count | Met? |
+|---|---|---|---|---|
+| G1 `/check` visits from invited prospects | >= 10 | window_end | 0 | |
+| G2 Completed checks (invited prospect runs own URL) | >= 3 | window_end | 0 | |
+| G3 Private-access requests (because of the check) | >= 1 | window_end | 0 | |
+| G4 Eligible Fix Pack conversation or purchase | >= 1 | window_end | 0 | |
+
+`window_start:` `window_end:` (fill in)
+
+## Channel plan (permission-safe, founder-sent)
+
+Source: scout last30days + web sweep 2026-08-09 18:46 IST named these as live places where founders
+post or accept free URL audits — use as venue candidates, **never as unattended promotion**:
+
+1. **Direct 1:1 invitations** (primary): founder-to-founder email/LinkedIn DM/Reddit DM to founders
+   of JS-heavy SaaS products the founder already knows or can contact with a real, non-sales reason.
+   The invitation must be personal, specific to their site, and offer the anonymous `/check` run.
+2. **r/SEO, r/micro_saas, r/SaaSMarketing** (secondary): only where a founder has publicly asked for
+   an audit or accepted tool suggestions; reply with a check of their URL and the personal
+   invitation. No posting of the tool itself as promotion; no upvote solicitation.
+3. **Warm communities** (optional): existing founder groups/Discords where the founder has standing
+   and where an explicit ask for an audit is present.
+
+Rule: 20 invitations total max. Every invitation must be permission-safe (a person who can opt out,
+an existing relationship or public ask, no scraping of private contacts, no mass DMs).
+
+## Invitation copy rules (truthfulness)
+
+- Invite them to run **their own public URL** through the anonymous `/check` — no account, no email,
+  nothing stored, one page.
+- State the proof boundary truthfully: rendered DOM proof, findings only when present, guarded false
+  positives, rate limits.
+- No unsupported ranking claims. No AI-citation/monitoring claims (live answer-engine sampling and
+  citation monitoring are not live; `/llms.txt` is a file on the site, not a monitored signal).
+- If they ask about private access or Fix Pack: private access is invite/email-link gated; Fix Pack
+  is the $99.00 one-time package with Dodo checkout, final at payment time, offered when real fixes
+  exist.
+
+## Prospect log (20 rows)
+
+Record every invitation: channel, whether they visited `/check`, whether they completed a check of
+their own URL, whether they requested private access, whether a Fix Pack conversation or purchase
+happened, their objection (if any), and the outcome.
+
+| # | Prospect / site | Channel | Invited (date) | G1 /check visit | G2 completed check | G3 private-access request | G4 Fix Pack conv/purchase | Objection | Outcome |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | | | | | | | | | |
+| 2 | | | | | | | | | |
+| 3 | | | | | | | | | |
+| 4 | | | | | | | | | |
+| 5 | | | | | | | | | |
+| 6 | | | | | | | | | |
+| 7 | | | | | | | | | |
+| 8 | | | | | | | | | |
+| 9 | | | | | | | | | |
+| 10 | | | | | | | | | |
+| 11 | | | | | | | | | |
+| 12 | | | | | | | | | |
+| 13 | | | | | | | | | |
+| 14 | | | | | | | | | |
+| 15 | | | | | | | | | |
+| 16 | | | | | | | | | |
+| 17 | | | | | | | | | |
+| 18 | | | | | | | | | |
+| 19 | | | | | | | | | |
+| 20 | | | | | | | | | |
+
+Counts vs gates (update daily): G1 / G2 / G3 / G4.
+
+## Channel notes (fill in per day)
+
+- Day 1:
+- Day 2:
+- Day 3:
+- Day 4:
+- Day 5:
+- Day 6:
+- Day 7:
+
+## Reconciliation
+
+- G1–G4 counts above must reconcile with the prospect log rows (first-party or manual counts are
+  acceptable; the funnel instrumentation item separately owns automated events).
+- If a prospect is known only by site (no name), the site URL is the row key.
+
+## ICP keep/kill decision (fill in at window_end)
+
+- **Keep** if: at least one prospect completes a check of their own URL AND requests private access
+  or discusses a Fix Pack because of the proof — with G1–G4 thresholds met or a named near-miss that
+  points to a fixable message problem.
+- **Kill** if: invitations get no engagement or objections show the wedge does not matter to
+  JS-heavy SaaS founders ("I already use X", "scores are noise", "I do not care about crawler
+  false positives") — then the ICP needs sharpening or the wedge needs proving elsewhere.
+- Decision (keep/kill + one-line reason):
+- What changed in the ICP definition (if anything):
+
+## Rollback
+
+Stop outreach at any time; leave product surfaces unchanged; retain this log. The log is the
+durable record either way.
+
+## Ownership
+
+- Outreach (20 invitations): founder-sent, personally, permission-safe.
+- This log: maintained in this repo under `docs/research/`; the loop reads it as the written
+  experiment log with the four numeric gates, channel notes, and the ICP keep/kill decision.

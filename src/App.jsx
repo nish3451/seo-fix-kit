@@ -160,7 +160,7 @@ function WaitlistPage() {
               Check one page now
             </a>
             <p className="check-entry-note">
-              Live rendered proof for one public page. Nothing is stored.
+              Live rendered proof for one public page. No report or URL is stored.
             </p>
           </div>
         </div>

@@ -7,16 +7,18 @@
 //   the submitted URL. Nothing here is hand-written marketing copy.
 // - The page and response never promise rankings, traffic, indexing,
 //   revenue, AI citations, or live answer-engine visibility.
-// - The check is one page, anonymous, ephemeral (nothing is saved), and
-//   rate-limited per network and per target site so the service and the
-//   pages it checks stay protected.
+// - The check is one page, anonymous, and ephemeral: no report or URL is
+//   stored, only short-lived anonymous rate-limit counters (hashed per
+//   network and per checked site) that expire with the same cleanup as every
+//   other abuse counter. It is rate-limited per network and per target site
+//   so the service and the pages it checks stay protected.
 // - Full multi-page audits, saved proof reports, site verification, and the
 //   repair queue remain inside the private beta; this route only measures
 //   the handoff into that private access.
 import { VERSION, normalizeUrl, publicAuditUrlStatus } from "../../shared/audit-engine.js";
 import { resolvesToPrivateAddress } from "../../shared/url-safety.js";
 import { jsonNoStore } from "../lib/http.js";
-import { checkQuotaSet, requestIpHash } from "../lib/security.js";
+import { checkQuotaSet, requestIpHash, sha256Hex } from "../lib/security.js";
 import { dayWindow, hourWindow } from "../lib/text.js";
 import { auditUrl } from "./audits.js";
 
@@ -26,7 +28,9 @@ export const PUBLIC_CHECK_API_PATH = "/api/public-check";
 // Rate limits for the anonymous surface. Deliberately small: the point is a
 // proof preview, not a free full audit. Buckets live in the existing
 // `audit_usage` D1 table (see worker/lib/security.js checkQuotaSet) so they
-// expire with the same cleanup as every other abuse counter.
+// expire with the same cleanup as every other abuse counter. The checked site
+// and the visitor network are stored only as SHA-256 hashes, so the quota
+// rows never contain a readable target hostname, URL, or visitor identifier.
 export const PUBLIC_CHECK_LIMITS = {
   ipHour: 6,
   ipDay: 15,
@@ -37,7 +41,7 @@ export const PUBLIC_CHECK_LIMITS = {
 const NEXT_STEP_COPY =
   "The full repair workflow runs in the private beta: secure email access, site verification for deeper crawls, a saved proof report, and a repair queue with acceptance checks and one rerun after fixes. No ranking promise is made.";
 const BOUNDARY_COPY =
-  "This check measured one public page at scan time. It is not a full site audit, nothing about your check is stored, and it does not guarantee rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility.";
+  "This check measured one public page at scan time. It is not a full site audit, and no report or URL is stored: only short-lived anonymous rate-limit counters (a hash of your network and a hash of the checked site) are kept and expire automatically. It does not guarantee rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility.";
 
 export function validatePublicCheckUrl(input) {
   let url = "";
@@ -51,14 +55,13 @@ export function validatePublicCheckUrl(input) {
   return { ok: true, url };
 }
 
-export function publicCheckQuotaChecks(ipHash, targetHost) {
+export async function publicCheckQuotaChecks(ipHash, targetHost) {
   const now = new Date();
   const hour = hourWindow(now);
   const day = dayWindow(now);
-  const targetKey = String(targetHost || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9.-]/gi, "")
-    .slice(0, 120);
+  // The checked site is stored only as a hash (same pattern as the network
+  // hash in requestIpHash), so D1 never holds a readable target hostname.
+  const targetKey = (await sha256Hex(String(targetHost || "").trim().toLowerCase())).slice(0, 32);
   return [
     {
       bucket: `check:ip-hour:${hour.key}:${ipHash}`,
@@ -147,7 +150,9 @@ export function buildPublicCheckResponse(report) {
 
 // Worker handler for POST /api/public-check. Anonymous by design: no beta
 // session, no stored report, no owner records. The only D1 writes are the
-// rate-limit counters in `audit_usage`, hashed per network.
+// rate-limit counters in `audit_usage`, hashed per network and per checked
+// site, so the database never holds a readable target hostname, URL, or
+// visitor identifier.
 export async function runPublicCheck(request, env) {
   const body = await request.json().catch(() => ({}));
   const input = typeof body?.url === "string" ? body.url : "";
@@ -166,7 +171,7 @@ export async function runPublicCheck(request, env) {
   }
 
   const ipHash = await requestIpHash(request);
-  const quota = await checkQuotaSet(env, publicCheckQuotaChecks(ipHash, hostname));
+  const quota = await checkQuotaSet(env, await publicCheckQuotaChecks(ipHash, hostname));
   if (!quota.ok) {
     return jsonNoStore({ error: quota.error, resetAt: quota.resetAt }, 429);
   }
@@ -292,7 +297,7 @@ export function checkHtml(origin) {
       </section>
       <section class="band">
         <h2>What this check does not claim</h2>
-        <p>This is one public page at one moment, not a full site audit, and nothing about your check is stored. It does not guarantee rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility. It does not replace a private multi-page report.</p>
+        <p>This is one public page at one moment, not a full site audit. No report or URL is stored: only short-lived anonymous rate-limit counters (a hash of your network and a hash of the checked site) are kept, and they expire automatically. It does not guarantee rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility. It does not replace a private multi-page report.</p>
       </section>
       <section class="band next-step">
         <h2>After the check</h2>
