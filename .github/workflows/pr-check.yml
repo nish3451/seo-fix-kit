@@ -43,7 +43,7 @@ concurrency:
 jobs:
   check:
     name: check
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux, x64, vps-verify]
     timeout-minutes: 30
     steps:
       - name: Check out source
@@ -71,7 +71,7 @@ jobs:
         # with BROWSER_BUSY masking "Executable doesn't exist". Only chromium
         # is installed; --with-deps adds the system libraries the runner image
         # does not ship.
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
 
       - name: Run project check (tests + build)
         # The one canonical validation command. A nonzero exit fails the job
