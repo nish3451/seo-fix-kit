@@ -437,6 +437,7 @@ ${pageSocialHead({ origin, title: "Privacy - SEO Fix Kit", description: "SEO Fix
         <li>Deletion and access: email <a href="mailto:support@seofixkit.com">support@seofixkit.com</a> (or reply to any email we send) to request a copy or deletion of your beta data. We honor verified requests within 30 days, except records we must keep for payment reconciliation or abuse prevention.</li>
       </ul>
       <p>Last updated: June 15, 2026.</p>
+      <p><a href="${origin}/terms">Terms</a> · <a href="${origin}/support">Support</a> · <a href="${origin}/methodology">Methodology</a> · <a href="${origin}/packages">Packages</a> · <a href="${origin}/check">Check one page now</a></p>
     </main>
   </body>
 </html>`;
@@ -472,7 +473,7 @@ function supportHtml(origin) {
       <h2>Ownership and deletion</h2>
       <p>SEO Fix Kit is for sites you own or are authorized to audit. We may pause audits, delete reports, or revoke access when ownership is unclear, the target appears abusive, or the crawl could overload a third-party site. To request deletion or a copy of beta data, email from the account address or reply to a SEO Fix Kit email thread so ownership can be verified.</p>
       <p>Last updated: June 19, 2026.</p>
-      <p><a href="${origin}/privacy">Privacy</a> · <a href="${origin}/terms">Terms</a> · <a href="${origin}/methodology">Methodology</a> · <a href="${origin}/packages">Packages</a></p>
+      <p><a href="${origin}/privacy">Privacy</a> · <a href="${origin}/terms">Terms</a> · <a href="${origin}/methodology">Methodology</a> · <a href="${origin}/packages">Packages</a> · <a href="${origin}/check">Check one page now</a></p>
     `
   });
 }
@@ -523,7 +524,7 @@ function termsHtml(origin) {
         <li>Questions about these terms or your account: <a href="mailto:support@seofixkit.com">support@seofixkit.com</a>.</li>
       </ul>
       <p>Last updated: June 12, 2026.</p>
-      <p><a href="${origin}/privacy">Privacy</a> · <a href="${origin}/support">Support</a></p>
+      <p><a href="${origin}/privacy">Privacy</a> · <a href="${origin}/support">Support</a> · <a href="${origin}/methodology">Methodology</a> · <a href="${origin}/packages">Packages</a> · <a href="${origin}/check">Check one page now</a></p>
     `
   });
 }

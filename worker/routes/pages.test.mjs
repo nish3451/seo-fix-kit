@@ -9,7 +9,9 @@ import {
   llmsText,
   methodologyHtml,
   packagesHtml,
-  supportHtml
+  privacyHtml,
+  supportHtml,
+  termsHtml
 } from "./pages.js";
 
 const origin = "https://seofixkit.com";
@@ -75,6 +77,33 @@ test("machine-readable public surfaces list proof pages and limits", () => {
   assert.match(llms, /There is no live SEO Fix Kit MCP endpoint today/);
   assert.match(llms, /Does not expose unauthenticated agent actions/);
   assert.match(markdown, new RegExp(`Anonymous one-page check: ${origin}/check`));
+});
+
+test("policy pages cross-link each other and the live anonymous check", () => {
+  const privacy = privacyHtml(origin);
+  const terms = termsHtml(origin);
+  const support = supportHtml(origin);
+
+  for (const html of [privacy, terms, support]) {
+    assert.match(html, new RegExp(`href="${origin}/terms"`), "policy pages must link to terms");
+    assert.match(html, new RegExp(`href="${origin}/privacy"`), "policy pages must link to privacy");
+    assert.match(html, new RegExp(`href="${origin}/support"`), "policy pages must link to support");
+    assert.match(
+      html,
+      new RegExp(`href="${origin}/check">Check one page now</a>`),
+      "policy pages must carry a path to the live anonymous one-page check"
+    );
+  }
+  assert.match(
+    privacy,
+    new RegExp(`href="${origin}/methodology"`),
+    "the privacy page must not be a dead end"
+  );
+  assert.match(
+    privacy,
+    new RegExp(`href="${origin}/packages"`),
+    "the privacy page must reach the package ladder"
+  );
 });
 
 test("public demo and support pages carry enough buyer-facing detail", () => {
