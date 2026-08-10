@@ -1898,7 +1898,7 @@ app.post("/api/public-check", async (req, res) => {
     const ipHash = await requestIpHash({
       headers: { get: (name) => String(req.headers[name.toLowerCase()] || "") }
     });
-    const quota = localPublicCheckQuota(publicCheckQuotaChecks(ipHash, hostname));
+    const quota = localPublicCheckQuota(await publicCheckQuotaChecks(ipHash, hostname));
     if (!quota.ok) {
       res.status(429).set("cache-control", "no-store").json({ error: quota.error, resetAt: quota.resetAt });
       return;
