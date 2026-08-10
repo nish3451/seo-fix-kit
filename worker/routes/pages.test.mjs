@@ -36,6 +36,16 @@ test("public proof pages expose methodology and package ladder without overclaim
   assert.match(methodology, /No AI visibility tracking/);
   assert.match(methodology, /draft-only growth briefs/);
   assert.match(methodology, /No hidden site writes/);
+  assert.match(
+    methodology,
+    new RegExp(`<a href="${origin}/check">${origin}/check</a>`),
+    "methodology must link the anonymous one-page check URL instead of leaving it plain text"
+  );
+  assert.match(
+    methodology,
+    new RegExp(`<a class="cta" href="${origin}/check">Check one page now</a>`),
+    "methodology must carry a clickable CTA into the anonymous one-page check"
+  );
   assert.match(packages, /SEO Fix Pack/);
   assert.match(packages, /\$99\.00 one-time/);
   assert.match(packages, /Dodo shows the final checkout price/);

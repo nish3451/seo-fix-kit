@@ -237,12 +237,13 @@ function methodologyHtml(origin) {
       <section class="band">
         <h2>What is live today</h2>
         <ul class="check-list">
-          <li>Anonymous one-page checks at ${origin}/check: paste a public URL and get rendered proof, guarded false positives, and actionable findings when present, with no account and no stored report.</li>
+          <li>Anonymous one-page checks at <a href="${origin}/check">${origin}/check</a>: paste a public URL and get rendered proof, guarded false positives, and actionable findings when present, with no account and no stored report.</li>
           <li>Private self-serve audits for authorized sites, with 1-page Lite checks and verified-host crawl depths up to 1,000 pages.</li>
           <li>Rendered page proof, sitemap inventory up to 50,000 discovered URLs, crawl intelligence, resource waterfall proof, platform SEO checks, proof-derived AI Answer Readiness, draft-only growth briefs, competitor homepage benchmarks, and supplied backlink/local/keyword imports.</li>
           <li>Private report repair queues with proof, status, safe drafts, approval state, owner-approved implementation packs, proof receipts after fixed reruns, teammate assignment, account-level next actions, and one Fix Pack checkout path when real fixes exist.</li>
           <li>Developer API and webhook surfaces for owner-scoped audit workflows, including safe repair queue status, separate implementation-pack and proof-receipt endpoints, and repair-action lifecycle events.</li>
         </ul>
+        <p><a class="cta" href="${origin}/check">Check one page now</a></p>
       </section>
       <section class="band">
         <h2>Limits we state up front</h2>
@@ -378,6 +379,7 @@ ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })
       .package-card a { align-items: center; border: 1px solid rgba(152,240,204,.32); border-radius: 8px; display: inline-flex; justify-content: center; min-height: 44px; padding: 0 14px; width: fit-content; }
       .check-list { display: grid; gap: 12px; list-style: none; padding-left: 0; }
       .check-list li { background: rgba(7,13,10,.58); border: 1px solid rgba(251,248,239,.1); border-radius: 8px; padding: 14px 16px; }
+      .cta { align-items: center; background: #98f0cc; border-radius: 8px; color: #06100c; display: inline-flex; font-weight: 880; min-height: 48px; padding: 0 18px; }
       @media (max-width: 760px) { header { align-items: flex-start; flex-direction: column; gap: 18px; margin-bottom: 44px; } nav { justify-content: flex-start; } .grid.three, .grid.two, .package-grid { grid-template-columns: 1fr; } main { padding-top: 26px; } }
     </style>
   </head>
