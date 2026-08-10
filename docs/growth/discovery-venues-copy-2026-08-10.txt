@@ -157,6 +157,27 @@ PER-VENUE FIELDS
 - Note: permanent structured product pages; free and paid founder plans
   exist. Manual founder signup only.
 
+--- GeoIndex by Geodes (add a vendor / request an edit) ---
+- Route: https://www.geodes.ai/geo-index-listing (contact form; email and
+  WhatsApp also listed on the page)
+- Name: SEO Fix Kit
+- Category: GEO/AEO Optimization Tools (directory filters include
+  "GEO/AEO Optimization Tools" and "AI Visibility Tracking & Monitoring";
+  SEO Fix Kit fits the optimization side — site-proof AI Answer Readiness,
+  NOT live citation monitoring)
+- One-line description: Proof-backed SEO repair: rendered vs static HTML
+  proof, guarded false positives, and actionable fixes — with site-proof AI
+  Answer Readiness checks (no live AI-engine sampling).
+- Description (full): use the Long description above verbatim.
+- Links: https://seofixkit.com/demo, https://seofixkit.com/methodology,
+  https://seofixkit.com/check
+- Honesty lines to keep visible: "AI Answer Readiness is derived from your
+  site's rendered content; SEO Fix Kit does not monitor live AI-engine
+  answers or citations."
+- Note: directory evaluated by the Geodes team (ToS §4); acceptance not
+  guaranteed. Manual submission only; no payment required to request a
+  listing.
+
 --- GitHub awesome lists (fork + PR, manual, only with track record) ---
 - Suganthan-Mohanadasan/awesome-seo-tools — section "Technical SEO and Site
   Auditing". Proposed entry:
