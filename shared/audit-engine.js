@@ -2721,8 +2721,15 @@ function absolute(value, base) {
 
 export function normalizeUrl(input) {
   const trimmed = String(input || "").trim();
+  const explicitScheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(trimmed);
+  if (explicitScheme && !/^https?$/i.test(explicitScheme[1])) {
+    throw new Error(`Unsupported URL scheme "${explicitScheme[1]}".`);
+  }
   const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
   const url = new URL(withProtocol);
+  if (url.username || url.password) {
+    throw new Error("URLs with embedded credentials are not supported.");
+  }
   url.hash = "";
   return url.href;
 }

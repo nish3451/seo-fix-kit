@@ -266,7 +266,7 @@ export function checkHtml(origin) {
       <form class="check-form" id="check-form" aria-label="One-page URL check">
         <label for="url-input">Public page URL</label>
         <div class="row">
-          <input id="url-input" name="url" type="url" inputmode="url" autocomplete="off" placeholder="https://example.com/about" required />
+          <input id="url-input" name="url" type="text" inputmode="url" autocomplete="off" placeholder="https://example.com/about" required />
           <button id="check-button" type="submit">Check this page</button>
         </div>
         <p class="form-note">One page per check. Rate-limited per network and per site to protect the service and the pages it checks. Use only pages you own or are authorized to audit.</p>
