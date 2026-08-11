@@ -34,6 +34,14 @@ Live product claims:
 - Repair Sprint eligibility can be shown from approved proposal state, but distinct Repair Sprint checkout is not live yet.
 - Agency Workspace features run under beta limits; paid Agency Workspace checkout is not live yet.
 
+Hosted-only differentiators vs free installable SEO agent skills:
+- Free installable SEO agent skills are useful for quick, single-page checks and remain a good complement; SEO Fix Kit's hosted surfaces add the parts that need infrastructure and persistence.
+- Hosted rendered crawl scope: self-serve audits up to 1,000 pages per queued audit, robots.txt and sitemap crawl inventory up to 50,000 discovered URLs, and staged large rendered crawl jobs for 50,000-page targets (early access; batches render gradually, never sold as completed 50K rendered validation).
+- Persistent repair queue: proven issues stay tracked across saved reports with approval state, acceptance checks, status, and fixed-rerun proof receipts.
+- Owner-approved implementation packs: private handoff documents with source proof and approval state for approved repair actions.
+- Paid Fix Pack fulfillment: one proof-backed repair pass per report plus one rerun after fixes, with Dodo as the checkout and visible-price source of truth.
+- Why not just use a free AI SEO agent skill? The plain answer is on ${origin}/methodology; the same boundaries apply to both, including no live AI-engine sampling, no AI citation monitoring, and no ranking guarantees.
+
 Agent-readable acquisition and action surfaces:
 - Public context for agents: ${origin}/llms.txt, ${origin}/.well-known/skill.md, ${origin}/demo, ${origin}/methodology, ${origin}/packages, ${origin}/support, and ${origin}/terms.
 - Owner setup starts inside the private beta workspace; anonymous one-page checks are live at ${origin}/check, while full multi-page audits and unauthenticated repair actions are not live.
@@ -266,6 +274,12 @@ function methodologyHtml(origin) {
         <h2>Acceptance standard</h2>
         <p>A repair is treated as proof-backed only when the report names the issue, shows source evidence, gives a concrete fix, and includes an acceptance check that can be rerun. Rankings, traffic, indexing, citations, and revenue are never guaranteed.</p>
       </section>
+      <section class="band">
+        <h2>Why not just use a free AI SEO agent skill?</h2>
+        <p>Free installable SEO agent skills are genuinely useful for quick, single-page checks: read a page, spot a missing title or description, draft a fix. Open-source SEO tooling is good at that, and you should keep using it. Those skills run per prompt, though, with no persisted state across a whole site.</p>
+        <p>The hosted product earns its place by doing the parts that need infrastructure and persistence: rendered crawl scope at site scale (self-serve audits up to 1,000 pages, sitemap inventory up to 50,000 discovered URLs, and staged large rendered crawl jobs), a persistent repair queue with approval, acceptance checks, and fixed-rerun proof receipts, owner-approved implementation packs, and paid Fix Pack fulfillment with one rerun after fixes.</p>
+        <p>The boundaries stay the same as a free skill's: no live AI-engine sampling, no AI citation monitoring, and no ranking guarantees. If a one-page check is all you need, <a href="${origin}/check">${origin}/check</a> is free and needs no account; if you need the hosted loop, see the <a href="${origin}/packages">package ladder</a>.</p>
+      </section>
     `
   });
 }
@@ -345,6 +359,7 @@ function packagesHtml(origin) {
       <section class="band">
         <h2>Why this ladder exists</h2>
         <p>The product is built to avoid audit noise and over-automation. The first paid step is a small, inspectable repair pass. Future packages only become live when proof, approval controls, billing, and provider safety are implemented.</p>
+        <p>Wondering why a hosted service at all, when free installable AI SEO agent skills exist? The plain answer is on the <a href="${origin}/methodology">methodology page</a>: free skills are great for one-page checks, while hosted audits add site-scale rendered crawl scope, persistent repair state, and fulfillment.</p>
       </section>
     `
   });

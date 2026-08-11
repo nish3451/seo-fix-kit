@@ -556,7 +556,14 @@ test("README large-crawl staged-plan claim keeps scale readiness honest", () => 
   assert.match(liveSection, /scale-readiness repair actions/i);
   assert.match(renderedCrawlScaleSource, /repairOpportunities/, "scale readiness repair actions exist");
   assert.match(liveSection, /never sold as completed 50K rendered validation/i);
-  assert.doesNotMatch(pagesSource, /completed 50K rendered validation/i, "public pages never claim completed 50K validation");
+  const completed50kMentions = (pagesSource.match(/completed 50K rendered validation/gi) || []).length;
+  const negated50kMentions = (pagesSource.match(/never sold as completed 50K rendered validation/gi) || []).length;
+  assert.ok(negated50kMentions >= 1, "public pages state the staged 50K crawl boundary");
+  assert.equal(
+    completed50kMentions,
+    negated50kMentions,
+    "public pages only mention completed 50K rendered validation inside the never-sold-as negation"
+  );
 });
 
 test("README sitemap inventory claim keeps rendered repair proof separate", () => {
