@@ -1,0 +1,124 @@
+ICP EXPERIMENT — TRUTHFUL INVITATION COPY (drafted 2026-08-12)
+=============================================================
+Part of the founder-led seven-day ICP acquisition experiment
+(docs/research/2026-08-09-founder-led-icp-acquisition-experiment.md).
+
+This file is copy for the FOUNDER to send personally, permission-safe, to at most 20
+candidates (existing relationship or public ask — no cold scraping, no mass DMs).
+Every line below follows the experiment's truthfulness rules: rendered-proof boundary
+stated, findings only when present, guarded false positives, rate limits, no ranking
+claims, no AI-citation/monitoring claims, private access invite-gated, Fix Pack $99.00
+one-time with Dodo checkout final at payment time.
+
+Fill every [PLACEHOLDER] before sending. Personalize per prospect; never send the
+same text to 20 people.
+
+-------------------------------------------------------------------------
+1. EMAIL (founder-to-founder, existing relationship or real reason)
+-------------------------------------------------------------------------
+Subject: Quick one-page check of [SITE] — [PERSONAL REASON]
+
+Hi [NAME],
+
+[PERSONAL REASON: one real, specific sentence — we met at X / you replied to my
+post on Y / I've been following [SITE] since Z / a mutual contact suggested I reach
+out. Never a generic "saw your site".]
+
+I run SEO Fix Kit, a proof-backed SEO repair tool. I've been testing whether the
+proof matters most to JS-heavy SaaS sites like [SITE] — sites where static crawlers
+often report "missing content" that isn't actually missing.
+
+You can run any one public page of [SITE] through our anonymous check here:
+
+https://seofixkit.com/check
+
+What it does, truthfully: renders the page in a real browser, compares it against
+the static HTML a crawler would see, and shows findings only when present — with
+guarded false positives. No account, no email, no stored report; only short-lived
+anonymous rate-limit counters. It checks one page per run.
+
+If you run it and the proof misses the real problem on your site, I'd genuinely
+want to know — that's exactly the feedback I'm collecting this week.
+
+No strings attached, no ranking promises.
+
+Best,
+[NAME]
+[LINKEDIN/X OR SITE — only if you want one]
+
+-------------------------------------------------------------------------
+2. LINKEDIN DM (shorter, warm connection)
+-------------------------------------------------------------------------
+Hi [NAME] — [PERSONAL REASON: one sentence with a real connection].
+
+Since [SITE] is a [Next.js/React/JS-heavy] site, I thought you might be the right
+person to test something I'm building: an anonymous one-page check
+(https://seofixkit.com/check) that renders a URL in a real browser and shows
+static-vs-rendered proof — for sites like yours that static crawlers tend to
+misreport. No account, nothing stored, findings only when present.
+
+Run any public page of [SITE] and tell me if the proof is useful or noise. Honest
+answer either way — that's the experiment.
+
+-------------------------------------------------------------------------
+3. REDDIT REPLY (only inside a thread where a founder publicly asked for
+   an audit / accepted tool suggestions — never a standalone post)
+-------------------------------------------------------------------------
+I ran your homepage through a rendered-proof check (it renders the page in a real
+browser and compares it to the static HTML crawlers see, with guarded false
+positives — one page, anonymous, nothing stored):
+
+https://seofixkit.com/check
+
+On [SITE], [1-2 concrete observations from the actual run, if any — e.g. "the
+static HTML was missing the FAQ section that renders in the browser" or "no
+findings on this page — the static HTML matched the rendered DOM"]. If your page
+showed no findings, that's a truthful "no findings" — the tool doesn't invent
+issues.
+
+I'm the founder, doing a week of one-on-one tests with JS-heavy SaaS sites — happy
+to run another page of yours if you drop the URL in a reply. No ranking promises,
+no upsell pitch.
+
+-------------------------------------------------------------------------
+4. WHAT THE COPY MUST NEVER SAY (checklist before send)
+-------------------------------------------------------------------------
+[ ] No "guaranteed rankings / traffic / indexation" — ever.
+[ ] No "AI engines cite you" / "monitored across answer engines" — live
+    answer-engine sampling and citation monitoring are NOT live. /llms.txt is a
+    file on the site, not a monitored signal.
+[ ] No "full site audit" — the anonymous check is ONE page per run.
+[ ] No "we store nothing at all" — the truthful live copy is "No report or URL is
+    stored; only short-lived anonymous rate-limit counters".
+[ ] No "20 invitations sent" or volume claims to prospects.
+[ ] No generic blasts: every message carries [PERSONAL REASON].
+
+-------------------------------------------------------------------------
+5. IF THEY ASK (answer truthfully, then log)
+-------------------------------------------------------------------------
+"Can you audit my whole site?" → Full multi-page audits are in private beta,
+invite/email-link gated; I can send an access link if you want one.
+
+"What does the paid version cost?" → The Fix Pack is a $99.00 one-time
+proof-backed repair pass tied to one report, plus one rerun after fixes; Dodo
+checkout is the final price at payment time. It's offered only when a report
+shows real fixes.
+
+"You flagged X as critical but it's not broken!" → If it's the known 522/523
+same-origin false critical or a fabricated snippet: "You're right — that's a
+known false positive on our side, it has an owner and a fix in progress. Logging
+it, thank you." Do NOT defend it. Record the objection.
+
+"I already use [Ahrefs/Semrush/Screaming Frog/other]" → "Totally fair — those are
+great for keywords/backlinks. The only thing I'd claim is rendered proof: what a
+real browser sees vs what a static crawler sees. If that's not your problem, no
+worries."
+
+"I don't care about crawler false positives" → Record verbatim in the prospect
+log. This is a keep/kill signal for the ICP definition.
+
+-------------------------------------------------------------------------
+6. AFTER EACH SEND (founder records in the experiment log)
+-------------------------------------------------------------------------
+Row in the prospect log: channel, invited date, G1–G4 counts when known, objection
+verbatim, outcome. Daily: update "Counts vs gates" and the Day-N channel note.

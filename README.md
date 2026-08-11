@@ -112,6 +112,10 @@ invitations to JavaScript-heavy SaaS founders to run their own URL through `/che
 numeric gates (10 visits, 3 completed checks, 1 private-access request, 1 eligible Fix Pack
 conversation or purchase) and a keep/kill decision on whether "JS SaaS founder who wants proven
 fixes, not audit noise" remains the ICP. Outreach is founder-owned, never unattended promotion.
+The execution kit (prospect candidates with live stack evidence and truthful per-channel
+invitation copy, both prepared 2026-08-12) lives at
+`docs/research/icp-experiment-prospect-candidates-2026-08-12.md` and
+`docs/research/icp-experiment-invitation-copy-2026-08-12.txt`.
 
 ## Cloudflare path
 
