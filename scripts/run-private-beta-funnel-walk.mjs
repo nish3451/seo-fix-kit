@@ -293,7 +293,7 @@ async function walkStop({ baseUrl, stop, page, timeoutMs, viewport }) {
 
   const expectedLinks = stop.expectedLinks.map((href) => ({
     href,
-    present: pageState.anchors.some((anchor) => anchor === href || anchor.startsWith(`${href}?`) || anchor.startsWith(`${href}#`))
+    present: pageState.anchors.some((anchor) => samePathname(anchor, href, baseUrl))
   }));
 
   const accessForm =
@@ -466,6 +466,22 @@ export function funnelWalkSummary(result) {
 function hasContent(text, match, ignoreCase = false) {
   if (typeof text !== "string") return false;
   return ignoreCase ? text.toLowerCase().includes(match.toLowerCase()) : text.includes(match);
+}
+
+// Compares an anchor href (possibly absolute, e.g. the Worker pages emit
+// href="https://seofixkit.com/packages") against an expected site path such
+// as "/packages". Query strings and hash fragments are ignored; absolute
+// anchors must be same-origin with the walked site.
+export function samePathname(anchor, expectedPath, baseUrl) {
+  if (typeof anchor !== "string" || typeof expectedPath !== "string") return false;
+  try {
+    const resolved = new URL(anchor, baseUrl);
+    const expected = new URL(expectedPath, baseUrl);
+    if (resolved.host !== expected.host) return false;
+    return resolved.pathname === expected.pathname;
+  } catch {
+    return false;
+  }
 }
 
 function isDirectRun() {

@@ -5,7 +5,8 @@ import {
   FUNNEL_STOPS,
   WALK_STATUS,
   evaluateStopEvidence,
-  funnelWalkSummary
+  funnelWalkSummary,
+  samePathname
 } from "./run-private-beta-funnel-walk.mjs";
 
 const origin = "https://seofixkit.com";
@@ -19,7 +20,16 @@ function passingStopEvidence(stop, viewport = "desktop") {
     match: check.match,
     present: true
   }));
-  const expectedLinks = (stop.expectedLinks || []).map((href) => ({ href, present: true }));
+  // Worker-rendered pages emit absolute same-origin hrefs (href="${origin}/..."),
+  // so fixtures use the absolute form except on the SPA home page.
+  const anchorFor = (href) => (stop.path === "/" ? href : `${origin}${href}`);
+  const anchors = (stop.expectedLinks || []).map((href) => anchorFor(href));
+  // Mirrors the live walker: expected-link presence is derived from the
+  // collected anchors through samePathname, so a matcher regression fails here.
+  const expectedLinks = (stop.expectedLinks || []).map((href) => ({
+    href,
+    present: anchors.some((anchor) => samePathname(anchor, href, origin))
+  }));
   const accessForm =
     stop.accessForm === true
       ? {
@@ -46,9 +56,19 @@ function passingStopEvidence(stop, viewport = "desktop") {
     brokenLinks: { checked: [], broken: [] },
     horizontalOverflow: { scrollWidth: viewport === "mobile" ? 390 : 1280, innerWidth: viewport === "mobile" ? 390 : 1280, overflow: false },
     accessForm,
-    walkerError: null
+    walkerError: null,
+    // anchors as collected from the DOM, absolute on Worker pages
+    anchors
   };
 }
+
+test("anchor matching treats absolute same-origin hrefs as the expected path", () => {
+  assert.equal(samePathname("https://seofixkit.com/packages", "/packages", origin), true);
+  assert.equal(samePathname("/packages", "/packages", origin), true);
+  assert.equal(samePathname("https://seofixkit.com/check?utm=x", "/check", origin), true);
+  assert.equal(samePathname("https://other.example.com/packages", "/packages", origin), false);
+  assert.equal(samePathname(null, "/packages", origin), false);
+});
 
 test("every funnel stop passes with the recorded evidence shape", () => {
   for (const stop of FUNNEL_STOPS) {
