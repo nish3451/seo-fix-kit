@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import worker from "./index.js";
 import { sha256Hex } from "./lib/security.js";
 
@@ -323,6 +324,38 @@ test("Worker deep health claims the route for HEAD and unsupported methods", asy
   const body = await postResponse.json();
   assert.equal(postResponse.status, 405);
   assert.equal(body.error, "Method not allowed.");
+});
+
+test("Worker dispatch passes through the asset layer 404 for unknown URLs instead of rewriting to the homepage", async () => {
+  const env = await fakeWorkerEnv();
+
+  // The ASSETS binding (wrangler.jsonc not_found_handling "404-page") owns the
+  // 404 response for unknown URLs. The worker must pass it through unchanged
+  // (status, body) with security headers, never a 200 homepage shell.
+  const unknown = await worker.fetch(new Request("https://seofixkit.test/definitely-not-a-real-page-xyz"), env, fakeCtx());
+  assert.equal(unknown.status, 404);
+  assert.equal(await unknown.text(), "asset fallback");
+  assert.match(unknown.headers.get("x-content-type-options") || "", /nosniff/);
+  assert.match(unknown.headers.get("x-frame-options") || "", /DENY/);
+
+  // Unknown /api/* and /v1/* paths must also surface a 404, not the SPA shell.
+  const unknownApi = await worker.fetch(new Request("https://seofixkit.test/api/nonexistent-route"), env, fakeCtx());
+  assert.equal(unknownApi.status, 404);
+  assert.equal(await unknownApi.text(), "asset fallback");
+
+  const unknownV1 = await worker.fetch(new Request("https://seofixkit.test/v1/nonexistent-route"), env, fakeCtx());
+  assert.equal(unknownV1.status, 404);
+});
+
+test("Deploy surface serves a real 404 page instead of the single-page-application homepage catch-all", () => {
+  const config = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+  assert.match(config, /"not_found_handling"\s*:\s*"404-page"/);
+  assert.doesNotMatch(config, /"not_found_handling"\s*:\s*"single-page-application"/);
+
+  const notFoundPage = readFileSync(new URL("../public/404.html", import.meta.url), "utf8");
+  assert.match(notFoundPage, /<title>Page not found - SEO Fix Kit<\/title>/);
+  assert.match(notFoundPage, /noindex/);
+  assert.match(notFoundPage, /https:\/\/seofixkit\.com\//);
 });
 
 test("Worker dispatch creates admin-only beta proof sessions without exposing tokens", async () => {
