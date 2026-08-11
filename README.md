@@ -86,6 +86,15 @@ makes, that `/llms.txt`, `/sitemap.xml`, `/robots.txt`, `/api/health`,
 npm run audit:live-promise
 ```
 
+To preview (no network writes) or run the credential-free IndexNow submission
+that tells Bing — and Bing-derived DuckDuckGo — to crawl every public URL
+(the key file must be live on production first; the script refuses otherwise):
+
+```bash
+npm run submit:indexnow -- --dry-run   # preview URL set + endpoints
+npm run submit:indexnow                # verify key file, then submit to Bing/IndexNow
+```
+
 ## Founder-led ICP experiment
 
 `docs/research/2026-08-09-founder-led-icp-acquisition-experiment.md` is the written log for the
