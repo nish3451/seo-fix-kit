@@ -17,7 +17,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -43,7 +42,11 @@ fs.writeFileSync(process.env.FIXTURE_CWD_OUT || "/tmp/fixture-cwd-out", process.
 `;
 
 function makeFixture({ poisoned }) {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), "seofixkit-dryrun-fixture-"));
+  // Fixtures must live under a verified clean chain: if os.tmpdir() itself
+  // had a package.json on its ancestor chain, the fixture base would be in
+  // a poisoned chain and the "clean" control assertions would fail for the
+  // wrong reason. pickCleanScratchRoot() guarantees a manifest-free chain.
+  const base = pickCleanScratchRoot();
   const projectRoot = path.join(
     base,
     poisoned ? "poisoned-parent" : "clean-parent",
@@ -238,6 +241,23 @@ test("runGuardedDryRun shields a poisoned chain and runs in place on a clean one
 });
 
 test("the real canary guard exits 0 against the real repo and wrangler", () => {
+  // wrangler.jsonc declares ./dist as the assets directory, so a fresh
+  // checkout (CI) has no dist/ and wrangler aborts before bundling. The
+  // canary script (`npm run cf:dry-run`) builds first; reproduce that here
+  // so the test is self-sufficient on a clean checkout. `npm run check`
+  // also builds at the end of its chain, so a repo with dist already
+  // present (local dev) skips the duplicate build.
+  if (!fs.existsSync(path.join(REPO_ROOT, "dist"))) {
+    const built = spawnSync("npm", ["run", "build"], {
+      cwd: REPO_ROOT,
+      encoding: "utf8"
+    });
+    assert.equal(
+      built.status,
+      0,
+      `vite build must succeed so the real canary can run; stdout: ${built.stdout?.slice(-1000)}\nstderr: ${built.stderr?.slice(-1000)}`
+    );
+  }
   const result = spawnSync(process.execPath, [WRAPPER], {
     cwd: REPO_ROOT,
     encoding: "utf8",

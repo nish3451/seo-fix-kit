@@ -190,7 +190,12 @@ export function buildShieldedScratch(projectRoot) {
     });
     if (hardlink.status !== 0) {
       // Cross-device temp dir (e.g. CI tmpfs): hardlinks are impossible.
-      // Fall back to a real copy — slower but still correct.
+      // Fall back to a real copy — slower but still correct. A failed `cp
+      // -al` may have left a partial destination behind; if it exists,
+      // `cp -r src dest` would nest the copy inside it (dest/src/...) and
+      // resolveWranglerBin(scratch) would find no wrangler. Remove the
+      // partial target first so the fallback lands at scratch/node_modules.
+      fs.rmSync(nodeModulesDest, { recursive: true, force: true });
       const realCopy = spawnSync("cp", ["-r", nodeModulesSrc, nodeModulesDest], {
         encoding: "utf8"
       });
