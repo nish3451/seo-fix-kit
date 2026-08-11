@@ -75,6 +75,17 @@ test("public check response is built only from engine fields with truthful copy"
   assert.equal(payload.guards[0].evidence, "277 rendered words found.");
   assert.equal(payload.findings[0].severity, "critical");
   assert.equal(payload.findings[0].title, "Canonical conflicts with noindex on home");
+  const markupFinding = payload.findings.find((finding) => finding.title === "Long title on home");
+  assert.equal(
+    markupFinding.proposedMarkup,
+    "<title>Rendered SaaS page with real content</title>",
+    "the engine's generated repair markup is exposed as proposedMarkup"
+  );
+  assert.equal(
+    "snippet" in markupFinding,
+    false,
+    "generated repair markup must never be exposed under an unlabeled snippet field"
+  );
   assert.equal(payload.issues.guardedFalsePositives, 1);
   assert.equal(payload.issues.critical, 2);
   assert.ok(payload.nextStep.includes("private beta"), "next step hands off into private access");
@@ -100,6 +111,20 @@ test("public check page is searchable and hands off into private access", () => 
   assert.match(html, /href="https:\/\/seofixkit\.com\/terms"/, "the anonymous check links to terms");
   assert.match(html, /href="https:\/\/seofixkit\.com\/privacy"/, "the anonymous check links to the privacy policy that backs its nothing-stored copy");
   assert.doesNotMatch(html, /noindex/i, "the entry page must stay searchable");
+});
+
+test("public check page labels generated repair markup as a proposed change, never an exact snippet", () => {
+  const html = checkHtml(origin);
+  assert.doesNotMatch(html, /exact snippet/i, "the page must not call generated markup an exact snippet");
+  assert.doesNotMatch(html, /observed snippet/i, "the page must not call generated markup an observed snippet");
+  assert.match(html, /proposed markup change/i, "the panel copy names the block a proposed markup change");
+  assert.match(html, /finding\.proposedMarkup/, "the renderer reads the explicitly named field");
+  assert.match(
+    html,
+    /Proposed change — generated repair markup, not a quote from the page/,
+    "the code block carries an explicit label before the markup"
+  );
+  assert.match(html, /snippet-label/, "the label has a distinct style class");
 });
 
 test("public check page carries WebPage and truthful FAQ JSON-LD", () => {
@@ -255,7 +280,8 @@ function makeEngineShapedReport() {
         type: "issue",
         severity: "warning",
         title: "Long title on home",
-        fix: "Shorten the title."
+        fix: "Shorten the title.",
+        snippet: "<title>Rendered SaaS page with real content</title>"
       }
     ]
   };
