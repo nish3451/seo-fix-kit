@@ -132,7 +132,9 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "static-vs-rendered proof panels", match: "Rendered proof" },
         { reason: "no-overclaim section", match: "What this sample does not claim" },
         { reason: "link to methodology limits", match: `href="${baseUrl}/methodology"` },
-        { reason: "link to package ladder", match: `href="${baseUrl}/packages"` }
+        { reason: "link to package ladder", match: `href="${baseUrl}/packages"` },
+        { reason: "link to terms", match: `href="${baseUrl}/terms"` },
+        { reason: "link to privacy", match: `href="${baseUrl}/privacy"` }
       ]
     },
     {
@@ -161,7 +163,9 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "AI visibility tracking is not live", match: "No AI visibility tracking" },
         { reason: "no hidden site writes", match: "No hidden site writes" },
         { reason: "50K crawl staged, not complete", match: "No fake scale claim" },
-        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` }
+        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
+        { reason: "link to terms", match: `href="${baseUrl}/terms"` },
+        { reason: "link to privacy", match: `href="${baseUrl}/privacy"` }
       ]
     },
     {
@@ -175,7 +179,9 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "public fix pack price", match: "$99.00 one-time" },
         { reason: "Dodo is the final price source", match: "Dodo shows the final checkout price" },
         { reason: "Proof Monitoring is config-gated", match: "Config-gated subscription" },
-        { reason: "roadmap packages marked", match: "Roadmap" }
+        { reason: "roadmap packages marked", match: "Roadmap" },
+        { reason: "link to terms", match: `href="${baseUrl}/terms"` },
+        { reason: "link to privacy", match: `href="${baseUrl}/privacy"` }
       ]
     },
     {
