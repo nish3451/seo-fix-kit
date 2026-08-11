@@ -176,6 +176,28 @@ test("README abuse-control claim matches D1 buckets for every listed surface", (
   }
 });
 
+test("quota target buckets never store a plaintext hostname, public or private", () => {
+  const publicCheckSource = readFileSync(new URL("../worker/routes/public-check.js", import.meta.url), "utf8");
+  // The anonymous /check target buckets hash the checked host (public surface).
+  assert.match(
+    publicCheckSource,
+    /sha256Hex\(String\(targetHost[\s\S]*\)\.slice\(0, 32\)/,
+    "the anonymous /check target bucket must store a host hash, never plaintext"
+  );
+  // The private audit target bucket hashes the audited host the same way, so
+  // the shared audit_usage table never holds a readable target hostname.
+  assert.match(
+    auditsSource,
+    /\(await sha256Hex\(targetHost\)\)\.slice\(0, 32\)/,
+    "the private audit target bucket must store a host hash, never plaintext"
+  );
+  assert.doesNotMatch(
+    auditsSource,
+    /targetKey = targetHost\.replace/,
+    "the private audit target bucket must not keep the plaintext hostname key"
+  );
+});
+
 test("README anonymous one-page check claim matches the Worker, page, and rate limits", () => {
   assert.match(liveSection, /anonymous one-page URL check/i);
   assert.ok(workerIndex.includes('url.pathname === "/check"'), "Worker must route /check");
