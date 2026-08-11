@@ -432,7 +432,12 @@ test("README platform audit claim matches schema, faceted, archive, and plugin c
 test("README false-positive guard and fix snippet claims match engine output", () => {
   assert.match(liveSection, /False-positive guard section/i);
   assert.match(auditEngineSource, /type: "guard"/, "guards are typed findings");
-  assert.match(liveSection, /Exact fix snippets for common SEO repairs/i);
+  assert.match(liveSection, /Generated fix snippets for common SEO repairs/i);
+  assert.doesNotMatch(
+    liveSection,
+    /Exact fix snippets/,
+    "README must not call generated engine markup an exact snippet (PR #102 rule: engine snippets are proposed repair markup, never a quote observed on the page)"
+  );
   assert.match(auditEngineSource, /snippet: `<title>/, "title fix snippets exist");
   assert.match(auditEngineSource, /snippet: `<meta name="description"/, "description fix snippets exist");
 });
