@@ -89,6 +89,19 @@ test("machine-readable public surfaces list proof pages and limits", () => {
   assert.match(markdown, new RegExp(`Anonymous one-page check: ${origin}/check`));
 });
 
+test("public proof pages carry a site footer with terms and privacy links", () => {
+  const demo = demoHtml(origin);
+  const methodology = methodologyHtml(origin);
+  const packages = packagesHtml(origin);
+
+  for (const html of [demo, methodology, packages]) {
+    assert.match(html, /<footer class="site-footer">/, "proof pages must carry a site footer");
+    assert.match(html, new RegExp(`href="${origin}/terms"`), "proof pages must link to terms");
+    assert.match(html, new RegExp(`href="${origin}/privacy"`), "proof pages must link to privacy");
+    assert.match(html, new RegExp(`href="${origin}/support"`), "proof pages must link to support");
+  }
+});
+
 test("policy pages cross-link each other and the live anonymous check", () => {
   const privacy = privacyHtml(origin);
   const terms = termsHtml(origin);
