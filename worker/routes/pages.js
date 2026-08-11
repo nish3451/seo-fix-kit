@@ -150,6 +150,7 @@ ${pageSocialHead({ origin, title: "Proof-Backed SEO Repair Demo - SEO Fix Kit", 
       .proof strong { color: #98f0cc; }
       .cta { align-items: center; background: #98f0cc; border-radius: 8px; color: #06100c; display: inline-flex; font-weight: 880; min-height: 48px; padding: 0 18px; }
       code { color: #fbf8ef; white-space: pre-wrap; }
+      .site-footer { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-top: 30px; }
       @media (max-width: 760px) { header { align-items: flex-start; gap: 18px; flex-direction: column; } .grid { grid-template-columns: 1fr; } }
     </style>
   </head>
@@ -210,7 +211,14 @@ ${pageSocialHead({ origin, title: "Proof-Backed SEO Repair Demo - SEO Fix Kit", 
         <p>This page is a sample, not an audit of your site. Anonymous one-page checks are live at ${origin}/check: paste a public URL and get rendered proof, guarded false positives, and actionable findings when present — with no account, no email, and no stored report. Full reports still run inside the private beta after secure email access and, for deeper crawls, site verification. Neither the sample nor the one-page check promises rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility. The product standard is the same everywhere: prove the issue, avoid false positives, ask for approval, then rerun the same measurement after the fix.</p>
       </section>
       <p><a class="cta" href="${origin}/check">Check one page now</a></p>
-      <p><a href="${origin}/">Request private access</a> · <a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a> · <a href="${origin}/support">Support and refunds</a></p>
+      <footer class="site-footer">
+        <a href="${origin}/">Request private access</a>
+        <a href="${origin}/methodology">Read methodology and limits</a>
+        <a href="${origin}/packages">View package ladder</a>
+        <a href="${origin}/support">Support and refunds</a>
+        <a href="${origin}/terms">Terms</a>
+        <a href="${origin}/privacy">Privacy</a>
+      </footer>
     </main>
   </body>
 </html>`;
@@ -380,7 +388,9 @@ ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })
       .check-list { display: grid; gap: 12px; list-style: none; padding-left: 0; }
       .check-list li { background: rgba(7,13,10,.58); border: 1px solid rgba(251,248,239,.1); border-radius: 8px; padding: 14px 16px; }
       .cta { align-items: center; background: #98f0cc; border-radius: 8px; color: #06100c; display: inline-flex; font-weight: 880; min-height: 48px; padding: 0 18px; }
-      @media (max-width: 760px) { header { align-items: flex-start; flex-direction: column; gap: 18px; margin-bottom: 44px; } nav { justify-content: flex-start; } .grid.three, .grid.two, .package-grid { grid-template-columns: 1fr; } main { padding-top: 26px; } }
+      .site-footer { align-items: center; border-top: 1px solid rgba(251,248,239,.14); display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; margin-top: 24px; padding-top: 26px; }
+      .site-footer a { font-size: 14px; font-weight: 760; }
+      @media (max-width: 760px) { header { align-items: flex-start; flex-direction: column; gap: 18px; margin-bottom: 44px; } nav { justify-content: flex-start; } .grid.three, .grid.two, .package-grid { grid-template-columns: 1fr; } main { padding-top: 26px; } .site-footer { justify-content: flex-start; } }
     </style>
   </head>
   <body>
@@ -399,6 +409,16 @@ ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })
         <p class="lead">${escapeHtml(lead)}</p>
       </section>
       ${body}
+      <footer class="site-footer">
+        <span>Audit it. Prove it. Fix it.</span>
+        <a href="${origin}/demo">Demo</a>
+        <a href="${origin}/methodology">Methodology</a>
+        <a href="${origin}/packages">Packages</a>
+        <a href="${origin}/support">Support</a>
+        <a href="${origin}/terms">Terms</a>
+        <a href="${origin}/privacy">Privacy</a>
+        <a href="mailto:support@seofixkit.com">support@seofixkit.com</a>
+      </footer>
     </main>
   </body>
 </html>`;
