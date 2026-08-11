@@ -184,7 +184,7 @@ test("README anonymous one-page check claim matches the Worker, page, and rate l
   assert.match(publicCheckSource, /maxPages: 1/, "the public check is a one-page run");
   assert.match(publicCheckSource, /check:target-day/, "the check is rate-limited per site");
   assert.match(publicCheckSource, /does not guarantee rankings, traffic, indexing, revenue, AI citations/i, "the public check keeps the no-ranking boundary");
-  assert.match(wranglerJsonc, /"\/check"/, "/check is served by the Worker before SPA assets");
+  assert.match(wranglerJsonc, /"run_worker_first":\s*true/, "/check (and every other path) is served by the Worker before SPA assets");
 });
 
 test("README homepage anonymous-check claim matches the CTA beside the email form", () => {
