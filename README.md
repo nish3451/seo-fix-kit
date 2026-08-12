@@ -87,6 +87,24 @@ makes, that `/llms.txt`, `/sitemap.xml`, `/robots.txt`, `/api/health`,
 npm run audit:live-promise
 ```
 
+For the repeatable live walk of the private-beta funnel (the backlog item
+"Live-surface walk of the private-beta funnel"): a real-browser (Playwright
+Chromium) walk of the funnel stops home → `/demo` → `/packages`, with the
+access request form inspected in observe mode only (never submitted, so no
+waitlist lead or access token is created), on desktop and an iPhone-13 mobile
+viewport. It verifies each stop serves the expected title, canonical where one
+exists, and load-bearing funnel copy; records console/page errors, broken
+internal links, and mobile horizontal overflow; and emits the walk JSON (the
+"summarized in journal" record) plus a human summary:
+
+```bash
+npm run audit:funnel-walk
+```
+
+The walk is opt-in live-read evidence and never part of `npm run check`; the
+same per-stop assertions are locked offline by `test:funnel-walk`, which runs
+inside `npm run check`.
+
 ## Founder-led ICP experiment
 
 `docs/research/2026-08-09-founder-led-icp-acquisition-experiment.md` is the written log for the

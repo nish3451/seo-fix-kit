@@ -36,6 +36,14 @@ Live product claims:
 - Repair Sprint eligibility can be shown from approved proposal state, but distinct Repair Sprint checkout is not live yet.
 - Agency Workspace features run under beta limits; paid Agency Workspace checkout is not live yet.
 
+Hosted-only differentiators vs free installable SEO agent skills:
+- Free installable SEO agent skills are useful for quick, single-page checks and remain a good complement; SEO Fix Kit's hosted surfaces add the parts that need infrastructure and persistence.
+- Hosted rendered crawl scope: self-serve audits up to 1,000 pages per queued audit, robots.txt and sitemap crawl inventory up to 50,000 discovered URLs, and staged large rendered crawl jobs for 50,000-page targets (early access; batches render gradually, never sold as completed 50K rendered validation).
+- Persistent repair queue: proven issues stay tracked across saved reports with approval state, acceptance checks, status, and fixed-rerun proof receipts.
+- Owner-approved implementation packs: private handoff documents with source proof and approval state for approved repair actions.
+- Paid Fix Pack fulfillment: one proof-backed repair pass per report plus one rerun after fixes, with Dodo as the checkout and visible-price source of truth.
+- Why not just use a free AI SEO agent skill? The plain answer is on ${origin}/methodology; the same boundaries apply to both, including no live AI-engine sampling, no AI citation monitoring, and no ranking guarantees.
+
 Agent-readable acquisition and action surfaces:
 - Public context for agents: ${origin}/llms.txt, ${origin}/.well-known/skill.md, ${origin}/demo, ${origin}/methodology, ${origin}/packages, ${origin}/support, ${origin}/terms, and ${origin}/proof.
 - Owner setup starts inside the private beta workspace; anonymous one-page checks are live at ${origin}/check, while full multi-page audits and unauthenticated repair actions are not live.
@@ -154,6 +162,7 @@ ${pageSocialHead({ origin, title: "Proof-Backed SEO Repair Demo - SEO Fix Kit", 
       .proof strong { color: #98f0cc; }
       .cta { align-items: center; background: #98f0cc; border-radius: 8px; color: #06100c; display: inline-flex; font-weight: 880; min-height: 48px; padding: 0 18px; }
       code { color: #fbf8ef; white-space: pre-wrap; }
+      .site-footer { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-top: 30px; }
       @media (max-width: 760px) { header { align-items: flex-start; gap: 18px; flex-direction: column; } .grid { grid-template-columns: 1fr; } }
     </style>
   </head>
@@ -214,7 +223,14 @@ ${pageSocialHead({ origin, title: "Proof-Backed SEO Repair Demo - SEO Fix Kit", 
         <p>This page is a sample, not an audit of your site. Anonymous one-page checks are live at ${origin}/check: paste a public URL and get rendered proof, guarded false positives, and actionable findings when present — with no account, no email, and no stored report. Full reports still run inside the private beta after secure email access and, for deeper crawls, site verification. A real completed beta repair with same-host before and after proof is published at ${origin}/proof. Neither the sample nor the one-page check promises rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility. The product standard is the same everywhere: prove the issue, avoid false positives, ask for approval, then rerun the same measurement after the fix.</p>
       </section>
       <p><a class="cta" href="${origin}/check">Check one page now</a></p>
-      <p><a href="${origin}/">Request private access</a> · <a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a> · <a href="${origin}/support">Support and refunds</a></p>
+      <footer class="site-footer">
+        <a href="${origin}/">Request private access</a>
+        <a href="${origin}/methodology">Read methodology and limits</a>
+        <a href="${origin}/packages">View package ladder</a>
+        <a href="${origin}/support">Support and refunds</a>
+        <a href="${origin}/terms">Terms</a>
+        <a href="${origin}/privacy">Privacy</a>
+      </footer>
     </main>
   </body>
 </html>`;
@@ -265,6 +281,12 @@ function methodologyHtml(origin) {
       <section class="band">
         <h2>A real completed case</h2>
         <p>One real completed beta repair, with same-host before and after report links, the approved change, rerun results, and the fixed outcome, is published at <a href="${origin}/proof">${origin}/proof</a>.</p>
+      </section>
+      <section class="band">
+        <h2>Why not just use a free AI SEO agent skill?</h2>
+        <p>Free installable SEO agent skills are genuinely useful for quick, single-page checks: read a page, spot a missing title or description, draft a fix. Open-source SEO tooling is good at that, and you should keep using it. Those skills run per prompt, though, with no persisted state across a whole site.</p>
+        <p>The hosted product earns its place by doing the parts that need infrastructure and persistence: rendered crawl scope at site scale (self-serve audits up to 1,000 pages, sitemap inventory up to 50,000 discovered URLs, and staged large rendered crawl jobs), a persistent repair queue with approval, acceptance checks, and fixed-rerun proof receipts, owner-approved implementation packs, and paid Fix Pack fulfillment with one rerun after fixes.</p>
+        <p>The boundaries stay the same as a free skill's: no live AI-engine sampling, no AI citation monitoring, and no ranking guarantees. If a one-page check is all you need, <a href="${origin}/check">${origin}/check</a> is free and needs no account; if you need the hosted loop, see the <a href="${origin}/packages">package ladder</a>.</p>
       </section>
     `
   });
@@ -345,6 +367,7 @@ function packagesHtml(origin) {
       <section class="band">
         <h2>Why this ladder exists</h2>
         <p>The product is built to avoid audit noise and over-automation. The first paid step is a small, inspectable repair pass. Future packages only become live when proof, approval controls, billing, and provider safety are implemented.</p>
+        <p>Wondering why a hosted service at all, when free installable AI SEO agent skills exist? The plain answer is on the <a href="${origin}/methodology">methodology page</a>: free skills are great for one-page checks, while hosted audits add site-scale rendered crawl scope, persistent repair state, and fulfillment.</p>
       </section>
     `
   });
@@ -388,7 +411,9 @@ ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })
       .check-list { display: grid; gap: 12px; list-style: none; padding-left: 0; }
       .check-list li { background: rgba(7,13,10,.58); border: 1px solid rgba(251,248,239,.1); border-radius: 8px; padding: 14px 16px; }
       .cta { align-items: center; background: #98f0cc; border-radius: 8px; color: #06100c; display: inline-flex; font-weight: 880; min-height: 48px; padding: 0 18px; }
-      @media (max-width: 760px) { header { align-items: flex-start; flex-direction: column; gap: 18px; margin-bottom: 44px; } nav { justify-content: flex-start; } .grid.three, .grid.two, .package-grid { grid-template-columns: 1fr; } main { padding-top: 26px; } }
+      .site-footer { align-items: center; border-top: 1px solid rgba(251,248,239,.14); display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; margin-top: 24px; padding-top: 26px; }
+      .site-footer a { font-size: 14px; font-weight: 760; }
+      @media (max-width: 760px) { header { align-items: flex-start; flex-direction: column; gap: 18px; margin-bottom: 44px; } nav { justify-content: flex-start; } .grid.three, .grid.two, .package-grid { grid-template-columns: 1fr; } main { padding-top: 26px; } .site-footer { justify-content: flex-start; } }
     </style>
   </head>
   <body>
@@ -407,6 +432,16 @@ ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })
         <p class="lead">${escapeHtml(lead)}</p>
       </section>
       ${body}
+      <footer class="site-footer">
+        <span>Audit it. Prove it. Fix it.</span>
+        <a href="${origin}/demo">Demo</a>
+        <a href="${origin}/methodology">Methodology</a>
+        <a href="${origin}/packages">Packages</a>
+        <a href="${origin}/support">Support</a>
+        <a href="${origin}/terms">Terms</a>
+        <a href="${origin}/privacy">Privacy</a>
+        <a href="mailto:support@seofixkit.com">support@seofixkit.com</a>
+      </footer>
     </main>
   </body>
 </html>`;

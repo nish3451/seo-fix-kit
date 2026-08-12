@@ -12,6 +12,11 @@
 //   network and per checked site) that expire with the same cleanup as every
 //   other abuse counter. It is rate-limited per network and per target site
 //   so the service and the pages it checks stay protected.
+// - The engine's `snippet` field is GENERATED repair markup (a proposed
+//   change the engine built), never an exact quote from the checked page.
+//   The response names it `proposedMarkup` and the page labels the code
+//   block as a proposed change, so the anonymous surface never presents
+//   generated repair markup as an unlabeled observed snippet.
 // - Full multi-page audits, saved proof reports, site verification, and the
 //   repair queue remain inside the private beta; this route only measures
 //   the handoff into that private access.
@@ -118,7 +123,10 @@ export function buildPublicCheckResponse(report) {
       why: finding.why,
       evidence: finding.evidence,
       fix: finding.fix,
-      snippet: finding.snippet || ""
+      // The engine's snippet is generated repair markup (a proposed change),
+      // not an exact quote from the checked page. Named and rendered as such
+      // so the anonymous surface cannot pass it off as observed text.
+      proposedMarkup: finding.snippet || ""
     }));
   return {
     ok: true,
@@ -316,6 +324,7 @@ export function checkHtml(origin) {
       .finding h3 { font-size: 17px; margin: 0 0 6px; }
       .finding p { font-size: 15px; margin: 0 0 6px; }
       .snippet { background: #0c1210; border: 1px solid rgba(251,248,239,.14); border-radius: 8px; color: #fbf8ef; display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; margin: 8px 0 0; overflow-x: auto; padding: 12px; white-space: pre-wrap; }
+      .finding .snippet-label { color: rgba(251,248,239,.6); font-size: 12px; font-weight: 700; letter-spacing: .04em; margin: 10px 0 0; text-transform: uppercase; }
       .cta { align-items: center; background: #98f0cc; border-radius: 8px; color: #06100c; display: inline-flex; font-weight: 880; min-height: 48px; padding: 0 18px; }
       .next-step { border: 1px solid rgba(152,240,204,.28); }
       @media (max-width: 760px) { header { align-items: flex-start; gap: 18px; flex-direction: column; } .grid, .measure-grid { grid-template-columns: 1fr; } .check-form .row { flex-direction: column; } main { padding-top: 26px; } }
@@ -352,7 +361,7 @@ export function checkHtml(origin) {
         </article>
         <article class="panel proof">
           <strong>Findings when present</strong>
-          <p>Only real, evidence-backed issues become findings, with a concrete fix and an exact snippet when the engine has one.</p>
+          <p>Only real, evidence-backed issues become findings, with a concrete fix and a proposed markup change when the engine has one.</p>
         </article>
         <article class="panel proof">
           <strong>Measured handoff</strong>
@@ -408,7 +417,10 @@ export function checkHtml(origin) {
           if (finding.evidence) box.appendChild(el("p", "Evidence: " + finding.evidence));
           if (finding.why) box.appendChild(el("p", finding.why));
           if (finding.fix) box.appendChild(el("p", "Fix: " + finding.fix));
-          if (finding.snippet) box.appendChild(el("code", finding.snippet, "snippet"));
+          if (finding.proposedMarkup) {
+            box.appendChild(el("p", "Proposed change — generated repair markup, not a quote from the page", "snippet-label"));
+            box.appendChild(el("code", finding.proposedMarkup, "snippet"));
+          }
           return box;
         }
 

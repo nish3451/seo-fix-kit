@@ -49,6 +49,25 @@ test("public proof pages expose methodology and package ladder without overclaim
     new RegExp(`<a class="cta" href="${origin}/check">Check one page now</a>`),
     "methodology must carry a clickable CTA into the anonymous one-page check"
   );
+  assert.match(methodology, /Why not just use a free AI SEO agent skill\?/);
+  assert.match(methodology, /Open-source SEO tooling is good at that/, "the free-skill answer must not disparage open source");
+  assert.match(methodology, /no live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/i);
+  assert.match(
+    methodology,
+    new RegExp(`<a href="${origin}/packages">package ladder</a>`),
+    "the free-skill answer must link the package ladder"
+  );
+  assert.match(
+    methodology,
+    new RegExp(`<a href="${origin}/check">${origin}/check</a>`),
+    "the free-skill answer must keep a working link into the anonymous check"
+  );
+  assert.match(packages, /Wondering why a hosted service at all, when free installable AI SEO agent skills exist\?/);
+  assert.match(
+    packages,
+    new RegExp(`<a href="${origin}/methodology">methodology page</a>`),
+    "packages must cross-link the methodology free-skill answer"
+  );
   assert.match(packages, /SEO Fix Pack/);
   assert.match(packages, /\$99\.00 one-time/);
   assert.match(packages, /Dodo shows the final checkout price/);
@@ -114,7 +133,29 @@ test("machine-readable public surfaces list proof pages and limits", () => {
   assert.match(llms, /repair_action\.fixed/);
   assert.match(llms, /There is no live SEO Fix Kit MCP endpoint today/);
   assert.match(llms, /Does not expose unauthenticated agent actions/);
+  assert.match(llms, /Hosted-only differentiators vs free installable SEO agent skills:/);
+  assert.match(llms, /robots\.txt and sitemap crawl inventory up to 50,000 discovered URLs/);
+  assert.match(llms, /staged large rendered crawl jobs for 50,000-page targets \(early access/);
+  assert.match(llms, /never sold as completed 50K rendered validation/);
+  assert.match(llms, /Persistent repair queue: proven issues stay tracked across saved reports with approval state, acceptance checks, status, and fixed-rerun proof receipts/);
+  assert.match(llms, /Owner-approved implementation packs: private handoff documents with source proof and approval state/);
+  assert.match(llms, /Paid Fix Pack fulfillment: one proof-backed repair pass per report plus one rerun after fixes/);
+  assert.match(llms, new RegExp(`The plain answer is on ${origin}/methodology`));
+  assert.match(llms, /no live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/);
   assert.match(markdown, new RegExp(`Anonymous one-page check: ${origin}/check`));
+});
+
+test("public proof pages carry a site footer with terms and privacy links", () => {
+  const demo = demoHtml(origin);
+  const methodology = methodologyHtml(origin);
+  const packages = packagesHtml(origin);
+
+  for (const html of [demo, methodology, packages]) {
+    assert.match(html, /<footer class="site-footer">/, "proof pages must carry a site footer");
+    assert.match(html, new RegExp(`href="${origin}/terms"`), "proof pages must link to terms");
+    assert.match(html, new RegExp(`href="${origin}/privacy"`), "proof pages must link to privacy");
+    assert.match(html, new RegExp(`href="${origin}/support"`), "proof pages must link to support");
+  }
 });
 
 test("policy pages cross-link each other and the live anonymous check", () => {
@@ -213,6 +254,15 @@ test("static public skill and sitemap files keep buyer-facing boundaries", () =>
   assert.match(skill, /There is no live SEO Fix Kit MCP endpoint today/);
   assert.match(skill, /normal bearer API keys cannot lease or submit rendered proof/i);
   assert.match(skill, /must not claim SEO Fix Kit publishes CMS changes/i);
+  assert.match(skill, /## Hosted-Only Differentiators vs Free Installable SEO Agent Skills/);
+  assert.match(skill, /robots\.txt and sitemap crawl inventory up to 50,000 discovered URLs/);
+  assert.match(skill, /staged large rendered crawl jobs for 50,000-page targets \(early access/);
+  assert.match(skill, /never sold as completed 50K rendered validation/);
+  assert.match(skill, /Persistent repair queue: proven issues stay tracked across saved reports with approval state, acceptance checks, status, and fixed-rerun proof receipts/);
+  assert.match(skill, /Owner-approved implementation packs: private handoff documents with source proof and approval state/);
+  assert.match(skill, /Paid Fix Pack fulfillment: one proof-backed repair pass per report plus one rerun after fixes/);
+  assert.match(skill, new RegExp(`The plain answer is on the methodology page: ${origin}/methodology`));
+  assert.match(skill, /no live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/);
   assert.doesNotMatch(skill, /guaranteed rankings|guarantees rankings|guarantees traffic/i);
   assert.doesNotMatch(skill, /provides live AI-engine visibility tracking/i);
   assert.doesNotMatch(sitemap, /\/llms\.txt/);
