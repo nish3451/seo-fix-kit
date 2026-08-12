@@ -8,6 +8,7 @@ import {
   buildPublicCheckResponse,
   checkHtml,
   checkJsonLd,
+  friendlyCheckError,
   publicCheckQuotaChecks,
   validatePublicCheckUrl
 } from "./public-check.js";
@@ -35,6 +36,41 @@ test("public check URL validation rejects malformed and private targets", () => 
   const protocolRelative = validatePublicCheckUrl("//example.com/about");
   assert.equal(protocolRelative.ok, true);
   assert.equal(protocolRelative.url, "https://example.com/about");
+});
+
+test("engine failures map to visitor copy, never raw browser diagnostics", () => {
+  // Raw Playwright errors that used to reach the /check error box verbatim.
+  assert.equal(
+    friendlyCheckError("net::ERR_NAME_NOT_RESOLVED at https://not-a-url-at-all/"),
+    "That address does not resolve to a website. Check the spelling and try again."
+  );
+  assert.equal(
+    friendlyCheckError("net::ERR_CONNECTION_RESET at https://example.com/"),
+    "The site did not respond. It may be down, blocking checkers, or the address may be wrong. Try another public URL."
+  );
+  assert.equal(
+    friendlyCheckError("net::ERR_CONNECTION_TIMED_OUT at https://slow.example.com/"),
+    "The site did not respond. It may be down, blocking checkers, or the address may be wrong. Try another public URL."
+  );
+  assert.equal(
+    friendlyCheckError("net::ERR_CERT_AUTHORITY_INVALID at https://bad-cert.example.com/"),
+    "The site has a certificate problem, so the check browser could not open it securely. Try another public URL."
+  );
+  assert.equal(
+    friendlyCheckError("net::ERR_ABORTED at https://example.com/"),
+    "The page did not finish loading. Try again in a moment."
+  );
+  // Any other net::ERR class still gets a human line instead of the protocol dump.
+  assert.equal(
+    friendlyCheckError("net::ERR_TOO_MANY_REDIRECTS at https://loopy.example.com/"),
+    "The page could not be loaded from that address. Check the URL and try again."
+  );
+  // Unmatched engine wording is preserved so no failure mode is hidden.
+  const engineWording = "PageSpeed Insights returned HTTP 500.";
+  assert.equal(friendlyCheckError(engineWording), engineWording);
+  // Unknown input keeps the generic fallback and stays bounded.
+  const fallback = friendlyCheckError("");
+  assert.equal(fallback, "The check failed. Try another public URL.");
 });
 
 test("public check quota buckets cover per-network and per-site windows without storing the target host", async () => {
