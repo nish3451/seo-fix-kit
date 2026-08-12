@@ -6,6 +6,13 @@ Status: READY FOR FOUNDER EXECUTION — outreach is founder-owned (never unatten
 file is the written experiment log and kit. The founder sends the invitations and records every
 row; the log is the verification artifact.
 
+Execution kit prepared 2026-08-12 (lane run): preconditions re-verified live (see below), 20
+qualified prospect candidates researched with live stack evidence
+(`docs/research/icp-experiment-prospect-candidates-2026-08-12.md`), and truthful invitation copy
+drafted per channel (`docs/research/icp-experiment-invitation-copy-2026-08-12.txt`). The lane
+cannot send invitations — the item's acceptance criteria keep external messaging founder-owned —
+so the founder starts with the Day-0 checklist below.
+
 ## One change this experiment tests
 
 Whether the product's core wedge — rendered proof with guarded false positives, then proven fixes —
@@ -31,6 +38,11 @@ cannot prove the wedge converts a buyer.
 - Known limitation: public-check false 522/523 criticals and fabricated snippets are owned by a
   separate open backlog item; if a prospect hits a false critical during this window, log it as an
   objection and do not defend it — it is a known defect with an owner.
+
+Re-verified live 2026-08-12 (before this window starts): `npm run audit:live-promise` green on all
+16 checks against the deployed site (including `/check`, `POST /api/public-check`, `/demo`,
+`/methodology`, `/packages`, `/llms.txt`, `/sitemap.xml`, www→apex 301s); homepage bundle serves
+the `a.check-entry-cta` "Check one page now" link to `/check`. Both preconditions hold today.
 
 ## Numeric gates (seven-day window)
 
@@ -62,6 +74,22 @@ post or accept free URL audits — use as venue candidates, **never as unattende
 
 Rule: 20 invitations total max. Every invitation must be permission-safe (a person who can opt out,
 an existing relationship or public ask, no scraping of private contacts, no mass DMs).
+
+## Day 0 — founder start checklist (prepared 2026-08-12)
+
+The kit is ready; the window starts the day the first invitation is sent. Steps:
+
+1. Open `docs/research/icp-experiment-prospect-candidates-2026-08-12.md`; pick the first 5–10
+   candidates where a real relationship or a public ask exists (the "Known to founder?" column).
+2. Personalize one template from `docs/research/icp-experiment-invitation-copy-2026-08-12.txt`
+   per prospect — email, LinkedIn DM, or Reddit reply (Reddit only inside a thread where a
+   founder publicly asked for an audit).
+3. Send invitation #1, then fill `window_start` (below) and prospect-log row 1 (channel, invited
+   date).
+4. Daily during the window: update "Counts vs gates" (G1–G4), prospect-log rows, and the Day-N
+   channel note. Log objections verbatim.
+5. At window_end: fill the ICP keep/kill decision, then commit this log (docs-only PR) so the
+   loop can verify the four gates.
 
 ## Invitation copy rules (truthfulness)
 
