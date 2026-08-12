@@ -4,6 +4,8 @@ import {
   ACCESS_FORM_EXPECTATIONS,
   FUNNEL_STOPS,
   WALK_STATUS,
+  WALK_VIEWPORTS,
+  buildContextOptions,
   evaluateStopEvidence,
   funnelWalkSummary,
   samePathname
@@ -68,6 +70,44 @@ test("anchor matching treats absolute same-origin hrefs as the expected path", (
   assert.equal(samePathname("https://seofixkit.com/check?utm=x", "/check", origin), true);
   assert.equal(samePathname("https://other.example.com/packages", "/packages", origin), false);
   assert.equal(samePathname(null, "/packages", origin), false);
+});
+
+test("context options builder maps the desktop descriptor into a valid Playwright context", () => {
+  const descriptor = WALK_VIEWPORTS.find((entry) => entry.name === "desktop");
+  const options = buildContextOptions(descriptor);
+  assert.deepEqual(options, {
+    viewport: { width: 1280, height: 900 },
+    isMobile: false,
+    hasTouch: false
+  });
+});
+
+test("context options builder maps the mobile descriptor to a true 390x844 mobile context", () => {
+  const descriptor = WALK_VIEWPORTS.find((entry) => entry.name === "mobile");
+  const options = buildContextOptions(descriptor);
+  assert.deepEqual(options.viewport, { width: 390, height: 844 });
+  assert.equal(options.isMobile, true);
+  assert.equal(options.hasTouch, true);
+  assert.equal(typeof options.userAgent, "string");
+  assert.ok(options.userAgent.includes("iPhone"), "mobile descriptor must carry a mobile user agent");
+});
+
+test("context options never leak descriptor label or bare size keys Playwright would silently ignore", () => {
+  // Regression lock: passing the descriptor straight to newContext() used to
+  // drop width/height (Playwright ignores unknown top-level keys) and run the
+  // "mobile" half at the 1280px desktop default. The options object must only
+  // carry keys Playwright understands, and the size must live under `viewport`.
+  for (const descriptor of WALK_VIEWPORTS) {
+    const options = buildContextOptions(descriptor);
+    assert.equal("name" in options, false, "descriptor label must not leak into context options");
+    assert.equal("width" in options, false, "bare width must not leak into context options");
+    assert.equal("height" in options, false, "bare height must not leak into context options");
+    for (const key of Object.keys(options)) {
+      assert.ok(["viewport", "isMobile", "hasTouch", "userAgent"].includes(key), `unexpected key ${key}`);
+    }
+    assert.equal(options.viewport.width, descriptor.width);
+    assert.equal(options.viewport.height, descriptor.height);
+  }
 });
 
 test("every funnel stop passes with the recorded evidence shape", () => {
