@@ -190,6 +190,15 @@ test("Worker dispatch 301-redirects www.seofixkit.com onto the apex host", async
   const sitemap = await worker.fetch(new Request("https://www.seofixkit.com/sitemap.xml"), env, fakeCtx());
   assert.equal(sitemap.status, 301);
   assert.equal(sitemap.headers.get("location"), "https://seofixkit.com/sitemap.xml");
+
+  // Static assets must 301 too: with wrangler.jsonc "run_worker_first": true
+  // every www request reaches this Worker (the array form let asset paths
+  // bypass the Worker and be served 200 straight from the asset CDN).
+  for (const assetPath of ["/favicon.svg", "/security.txt", "/assets/index-abc123.css"]) {
+    const asset = await worker.fetch(new Request(`https://www.seofixkit.com${assetPath}`), env, fakeCtx());
+    assert.equal(asset.status, 301, `www ${assetPath} must 301`);
+    assert.equal(asset.headers.get("location"), `https://seofixkit.com${assetPath}`);
+  }
 });
 
 test("Worker dispatch serves apex-only canonicals, robots, sitemap, and llms.txt", async () => {
