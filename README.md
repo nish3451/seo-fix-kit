@@ -172,6 +172,11 @@ Dry-run build:
 npm run cf:dry-run
 ```
 
+The dry-run runs through `scripts/wrangler-dry-run.mjs`, which names any malformed
+ancestor `package.json` (e.g. the recurring zero-byte scaffold debris in `/home/nish`)
+loudly on stderr and, when one is present, executes Wrangler from a shielded scratch
+copy so the canary cannot be broken by a file outside this repo.
+
 Apply D1 migrations after creating or changing the waitlist schema:
 
 ```bash
