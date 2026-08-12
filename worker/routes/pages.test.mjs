@@ -331,11 +331,24 @@ test("static public skill and sitemap files keep buyer-facing boundaries", () =>
 });
 
 test("Cloudflare asset routing sends public proof pages through the Worker", () => {
-  const wrangler = JSON.parse(readFileSync(new URL("../../wrangler.jsonc", import.meta.url), "utf8"));
-  const runWorkerFirst = new Set(wrangler.assets?.run_worker_first || []);
+  const jsonc = readFileSync(new URL("../../wrangler.jsonc", import.meta.url), "utf8");
+  const wrangler = JSON.parse(jsonc.replace(/^\s*\/\/.*$/gm, ""));
+  const runWorkerFirst = wrangler.assets?.run_worker_first;
 
-  for (const path of ["/demo", "/methodology", "/packages", "/check", "/support", "/terms", "/privacy"]) {
-    assert.equal(runWorkerFirst.has(path), true, `${path} must be served by the Worker before SPA assets`);
+  // Boolean true runs the Worker before asset serving for every request, which
+  // is what keeps www.seofixkit.com asset paths 301-ing onto the apex host. An
+  // array must at least cover every public proof page; a missing or false
+  // value would let assets bypass the Worker and be served from the www host.
+  assert.equal(
+    runWorkerFirst === true || Array.isArray(runWorkerFirst),
+    true,
+    "run_worker_first must be true or cover the public proof pages"
+  );
+  if (Array.isArray(runWorkerFirst)) {
+    const covered = new Set(runWorkerFirst);
+    for (const path of ["/demo", "/methodology", "/packages", "/check", "/support", "/terms", "/privacy"]) {
+      assert.equal(covered.has(path), true, `${path} must be served by the Worker before SPA assets`);
+    }
   }
 });
 

@@ -190,7 +190,7 @@ test("README anonymous one-page check claim matches the Worker, page, and rate l
   assert.match(publicCheckSource, /opens the page in a real browser|open the page in a real browser/i, "the public check copy states real browser rendering");
   assert.match(publicCheckSource, /check:target-day/, "the check is rate-limited per site");
   assert.match(publicCheckSource, /does not guarantee rankings, traffic, indexing, revenue, AI citations/i, "the public check keeps the no-ranking boundary");
-  assert.match(wranglerJsonc, /"\/check"/, "/check is served by the Worker before SPA assets");
+  assert.match(wranglerJsonc, /"run_worker_first":\s*true/, "/check (and every other path) is served by the Worker before SPA assets");
 });
 
 test("README homepage anonymous-check claim matches the CTA beside the email form", () => {
