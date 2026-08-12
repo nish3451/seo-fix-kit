@@ -50,6 +50,21 @@ test("public proof pages expose methodology and package ladder without overclaim
     new RegExp(`<a class="cta" href="${origin}/check">Check one page now</a>`),
     "methodology must carry a clickable CTA into the anonymous one-page check"
   );
+  // Scout regression guard: every mention of the anonymous check URL on the
+  // methodology page must be clickable (a link href or a link's anchor text),
+  // never printed as plain text.
+  {
+    const checkUrl = `${origin}/check`;
+    const totalMentions = methodology.split(checkUrl).length - 1;
+    const hrefMentions = methodology.split(`href="${checkUrl}"`).length - 1;
+    const linkTextMentions = methodology.split(`>${checkUrl}<`).length - 1;
+    assert.ok(totalMentions > 0, "methodology must mention the anonymous one-page check");
+    assert.equal(
+      totalMentions,
+      hrefMentions + linkTextMentions,
+      `every /check mention on the methodology page must be a clickable link (${totalMentions} mentions, ${hrefMentions} link hrefs, ${linkTextMentions} link texts)`
+    );
+  }
   assert.match(methodology, /Why not just use a free AI SEO agent skill\?/);
   assert.match(methodology, /Open-source SEO tooling is good at that/, "the free-skill answer must not disparage open source");
   assert.match(methodology, /no live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/i);
