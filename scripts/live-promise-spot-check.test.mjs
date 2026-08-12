@@ -39,7 +39,7 @@ const surfaces = {
       version: "0.9.0",
       scope: "runtime_config_and_schema_readiness"
     }),
-  "/api/public-check": () => jsonBody({ error: "Enter a valid public http(s) URL." }, 400)
+  "/api/public-check": () => jsonBody({ error: "Enter a valid public website URL." }, 400)
 };
 
 function pageFetcher(overrides = {}) {
@@ -84,7 +84,7 @@ test("live spot-check covers the seven promised public pages", () => {
 test("live spot-check covers the public machine surfaces", () => {
   assert.deepEqual(
     publicSurfaceSpotChecks(origin).map((check) => check.path),
-    ["/llms.txt", "/sitemap.xml", "/robots.txt", "/api/health", "/api/deep-health", "/api/public-check"]
+    ["/llms.txt", "/sitemap.xml", "/robots.txt", "/api/health", "/api/deep-health", "/api/public-check", "/api/public-check"]
   );
 });
 
@@ -101,7 +101,7 @@ test("live spot-check covers the www-to-apex canonical redirect", () => {
 
 test("live spot-check passes against the shipped public page copy", async () => {
   const results = await spotCheckPublicPages({ baseUrl: origin, fetcher: pageFetcher() });
-  assert.equal(results.length, 15);
+  assert.equal(results.length, 16);
   for (const result of results) {
     assert.deepEqual(result.failures, [], `${result.path} must pass: ${result.name}`);
   }
@@ -131,7 +131,7 @@ test("live spot-check flags a stale Worker serving the SPA fallback", async () =
     const url = new URL(rawUrl);
     const method = options.method || "GET";
     if (method === "POST") {
-      return jsonBody({ error: "Enter a valid public http(s) URL." }, 400);
+      return jsonBody({ error: "Enter a valid public website URL." }, 400);
     }
     if (url.pathname === "/check") {
       return new Response(spaShell, { headers: { "content-type": "text/html" } });
