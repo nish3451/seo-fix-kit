@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import http from "node:http";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { rootSitemap } from "../../shared/audit-engine.js";
+import { auditUrl } from "../../server/audit/engine.js";
+import { escapeHtml, rootSitemap } from "../../shared/audit-engine.js";
+import { DEMO_PROOF, DEMO_FIXTURE_PATH } from "./demo-proof.js";
+import { renderedFixture } from "./audits.js";
 import { checkHtml } from "./public-check.js";
 import {
   demoHtml,
@@ -214,6 +218,76 @@ test("public one-page check page is a truthful, searchable entry path", () => {
   assert.match(check, /Is this a full site audit\?/);
   assert.match(check, /Does this check promise rankings or traffic\?/);
   assert.doesNotMatch(check, /noindex/i, "the entry page must stay searchable");
+});
+
+test("demo brief is verbatim real engine output for the public test page", async () => {
+  const server = http.createServer((req, res) => {
+    const fixtureOrigin = `http://${req.headers.host}`;
+    if (req.url.startsWith(DEMO_FIXTURE_PATH)) {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "x-robots-tag": "noindex, nofollow" });
+      res.end(renderedFixture(fixtureOrigin));
+      return;
+    }
+    if (req.url === "/llms.txt") {
+      res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+      res.end(`# SEO Fix Kit\n\nPublic proof pages:\n- ${fixtureOrigin}/demo\n- ${fixtureOrigin}/methodology\n- ${fixtureOrigin}/packages\n`);
+      return;
+    }
+    res.writeHead(404, { "content-type": "text/plain" });
+    res.end("not found");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const fixtureOrigin = `http://127.0.0.1:${server.address().port}`;
+    // Same options the Worker's private demo audit uses: appOrigin synthesis
+    // for robots/sitemap, one page, no PageSpeed pass.
+    const report = await auditUrl(`${fixtureOrigin}${DEMO_FIXTURE_PATH}`, {
+      maxPages: 1,
+      pageSpeed: false,
+      appOrigin: fixtureOrigin
+    });
+
+    assert.ok(report.findings.length >= DEMO_PROOF.guards.length + 1, "the engine must emit guarded findings plus real issues for the test page");
+    for (const guard of DEMO_PROOF.guards) {
+      const live = report.findings.find((finding) => finding.type === "guard" && finding.title === guard.title);
+      assert.ok(live, `guarded finding missing from live engine output: ${guard.title}`);
+      assert.equal(live.severity, guard.severity, `severity drifted for: ${guard.title}`);
+      assert.equal(live.why, guard.why, `why drifted for: ${guard.title}`);
+      assert.equal(live.evidence, guard.evidence, `evidence drifted for: ${guard.title}`);
+      assert.equal(live.fix, guard.fix, `fix drifted for: ${guard.title}`);
+    }
+
+    const rendered = report.pages[0].rendered;
+    const staticFacts = report.pages[0].static;
+    assert.equal(staticFacts.wordCount, DEMO_PROOF.measured.staticWordCount);
+    assert.equal(rendered.wordCount, DEMO_PROOF.measured.renderedWordCount);
+    assert.equal(rendered.h1s[0], DEMO_PROOF.measured.renderedH1);
+    assert.equal(rendered.internalLinks.length, DEMO_PROOF.measured.renderedInternalLinkCount);
+    assert.equal(rendered.title, DEMO_PROOF.measured.renderedTitle);
+
+    assert.ok(report.repairPlan.length >= DEMO_PROOF.repairPlan.length);
+    for (const entry of DEMO_PROOF.repairPlan) {
+      const live = report.repairPlan.find((item) => item.title === entry.title);
+      assert.ok(live, `repair plan entry missing from live engine output: ${entry.title}`);
+      assert.equal(live.fix, entry.fix, `fix drifted for: ${entry.title}`);
+      assert.equal(live.snippet || "", entry.snippet.replaceAll("{ORIGIN}", fixtureOrigin), `snippet drifted for: ${entry.title}`);
+    }
+
+    const demo = demoHtml(origin);
+    assert.match(demo, /Real engine output for the public test page/);
+    assert.match(demo, /verbatim output from the SEO Fix Kit audit engine/i);
+    assert.match(demo, new RegExp(`${origin}${DEMO_FIXTURE_PATH}`));
+    for (const guard of DEMO_PROOF.guards) {
+      const renderedEvidence = escapeHtml(guard.evidence)
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      assert.match(demo, new RegExp(renderedEvidence), `demo must render live evidence: ${guard.title}`);
+    }
+    assert.doesNotMatch(demo, /Sample developer brief/, "the demo must not show the hand-written brief anymore");
+    assert.doesNotMatch(demo, /Rendered H1 is visible in the final DOM/, "the fabricated H1 evidence must be gone");
+    assert.match(demo, /Check one page now/, "the demo must keep the low-friction entry into the live anonymous check");
+  } finally {
+    server.close();
+  }
 });
 
 test("static public skill and sitemap files keep buyer-facing boundaries", () => {
