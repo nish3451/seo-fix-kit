@@ -1,4 +1,5 @@
 import { escapeHtml } from "../../shared/audit-engine.js";
+import { DEMO_PROOF, DEMO_FIXTURE_PATH, demoProofSnippet } from "./demo-proof.js";
 
 const FIX_PACK_PUBLIC_PRICE = "$99.00 one-time";
 
@@ -176,38 +177,47 @@ ${pageSocialHead({ origin, title: "Proof-Backed SEO Repair Demo - SEO Fix Kit", 
       <section class="grid" aria-label="Sample audit outcome">
         <article class="panel">
           <strong>Static scanner</strong>
-          <p>No H1. No internal links. Thin content. Needs cleanup.</p>
+          <p>The raw HTML response holds ${DEMO_PROOF.measured.staticWordCount} visible words and no heading or link a user can follow. A static-only scan reads that as a thin, broken page.</p>
         </article>
         <article class="panel proof">
           <strong>Rendered proof</strong>
-          <p>Browser render shows a real H1, normal internal links, and substantial page content.</p>
+          <p>The browser render shows one real H1, three internal links, and ${DEMO_PROOF.measured.renderedWordCount} words of content. The thin page exists only in the raw response.</p>
         </article>
         <article class="panel">
           <strong>Repair brief</strong>
-          <p>No duplicate H1. No fake internal links. No busywork. Keep monitoring and rerun after real content changes.</p>
+          <p>No thin-content fix is queued: the engine guards the warning with rendered-word evidence. Issues that are real still surface — noindex, a canonical conflict, a missing share image, missing schema — each with an exact snippet.</p>
         </article>
       </section>
       <section class="panel proof">
-        <h2>Sample developer brief</h2>
-        <p>The paid beta turns verified findings into a repair queue with acceptance checks and one rerun after fixes.</p>
-        <code>- Finding: False positive guarded. H1 exists after render.
-- Evidence: Rendered H1 is visible in the final DOM.
-- Action: Do not add another H1.
-- Acceptance: Re-run audit; finding stays guarded, not queued as a fix.</code>
+        <h2>Real engine output for the public test page</h2>
+        <p>The proof below is verbatim output from the SEO Fix Kit audit engine run against SEO Fix Kit's own <a href="${origin}${DEMO_FIXTURE_PATH}">public test page</a> — the same engine, the same page, and the same proof fields used for private reports. Every finding below is engine-generated, not hand-written demo copy.</p>
+        <p><strong>Measured on the test page:</strong> ${DEMO_PROOF.measured.staticWordCount} visible words in the raw HTML response vs ${DEMO_PROOF.measured.renderedWordCount} words, one H1, and ${DEMO_PROOF.measured.renderedInternalLinkCount} internal links after browser render.</p>
+        <p><strong>Guarded false positives:</strong></p>
+        <ul>
+${DEMO_PROOF.guards.map((guard) => `          <li><strong>${escapeHtml(guard.title)}</strong>\n            <code>- Evidence: ${escapeHtml(guard.evidence)}
+- Why: ${escapeHtml(guard.why)}
+- Fix: ${escapeHtml(guard.fix)}</code></li>`).join("\n")}
+        </ul>
+        <p><strong>What the engine actually queues for the test page</strong> (severity · finding · suggested fix · exact snippet when the engine can generate one):</p>
+        <ul>
+${DEMO_PROOF.repairPlan.map((item) => `          <li><strong>${escapeHtml(item.severity)}</strong> ${escapeHtml(item.title)} — ${escapeHtml(item.fix)}${item.snippet ? `\n            <code>${escapeHtml(demoProofSnippet(item.snippet, origin))}</code>` : ""}</li>`).join("\n")}
+        </ul>
+        <p>This excerpt was generated with engine v${escapeHtml(DEMO_PROOF.engineVersion)}. Performance/PageSpeed checks are not part of this public excerpt. The test page is intentionally a noindex fixture, and the report says so instead of hiding it. After a change ships, rerun the same page: each finding shows fixed, still-open, new, or regressed.</p>
       </section>
       <section>
         <h2>What this sample proves</h2>
         <p>A useful SEO repair report has to separate a crawler limitation from a real customer problem. The sample shows that SEO Fix Kit does not stop at the first HTML response. It opens the page in a browser, reads the rendered title, description, headings, internal links, schema, social tags, images, and body copy, then records which static warnings should be guarded as false positives.</p>
+        <p>On this test page the static-looking warnings were a missing H1, missing internal links, and thin content: ${DEMO_PROOF.measured.staticWordCount} visible words in the raw response vs ${DEMO_PROOF.measured.renderedWordCount} rendered words. The same raw-vs-rendered comparison guards missing-H1 and missing-link warnings on sites that paint content with JavaScript.</p>
         <p>That distinction matters for agentic repair work. If a scanner says "add an H1" when the rendered page already has one, an agent could make the site worse by adding duplicate headings. SEO Fix Kit keeps that item out of the repair queue, explains why it was rejected, and points the user toward a rerun instead of fake busywork.</p>
       </section>
       <section class="grid" aria-label="What a paid Fix Pack uses from the sample">
         <article class="panel proof">
           <strong>Buyer proof</strong>
-          <p>The report shows the observed page URL, rendered facts, issue evidence, and whether the finding is actionable or guarded.</p>
+          <p>The report shows the observed page URL, rendered facts, issue evidence, and whether the finding is actionable or guarded — exactly the fields shown in the real engine output above.</p>
         </article>
         <article class="panel proof">
           <strong>Repair scope</strong>
-          <p>Only proven issues become queue items. Each item has a suggested fix, estimated effort, confidence, and acceptance check.</p>
+          <p>Only proven issues become queue items. Each item has severity, a suggested fix, an exact snippet when the engine can generate one, and an acceptance check.</p>
         </article>
         <article class="panel proof">
           <strong>Rerun standard</strong>
@@ -216,7 +226,7 @@ ${pageSocialHead({ origin, title: "Proof-Backed SEO Repair Demo - SEO Fix Kit", 
       </section>
       <section>
         <h2>What this sample does not claim</h2>
-        <p>This page is a sample, not an audit of your site. Anonymous one-page checks are live at ${origin}/check: paste a public URL and get rendered proof, guarded false positives, and actionable findings when present — with no account, no email, and no stored report. Full reports still run inside the private beta after secure email access and, for deeper crawls, site verification. Neither the sample nor the one-page check promises rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility. The product standard is the same everywhere: prove the issue, avoid false positives, ask for approval, then rerun the same measurement after the fix.</p>
+        <p>This page is a sample, not an audit of your site. The proof excerpt above is the engine's real output for the test page, not a preview of your site's results. Anonymous one-page checks are live at ${origin}/check: paste a public URL and get rendered proof, guarded false positives, and actionable findings when present — with no account, no email, and no stored report. Full reports still run inside the private beta after secure email access and, for deeper crawls, site verification. Neither the sample nor the one-page check promises rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility. The product standard is the same everywhere: prove the issue, avoid false positives, ask for approval, then rerun the same measurement after the fix.</p>
       </section>
       <p><a class="cta" href="${origin}/check">Check one page now</a></p>
       <footer class="site-footer">
