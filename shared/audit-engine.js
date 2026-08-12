@@ -2398,16 +2398,17 @@ function dedupeHreflangIssues(issues) {
 // same URLs politely returned 200 and 302.
 const THROTTLED_STATUSES = new Set([408, 425, 429, 503]);
 
-// 522 (connection timed out) and 523 (origin unreachable) are Cloudflare-edge
-// errors returned when the checked site's own origin temporarily cannot be
-// reached. Every same-origin link fails at once while the origin is down and
-// recovers with it; Google backs off and retries 5xx rather than treating the
-// URLs as dead. Reporting a scan-time origin hiccup as verified critical broken
-// internal links invents a defect the page does not have, so same-origin
-// (internal) 522/523 checks are treated as transient infra failures, not broken
-// links. External targets' 522/523 stay reportable: that is a real observation
-// about the referenced site, not our own footprint.
-const CLOUDFLARE_ORIGIN_ERRORS = new Set([522, 523]);
+// 522 (connection timed out), 523 (origin unreachable), and 524 (origin did
+// not answer in time) are Cloudflare-edge errors returned when the checked
+// site's own origin temporarily cannot be reached. Every same-origin link
+// fails at once while the origin is down and recovers with it; Google backs
+// off and retries 5xx rather than treating the URLs as dead. Reporting a
+// scan-time origin hiccup as verified critical broken internal links invents
+// a defect the page does not have, so same-origin (internal) 522/523/524
+// checks are treated as transient infra failures, not broken links. External
+// targets' 522/523/524 stay reportable: that is a real observation about the
+// referenced site, not our own footprint.
+const CLOUDFLARE_ORIGIN_ERRORS = new Set([522, 523, 524]);
 
 export function isThrottledResource(check) {
   return Boolean(check && check.status && THROTTLED_STATUSES.has(check.status));
