@@ -6,6 +6,7 @@ import { renderedFixture } from "./audits.js";
 import {
   buildPublicCheckResponse,
   checkHtml,
+  checkJsonLd,
   publicCheckQuotaChecks,
   validatePublicCheckUrl
 } from "./public-check.js";
@@ -21,10 +22,18 @@ test("public check URL validation rejects malformed and private targets", () => 
   assert.equal(validatePublicCheckUrl("http://[::1]/").ok, false);
   assert.equal(validatePublicCheckUrl("http://my-site.local/").ok, false);
   assert.equal(validatePublicCheckUrl("https://my-site.internal/").ok, false);
+  assert.equal(validatePublicCheckUrl("ftp://example.com/").ok, false);
+  assert.equal(validatePublicCheckUrl("ftp://example.com/file.pdf").ok, false);
+  assert.equal(validatePublicCheckUrl("mailto:hello@example.com").ok, false);
+  assert.equal(validatePublicCheckUrl("https://user:pass@example.com/").ok, false);
 
   const ok = validatePublicCheckUrl("example.com/about?q=1");
   assert.equal(ok.ok, true);
   assert.equal(ok.url, "https://example.com/about?q=1");
+
+  const protocolRelative = validatePublicCheckUrl("//example.com/about");
+  assert.equal(protocolRelative.ok, true);
+  assert.equal(protocolRelative.url, "https://example.com/about");
 });
 
 test("public check quota buckets cover per-network and per-site windows without storing the target host", async () => {
@@ -66,6 +75,17 @@ test("public check response is built only from engine fields with truthful copy"
   assert.equal(payload.guards[0].evidence, "277 rendered words found.");
   assert.equal(payload.findings[0].severity, "critical");
   assert.equal(payload.findings[0].title, "Canonical conflicts with noindex on home");
+  const markupFinding = payload.findings.find((finding) => finding.title === "Long title on home");
+  assert.equal(
+    markupFinding.proposedMarkup,
+    "<title>Rendered SaaS page with real content</title>",
+    "the engine's generated repair markup is exposed as proposedMarkup"
+  );
+  assert.equal(
+    "snippet" in markupFinding,
+    false,
+    "generated repair markup must never be exposed under an unlabeled snippet field"
+  );
   assert.equal(payload.issues.guardedFalsePositives, 1);
   assert.equal(payload.issues.critical, 2);
   assert.ok(payload.nextStep.includes("private beta"), "next step hands off into private access");
@@ -77,12 +97,78 @@ test("public check page is searchable and hands off into private access", () => 
   assert.ok(visibleWordCount(html) >= 250, "check page should not look thin to rendered audits");
   assert.match(html, /rel="canonical" href="https:\/\/seofixkit\.com\/check"/);
   assert.match(html, /id="check-form"/);
+  assert.match(
+    html,
+    /id="url-input" name="url" type="text" inputmode="url"/,
+    "the URL input must not block scheme-less entries client-side"
+  );
   assert.match(html, /https:\/\/seofixkit\.com\/api\/public-check/);
   assert.match(html, /no report or URL is stored/i);
   assert.match(html, /short-lived anonymous rate-limit counters/i);
   assert.match(html, /Request private access/);
   assert.match(html, /href="https:\/\/seofixkit\.com\/">SEO Fix Kit<\/a>/);
+  assert.match(html, /href="https:\/\/seofixkit\.com\/support"/, "the anonymous check links to support");
+  assert.match(html, /href="https:\/\/seofixkit\.com\/terms"/, "the anonymous check links to terms");
+  assert.match(html, /href="https:\/\/seofixkit\.com\/privacy"/, "the anonymous check links to the privacy policy that backs its nothing-stored copy");
   assert.doesNotMatch(html, /noindex/i, "the entry page must stay searchable");
+});
+
+test("public check page labels generated repair markup as a proposed change, never an exact snippet", () => {
+  const html = checkHtml(origin);
+  assert.doesNotMatch(html, /exact snippet/i, "the page must not call generated markup an exact snippet");
+  assert.doesNotMatch(html, /observed snippet/i, "the page must not call generated markup an observed snippet");
+  assert.match(html, /proposed markup change/i, "the panel copy names the block a proposed markup change");
+  assert.match(html, /finding\.proposedMarkup/, "the renderer reads the explicitly named field");
+  assert.match(
+    html,
+    /Proposed change — generated repair markup, not a quote from the page/,
+    "the code block carries an explicit label before the markup"
+  );
+  assert.match(html, /snippet-label/, "the label has a distinct style class");
+});
+
+test("public check page carries WebPage and truthful FAQ JSON-LD", () => {
+  const blocks = jsonLdBlocks(checkHtml(origin));
+  assert.ok(blocks.length >= 1, "check page should emit WebPage and FAQPage JSON-LD");
+  const graph = blocks.flatMap((block) => (Array.isArray(block["@graph"]) ? block["@graph"] : [block]));
+  const webpage = graph.find((node) => node["@type"] === "WebPage");
+  const faq = graph.find((node) => node["@type"] === "FAQPage");
+
+  assert.ok(webpage, "WebPage JSON-LD is present");
+  assert.equal(webpage.name, "Check One Page for SEO Proof - SEO Fix Kit");
+  assert.equal(webpage.url, "https://seofixkit.com/check");
+  assert.equal(webpage.isPartOf.name, "SEO Fix Kit");
+  assert.equal(webpage.publisher["@type"], "Organization");
+  assert.equal(webpage.mainEntity["@id"], "https://seofixkit.com/check#faq");
+
+  assert.ok(faq, "FAQPage JSON-LD is present");
+  assert.ok(Array.isArray(faq.mainEntity) && faq.mainEntity.length >= 4, "FAQ has the visible questions");
+  const questionNames = faq.mainEntity.map((question) => question.name);
+  assert.ok(questionNames.includes("What does the one-page check measure?"));
+  assert.ok(questionNames.includes("Is anything about my check stored?"));
+  assert.ok(questionNames.includes("Is this a full site audit?"));
+  assert.ok(questionNames.includes("Does this check promise rankings or traffic?"));
+  for (const question of faq.mainEntity) {
+    assert.ok(question.acceptedAnswer?.text, "every FAQ question has an answer");
+  }
+
+  const serialized = JSON.stringify(graph);
+  assert.doesNotMatch(serialized, /guarantees rankings|guarantees traffic|guaranteed rankings/i, "schema must not overclaim");
+  const noPromiseAnswer = faq.mainEntity.find((question) => question.name === "Does this check promise rankings or traffic?");
+  assert.match(noPromiseAnswer.acceptedAnswer.text, /does not guarantee rankings, traffic, indexing, revenue, AI citations/i);
+  const storedAnswer = faq.mainEntity.find((question) => question.name === "Is anything about my check stored?");
+  assert.match(storedAnswer.acceptedAnswer.text, /nothing about your check is saved/i);
+
+  // Every schema answer is a claim a visitor can read in the rendered page.
+  const html = checkHtml(origin);
+  for (const question of faq.mainEntity) {
+    assert.match(html, new RegExp(escapeRegex(question.name)), `visible page shows the question: ${question.name}`);
+    assert.match(html, new RegExp(escapeRegex(question.acceptedAnswer.text.slice(0, 60))), `visible page backs the answer for: ${question.name}`);
+  }
+
+  // The standalone builder must produce the same script the page embeds.
+  assert.ok(checkJsonLd(origin).includes('"@type":"WebPage"'));
+  assert.ok(checkJsonLd(origin).includes('"@type":"FAQPage"'));
 });
 
 // The fixture is the same public test page the private demo audit renders:
@@ -194,7 +280,8 @@ function makeEngineShapedReport() {
         type: "issue",
         severity: "warning",
         title: "Long title on home",
-        fix: "Shorten the title."
+        fix: "Shorten the title.",
+        snippet: "<title>Rendered SaaS page with real content</title>"
       }
     ]
   };
@@ -209,4 +296,13 @@ function visibleWordCount(html) {
     .trim()
     .split(/\s+/)
     .filter(Boolean).length;
+}
+
+function jsonLdBlocks(html) {
+  return [...String(html).matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)]
+    .map((match) => JSON.parse(match[1]));
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
