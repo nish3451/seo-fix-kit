@@ -97,9 +97,9 @@ function WaitlistPage() {
         <h1 id="page-title">SEO Fix Kit</h1>
         <p className="coming-soon">Private beta access.</p>
         <p className="hero-text">
-          Evidence-backed SEO audits are opening by secure email link. Join the
-          private beta, run a proof audit, and only pay when the report finds
-          repairs worth doing.
+          Evidence-backed SEO audits for site owners and founders are opening by
+          secure email link. Join the private beta, run a proof audit, and only
+          pay when the report finds repairs worth doing.
         </p>
         <p className="hero-pricing">
           Audits are free in the beta. The paid SEO Fix Pack shows the Dodo checkout

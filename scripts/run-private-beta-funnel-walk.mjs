@@ -92,7 +92,8 @@ export const FUNNEL_STOPS = [
     titlePattern: /SEO Fix Kit - Proof-Backed SEO Repair Beta/,
     copyChecks: [
       { match: "Private beta access.", reason: "home keeps the locked private-beta copy" },
-      { match: "Email access link", reason: "home keeps the one-use email link CTA" }
+      { match: "Email access link", reason: "home keeps the one-use email link CTA" },
+      { match: "for site owners and founders", reason: "home names the intended buyer in the first viewport" }
     ],
     expectedLinks: ["/demo", "/methodology", "/packages", "/check"],
     accessForm: true
