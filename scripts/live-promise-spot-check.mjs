@@ -345,6 +345,20 @@ export function canonicalHostSpotChecks(baseUrl) {
           reason: "redirect preserves the path and query"
         }
       ]
+    },
+    {
+      path: "www.seofixkit.com/favicon.svg",
+      name: "www.seofixkit.com static assets redirect too (no asset-host leakage)",
+      url: `${wwwOrigin}/favicon.svg`,
+      redirectManual: true,
+      acceptStatuses: [301],
+      expectedHeaders: [
+        {
+          name: "location",
+          value: `${baseUrl}/favicon.svg`,
+          reason: "static asset path must 301 onto the apex host"
+        }
+      ]
     }
   ];
 }

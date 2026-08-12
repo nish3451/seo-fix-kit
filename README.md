@@ -250,6 +250,10 @@ permanently 301-redirects every `www.seofixkit.com` request onto the apex host
 with the path and query intact. Every URL the Worker serves (page canonicals,
 social tags, `robots.txt`, `sitemap.xml`, `llms.txt`, and fixture URLs) is
 generated from the apex origin, so canonicals and the sitemap are apex-only.
+The assets binding runs the Worker first for every request (`run_worker_first:
+true`), so static assets (`/assets/*`, `/favicon.svg`, `/security.txt`) are
+redirected off `www` as well instead of being served straight from the asset
+CDN on a second host.
 
 ## Product boundary
 
