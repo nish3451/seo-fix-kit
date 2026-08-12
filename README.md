@@ -29,7 +29,7 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - AI Answer Readiness / SEO-GEO readiness checks derived from rendered content depth, helpful schema, canonical/internal-link clarity, question-led structure, sitemap context, and optional `/llms.txt` reachability; no live AI-engine sampling or citation monitoring.
 - Draft-only growth opportunities from verified keyword, competitor, AI-readiness, and crawl gaps; no article-volume autopilot, auto-publishing, or ranking promises.
 - False-positive guard section for static-vs-rendered mismatches.
-- Exact fix snippets for common SEO repairs.
+- Generated fix snippets for common SEO repairs (proposed markup the engine builds, never a quote observed on the page).
 - Copyable developer repair brief with priority, effort, proof, acceptance checks, and snippets.
 - Persistent repair queue records for saved reports, with proof snapshots, acceptance checks, status, action mode, rerun state, and approval-safe agent action records.
 - Report-level repair agent board with status filters, teammate assignment, notes, safe draft actions, approval/ignore controls, and no external publishing side effects.
