@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { rootSitemap } from "../../shared/audit-engine.js";
+import { ROOT_PUBLIC_LASTMODS, rootSitemap } from "../../shared/audit-engine.js";
 import { checkHtml } from "./public-check.js";
 import {
   demoHtml,
@@ -250,6 +250,23 @@ test("Cloudflare asset routing sends public proof pages through the Worker", () 
   }
 });
 
+test("sitemap carries a truthful, parseable lastmod for every public URL", () => {
+  const generated = rootSitemap(origin);
+  const staticSitemap = readFileSync(new URL("../../public/sitemap.xml", import.meta.url), "utf8");
+
+  const generatedLastmods = parseSitemapLastmods(generated);
+  const staticLastmods = parseSitemapLastmods(staticSitemap);
+
+  assert.equal(generatedLastmods.length, expectedSitemapUrls.length, "every sitemap URL must carry a lastmod");
+  for (const [path, lastmod] of Object.entries(ROOT_PUBLIC_LASTMODS)) {
+    const url = `${origin}${path}`;
+    assert.equal(generatedLastmods.get(url), lastmod, `generated sitemap lastmod for ${path}`);
+    assert.equal(staticLastmods.get(url), lastmod, `static sitemap lastmod for ${path}`);
+    assert.ok(!Number.isNaN(Date.parse(lastmod)), `lastmod for ${path} must be a parseable W3C datetime`);
+    assert.match(lastmod, /^20\d\d-\d\d-\d\dT\d\d:\d\d:\d\dZ$/, "lastmod must be a UTC W3C datetime");
+  }
+});
+
 function visibleWordCount(html) {
   return String(html)
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -263,4 +280,8 @@ function visibleWordCount(html) {
 
 function parseSitemapUrls(xml) {
   return [...String(xml).matchAll(/<loc>([^<]+)<\/loc>/g)].map((match) => match[1]);
+}
+
+function parseSitemapLastmods(xml) {
+  return new Map([...String(xml).matchAll(/<loc>([^<]+)<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/g)].map((m) => [m[1], m[2]]));
 }

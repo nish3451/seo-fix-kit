@@ -14,6 +14,7 @@
     "cf:dry-run": "npm run build && wrangler deploy --dry-run",
     "ops:audit-owned": "node scripts/run-live-audit-batch.mjs",
     "audit:live-promise": "node scripts/live-promise-spot-check.mjs",
+    "submit:indexnow": "node scripts/submit-indexnow.mjs",
     "test:billing": "node server/dodo-payment-smoke-test.js",
     "test:billing-route": "node --test worker/routes/billing.test.mjs",
     "test:product-truth": "node server/product-truth-smoke-test.js",
@@ -40,7 +41,8 @@
     "test:promise-audit": "node --test shared/promise-audit.test.mjs",
     "test:live-promise-spot-check": "node --test scripts/live-promise-spot-check.test.mjs",
     "test:app-contract": "node --test src/app-contract.test.mjs",
-    "check": "npm run test:billing && npm run test:billing-route && npm run test:product-truth && npm run test:audit && npm run test:large-crawl-security && npm run test:report-retention-security && npm run test:local-developer-api-security && npm run test:worker-dispatch && npm run test:worker-email && npm run test:public-pages && npm run test:public-check && npm run test:audit-engine && npm run test:account && npm run test:ai-answer-readiness && npm run test:growth-opportunities && npm run test:repair-queue && npm run test:repair-proof-receipt && npm run test:repair-agent && npm run test:developer-api && npm run test:remediation-brief && npm run test:audit-batch-runner && npm run test:webhooks && npm run test:app-contract && npm run test:promise-audit && npm run test:live-promise-spot-check && npm run test:funnel-walk && npm run test:large-crawl && npm run build",
+    "test:indexnow": "node --test scripts/submit-indexnow.test.mjs",
+    "check": "npm run test:billing && npm run test:billing-route && npm run test:product-truth && npm run test:audit && npm run test:large-crawl-security && npm run test:report-retention-security && npm run test:local-developer-api-security && npm run test:worker-dispatch && npm run test:worker-email && npm run test:public-pages && npm run test:public-check && npm run test:audit-engine && npm run test:account && npm run test:ai-answer-readiness && npm run test:growth-opportunities && npm run test:repair-queue && npm run test:repair-proof-receipt && npm run test:repair-agent && npm run test:developer-api && npm run test:remediation-brief && npm run test:audit-batch-runner && npm run test:webhooks && npm run test:app-contract && npm run test:promise-audit && npm run test:live-promise-spot-check && npm run test:indexnow && npm run test:funnel-walk && npm run test:large-crawl && npm run build",
     "audit:funnel-walk": "node scripts/run-private-beta-funnel-walk.mjs",
     "test:funnel-walk": "node --test scripts/run-private-beta-funnel-walk.test.mjs"
   },
