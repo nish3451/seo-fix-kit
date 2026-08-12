@@ -20,6 +20,8 @@
 // - Full multi-page audits, saved proof reports, site verification, and the
 //   repair queue remain inside the private beta; this route only measures
 //   the handoff into that private access.
+// - Engine failures are mapped through friendlyCheckError() into visitor
+//   copy; raw browser diagnostics (net::ERR_*) never leak into the response.
 import { VERSION, normalizeUrl, publicAuditUrlStatus } from "../../shared/audit-engine.js";
 import { resolvesToPrivateAddress } from "../../shared/url-safety.js";
 import { jsonNoStore } from "../lib/http.js";
@@ -47,6 +49,31 @@ const NEXT_STEP_COPY =
   "The full repair workflow runs in the private beta: secure email access, site verification for deeper crawls, a saved proof report, and a repair queue with acceptance checks and one rerun after fixes. No ranking promise is made.";
 const BOUNDARY_COPY =
   "This check measured one public page at scan time. It is not a full site audit, and no report or URL is stored: only short-lived anonymous rate-limit counters (a hash of your network and a hash of the checked site) are kept and expire automatically. It does not guarantee rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility.";
+
+// Maps an engine failure into a human-readable /check error. Raw browser
+// diagnostics like "net::ERR_NAME_NOT_RESOLVED at https://..." are useful in
+// logs but are not visitor copy: the page promises evidence, not protocol
+// dumps. Unmatched messages keep the engine's own wording so no failure mode
+// is silently hidden.
+export function friendlyCheckError(raw) {
+  const message = String(raw || "The check failed. Try another public URL.").slice(0, 260);
+  if (/ERR_NAME_NOT_RESOLVED|ERR_DNS|DNS_PROBE|getaddrinfo/i.test(message)) {
+    return "That address does not resolve to a website. Check the spelling and try again.";
+  }
+  if (/ERR_CONNECTION_RESET|ERR_CONNECTION_REFUSED|ERR_CONNECTION_TIMED_OUT|ERR_CONNECTION_CLOSED|ERR_TIMED_OUT|ERR_INTERNET_DISCONNECTED|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN/i.test(message)) {
+    return "The site did not respond. It may be down, blocking checkers, or the address may be wrong. Try another public URL.";
+  }
+  if (/ERR_CERT|ERR_SSL|SSL:|TLS|CERT_HAS_EXPIRED/i.test(message)) {
+    return "The site has a certificate problem, so the check browser could not open it securely. Try another public URL.";
+  }
+  if (/ERR_ABORTED/i.test(message)) {
+    return "The page did not finish loading. Try again in a moment.";
+  }
+  if (/net::ERR/i.test(message)) {
+    return "The page could not be loaded from that address. Check the URL and try again.";
+  }
+  return message;
+}
 
 export function validatePublicCheckUrl(input) {
   let url = "";
@@ -197,7 +224,7 @@ export async function runPublicCheck(request, env) {
         503
       );
     }
-    const message = String(error?.message || "The check failed. Try another public URL.").slice(0, 260);
+    const message = friendlyCheckError(error?.message);
     return jsonNoStore({ error: message }, 422);
   }
 }
