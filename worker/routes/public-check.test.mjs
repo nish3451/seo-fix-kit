@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import test from "node:test";
+import { createAuditEngine } from "../../shared/audit-engine.js";
 import { auditUrl } from "../../server/audit/engine.js";
 import { renderedFixture } from "./audits.js";
 import {
@@ -267,6 +268,90 @@ test("public check output is verbatim engine output for the public test page", a
   }
 });
 
+// Regression: the public /check response is a direct mapping of the engine
+// report, so same-origin Cloudflare origin hiccups (522 connection timed out,
+// 523 origin unreachable, 524 origin did not answer in time) must never reach
+// the anonymous surface as critical "broken internal links" findings. The
+// report maps verbatim: if the engine emitted them, /check would show them —
+// this pins the surface, not just the classifier.
+test("public check never reports same-origin 522/523/524 link failures as critical broken links", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      miniFakeBrowser({
+        finalUrl: "https://public.example/",
+        title: "Proof page with useful content",
+        description: "A proof-backed page.",
+        canonical: "https://public.example/",
+        hreflangs: [],
+        h1s: ["Proof page"],
+        headings: [{ level: "h1", text: "Proof page" }],
+        links: [
+          { text: "About", href: "https://public.example/about", rawHref: "/about" },
+          { text: "Contact", href: "https://public.example/contact", rawHref: "/contact" },
+          { text: "Pricing", href: "https://public.example/pricing", rawHref: "/pricing" },
+          { text: "Reference", href: "https://other.example/ref", rawHref: "https://other.example/ref" }
+        ],
+        internalLinks: [
+          { text: "About", href: "https://public.example/about", rawHref: "/about" },
+          { text: "Contact", href: "https://public.example/contact", rawHref: "/contact" },
+          { text: "Pricing", href: "https://public.example/pricing", rawHref: "/pricing" }
+        ],
+        externalLinks: [
+          { text: "Reference", href: "https://other.example/ref", rawHref: "https://other.example/ref" }
+        ],
+        images: [],
+        imagesMissingAlt: [],
+        scripts: [],
+        stylesheets: [],
+        openGraph: {},
+        twitter: {},
+        schemaTypes: [],
+        schemaErrors: [],
+        navigationTiming: {},
+        resourceTimings: [],
+        resourceTimingsTotal: 0,
+        wordCount: 18,
+        bodyText: "Proof page with useful content.",
+        bodySample: "Proof page with useful content."
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      const originFailures = {
+        "https://public.example/about": 523,
+        "https://public.example/contact": 522,
+        "https://public.example/pricing": 524
+      };
+      if (originFailures[url]) {
+        return new Response("origin not reachable", { status: originFailures[url], headers: { "content-type": "text/html" } });
+      }
+      if (url === "https://other.example/ref") {
+        return new Response("origin unreachable", { status: 523, headers: { "content-type": "text/html" } });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const payload = buildPublicCheckResponse(report);
+
+  assert.equal(payload.issues.critical, 0, "a scan-time origin hiccup must not surface as a critical on /check");
+  assert.ok(
+    !payload.findings.some((finding) => /Broken internal links/.test(finding.title || "")),
+    "/check must not list a broken-internal-links finding for same-origin 522/523/524"
+  );
+
+  const external = payload.findings.find((finding) => /Broken external links/.test(finding.title || ""));
+  assert.ok(external, "an external origin failure is still a real observation on /check");
+  assert.equal(external.severity, "warning");
+  assert.match(external.evidence, /other\.example\/ref returned 523/, "external 523 stays evidenced");
+});
+
 // A minimal report in the exact shape the shared engine produces, used to
 // pin the response mapping without a browser.
 function makeEngineShapedReport() {
@@ -320,6 +405,26 @@ function makeEngineShapedReport() {
         snippet: "<title>Rendered SaaS page with real content</title>"
       }
     ]
+  };
+}
+
+// Minimal browser double for the shared engine: only the render contract the
+// engine needs (newPage -> goto -> evaluate -> close), returning the supplied
+// rendered facts. No interception hooks are installed when route/on are absent.
+function miniFakeBrowser(renderedFacts) {
+  return {
+    async newPage() {
+      return {
+        async goto() {
+          return { status: () => 200 };
+        },
+        async evaluate() {
+          return renderedFacts;
+        },
+        async close() {}
+      };
+    },
+    async close() {}
   };
 }
 
