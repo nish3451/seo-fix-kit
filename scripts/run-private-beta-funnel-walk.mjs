@@ -12,7 +12,10 @@ import { pathToFileURL } from "node:url";
 //
 //   1. Walks the funnel stops in order on a desktop viewport and again on an
 //      iPhone-13 mobile viewport: home (where the private-beta access request
-//      form lives), /demo, and /packages.
+//      form lives), /demo, and /packages. The mobile context is created
+//      through buildContextOptions() and verified after launch (the applied
+//      viewport size is recorded per stop), so a "mobile" pass can never
+//      silently be a desktop pass again.
 //   2. Per stop records HTTP status, final URL, document title, canonical,
 //      load-bearing funnel copy, console errors, page errors, broken internal
 //      links, and (mobile) horizontal overflow.
@@ -39,6 +42,39 @@ export const WALK_STATUS = {
   PASS: "pass",
   FAIL: "fail"
 };
+
+// The viewport descriptors the walk runs in, desktop then mobile. The mobile
+// descriptor must stay 390x844 so the walk keeps measuring the iPhone-13
+// breakpoint it promises; buildContextOptions() is the single translation
+// point into Playwright context options, and the offline lock pins it.
+export const WALK_VIEWPORTS = [
+  { name: "desktop", width: 1280, height: 900 },
+  {
+    name: "mobile",
+    width: 390,
+    height: 844,
+    isMobile: true,
+    hasTouch: true,
+    userAgent: mobileUserAgent()
+  }
+];
+
+// Translates a WALK_VIEWPORTS descriptor into valid Playwright
+// BrowserContextOptions. Playwright silently IGNORES unknown top-level keys:
+// a descriptor passed straight to newContext() as `{ name, width, height,
+// isMobile, ... }` drops width/height and runs at the 1280px desktop default
+// while still reporting the stop as the "mobile" viewport. The size must be
+// nested under `viewport`, and this builder plus the runtime applied-size
+// guard keep the walk honest.
+export function buildContextOptions({ name, width, height, isMobile = false, hasTouch = false, userAgent = "" } = {}) {
+  const options = {
+    viewport: { width, height },
+    isMobile,
+    hasTouch
+  };
+  if (userAgent) options.userAgent = userAgent;
+  return options;
+}
 
 // Exit codes: 0 pass, 1 walk failed (any stop's assertions broke), 2
 // unexpected error (browser launch, unreachable site, walker bug).
@@ -140,12 +176,21 @@ export async function runPrivateBetaFunnelWalk({
   let accessRequest = null;
 
   try {
-    for (const [viewportIndex, viewport] of [
-      { name: "desktop", width: 1280, height: 900 },
-      { name: "mobile", width: 390, height: 844, isMobile: true, hasTouch: true, userAgent: mobileUserAgent() }
-    ].entries()) {
-      const context = await launched.newContext(viewport);
+    for (const [viewportIndex, viewport] of WALK_VIEWPORTS.entries()) {
+      const context = await launched.newContext(buildContextOptions(viewport));
       const page = await context.newPage();
+      // Fail loud if the requested size did not apply: Playwright silently
+      // ignores unknown context-option keys, and a walk that never resized
+      // would journal a fake "mobile" pass. The applied size is also recorded
+      // per stop so journal evidence is self-verifying.
+      const appliedViewport = page.viewportSize();
+      if (!appliedViewport || appliedViewport.width !== viewport.width || appliedViewport.height !== viewport.height) {
+        failures.push(
+          `${viewport.name} viewport did not apply: context reports ${JSON.stringify(appliedViewport)} instead of ${viewport.width}x${viewport.height}; this walk is not measuring the viewport it claims`
+        );
+        await context.close();
+        continue;
+      }
       const scopedConsoleErrors = [];
       const scopedRequestFailures = [];
       page.on("console", (message) => {
@@ -165,7 +210,8 @@ export async function runPrivateBetaFunnelWalk({
           stop,
           page,
           timeoutMs,
-          viewport: viewport.name
+          viewport: viewport.name,
+          appliedViewport: { width: viewport.width, height: viewport.height }
         });
         stops.push(evidence);
         const stopFailures = evaluateStopEvidence(evidence);
@@ -227,7 +273,7 @@ function mobileUserAgent() {
 
 // Walks one stop in one viewport and records raw evidence. Never submits the
 // access form; the access request check is inspect-only.
-async function walkStop({ baseUrl, stop, page, timeoutMs, viewport }) {
+async function walkStop({ baseUrl, stop, page, timeoutMs, viewport, appliedViewport = null }) {
   const path = stop.path;
   const response = await page.goto(`${baseUrl}${path}`, {
     waitUntil: "networkidle",
@@ -314,6 +360,7 @@ async function walkStop({ baseUrl, stop, page, timeoutMs, viewport }) {
     path,
     name: stop.name,
     viewport,
+    appliedViewport,
     httpStatus,
     finalUrl,
     title: pageState.title,
