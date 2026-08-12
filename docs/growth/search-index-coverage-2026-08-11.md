@@ -18,6 +18,45 @@ Google, seofixkit.com first on Bing/DDG") cannot be produced from a lane
 without credentials, but every lever that does not need credentials is now
 built and one command away.
 
+## Re-verified 2026-08-12 (~11:00 IST, lane-1 run) — lastmod leg shipped
+
+The 2026-08-12 lane run ported the IndexNow leg onto fresh `origin/main`
+(PR #99 had gone CONFLICTING against main) and shipped the remaining
+agent-completable product leg from the item's accept: **truthful per-page
+`<lastmod>` on every sitemap URL.** Both are now one PR
+(`seo-fix-kit/lane1-search-index-coverage-20260812`).
+
+- **Sitemap lastmod shipped.** `shared/audit-engine.js` now emits
+  `<lastmod>` for all 8 public URLs (plus the static `public/sitemap.xml`
+  mirror), locked by `worker/routes/pages.test.mjs`. Each lastmod is the W3C
+  UTC commit timestamp of the last change to the code that renders that page
+  (e.g. `/methodology` `2026-08-11T12:49:56Z` = #103; `/check`
+  `2026-08-11T13:44:06Z` = #102), so the freshness signal is truthful, not
+  today-dated filler. This is the "cheapest re-crawl hint" the item's own
+  evidence called for; Google re-crawls the sitemap on its own schedule and
+  Search Console request-indexing remains the fast owner-only path.
+- **Live sitemap still loc-only today:** `https://seofixkit.com/sitemap.xml`
+  HTTP 200, 8 `<loc>`, zero `<lastmod>` — lastmod ships with this PR's release.
+- **IndexNow key paths now real 404** (not the SPA fallback): both
+  `https://seofixkit.com/{key}.txt` paths return HTTP 404 with the 404 page
+  (#101's real-404 fix is live), so `run_worker_first` in this PR can serve
+  the key without being shadowed. No key file exists yet.
+- **`node scripts/submit-indexnow.mjs --dry-run` (live, this run):** key file
+  check `MISS` on both paths (expected pre-release), sitemap URL set parsed:
+  8 URLs, and it would POST to `api.indexnow.org` + `www.bing.com/indexnow`.
+  Exit 0 on dry-run. The script refuses a real submission until the key file
+  is live (exit 2), so nothing half-baked can be sent.
+- **Bing unchanged:** `bing.com/search?q="seofixkit.com"` HTTP 200, ZERO
+  `b_algo` organic blocks; all 8 `seofixkit` string hits are query echoes in
+  meta/suggestions. No organic presence.
+- **DuckDuckGo unchanged, bot-challenged:** `html.duckduckgo.com/?q="seofixkit.com"`
+  HTTP 202 with ~80 challenge markers, zero `result__a` links; the 2026-08-09
+  real-browser "No results found" evidence still stands (DDG cannot be
+  re-sampled from this box; its index is Bing-derived, so IndexNow is the
+  lever).
+- **Google not re-probed** (direct Google is CAPTCHA-walled from this VPS;
+  Startpage proxy receipt from 2026-08-11 stands: homepage only).
+
 ## Fresh live evidence (2026-08-11, ~10:40 IST)
 
 - **Google: homepage only.** Startpage (a live Google-index proxy) for
@@ -61,13 +100,13 @@ built and one command away.
   `www.bing.com/indexnow`). Key is world-readable by spec, not a credential.
 - `shared/audit-engine.js` — hoisted the canonical route list to
   `ROOT_PUBLIC_PATHS`, shared by `rootSitemap()` and IndexNow so the sitemap
-  and the submission set can never drift.
+  and the submission set can never drift; adds `ROOT_PUBLIC_LASTMODS` so every
+  sitemap URL carries a truthful W3C `<lastmod>` (2026-08-12 addition).
 - `worker/index.js` — serves `GET /{key}.txt` and `GET /.well-known/{key}.txt`
   (text/plain, `x-robots-tag: noindex`), apex-only like every other public
   surface; www requests keep 301ing to apex.
 - `wrangler.jsonc` — both key paths added to `run_worker_first` so the SPA
-  asset fallback cannot shadow them (verified live: without this, both paths
-  currently return the SPA HTML with HTTP 200).
+  asset fallback cannot shadow them.
 - `server/index.js` — local dev-server parity for both key paths.
 - `scripts/submit-indexnow.mjs` + `scripts/submit-indexnow.test.mjs` —
   `node scripts/submit-indexnow.mjs` verifies the key file is live at both
@@ -78,6 +117,11 @@ built and one command away.
   canonical `check` gate.
 - `worker/index.test.mjs` — apex key file 200 with exact key body + noindex,
   www 301 to apex, for both paths.
+- `public/sitemap.xml` — static mirror carries the same lastmods as the
+  generated sitemap (2026-08-12 addition).
+- `worker/routes/pages.test.mjs` — locks the URL set, and (2026-08-12) that
+  every URL in the generated and static sitemaps carries the exact
+  `ROOT_PUBLIC_LASTMODS` value as a parseable UTC W3C datetime.
 
 ## Owner manual legs (credentials required — cannot be done by an agent)
 
@@ -106,13 +150,15 @@ Both are one-time, copy-paste steps that materially accelerate the outcome:
 ## Resume path (agent-completable, after this PR is merged AND released)
 
 1. Confirm release landed: `curl -s https://seofixkit.com/{key}.txt` returns
-   the key text (not the SPA HTML).
+   the key text (not the SPA HTML), and
+   `curl -s https://seofixkit.com/sitemap.xml` contains `<lastmod>` for all 8
+   URLs.
 2. `node scripts/submit-indexnow.mjs` — verify 2x "key matches", 8 URLs listed,
    ACCEPTED on both endpoints. Bing crawls on its schedule (typically minutes
    to hours); DDG follows from Bing's index.
 3. Re-run the verification queries from "Fresh live evidence" above; record
    receipts in this file under a "Re-verified" section. Google's leg moves
-   only via owner step 1 or its own re-crawl cadence.
+   only via owner step 1 or its own re-crawl cadence (now helped by lastmod).
 
 ## Acceptance / verification mapping
 
@@ -120,16 +166,21 @@ Both are one-time, copy-paste steps that materially accelerate the outcome:
   + crawler schedule; externally observable via
   `bing.com/search?q=seofixkit.com` and `duckduckgo.com/?q=seofixkit.com`.
 - All public pages on Google: owned by Search Console request-indexing (owner)
-  + sitemap re-crawl; externally observable via `site:seofixkit.com`.
+  + sitemap re-crawl (now with truthful lastmod freshness hints, this packet);
+  externally observable via `site:seofixkit.com`.
 - No index bloat / duplicate-host junk: already enforced — www 301s to apex,
   every emitted URL (canonical, og:url, sitemap, robots, key file) is
   apex-only; submission set is exactly the sitemap set with no query strings.
-- Rollback: remove the worker key-file routes + `run_worker_first` entries and
-  delete `shared/index-now.js`; no product surface or public copy changes.
+- Rollback: remove the worker key-file routes + `run_worker_first` entries,
+  delete `shared/index-now.js`, and drop the lastmod map from
+  `shared/audit-engine.js`/`public/sitemap.xml`; no product surface or public
+  copy changes.
 
 ## Files changed in this packet
 
 - `shared/index-now.js` (new), `scripts/submit-indexnow.mjs` (new),
   `scripts/submit-indexnow.test.mjs` (new), `docs/growth/search-index-coverage-2026-08-11.md` (this file)
 - `shared/audit-engine.js`, `worker/index.js`, `worker/index.test.mjs`,
-  `server/index.js`, `wrangler.jsonc`, `package.json`
+  `server/index.js`, `wrangler.jsonc`, `package.json`, `README.md`
+- 2026-08-12 lane run additionally: `public/sitemap.xml`,
+  `worker/routes/pages.test.mjs` (lastmod leg).

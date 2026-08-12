@@ -257,7 +257,7 @@ test("sitemap carries a truthful, parseable lastmod for every public URL", () =>
   const generatedLastmods = parseSitemapLastmods(generated);
   const staticLastmods = parseSitemapLastmods(staticSitemap);
 
-  assert.equal(generatedLastmods.length, expectedSitemapUrls.length, "every sitemap URL must carry a lastmod");
+  assert.equal(generatedLastmods.size, expectedSitemapUrls.length, "every sitemap URL must carry a lastmod");
   for (const [path, lastmod] of Object.entries(ROOT_PUBLIC_LASTMODS)) {
     const url = `${origin}${path}`;
     assert.equal(generatedLastmods.get(url), lastmod, `generated sitemap lastmod for ${path}`);
