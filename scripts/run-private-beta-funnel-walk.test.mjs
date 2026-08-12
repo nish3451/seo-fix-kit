@@ -150,6 +150,30 @@ test("walk fails when load-bearing funnel copy is missing", () => {
   assert.ok(failures.some((reason) => reason.includes("locked private-beta copy")), failures.join("; "));
 });
 
+test("home stop names the intended buyer in its first-viewport copy", () => {
+  const homeCopyChecks = FUNNEL_STOPS[0].copyChecks.map((check) => check.match);
+  assert.ok(
+    homeCopyChecks.includes("for site owners and founders"),
+    "home first-viewport copy must name the intended buyer: site owners and founders"
+  );
+  const audienceCheck = FUNNEL_STOPS[0].copyChecks.find((check) => check.match === "for site owners and founders");
+  assert.ok(
+    /intended buyer/.test(audienceCheck?.reason || ""),
+    `audience check reason must label the intent, got ${audienceCheck?.reason}`
+  );
+});
+
+test("walk fails when the intended-buyer copy is missing from home", () => {
+  const evidence = passingStopEvidence(FUNNEL_STOPS[0]);
+  const audienceCheck = FUNNEL_STOPS[0].copyChecks.find((check) => check.match === "for site owners and founders");
+  assert.ok(audienceCheck, "home stop must carry the intended-buyer copy check");
+  evidence.copyChecks = evidence.copyChecks
+    .filter((check) => check.match !== audienceCheck.match)
+    .map((check) => ({ ...check, present: true }));
+  const failures = evaluateStopEvidence(evidence);
+  assert.ok(failures.some((reason) => reason === audienceCheck.reason), failures.join("; "));
+});
+
 test("walk fails when an expected public proof link is missing", () => {
   const evidence = passingStopEvidence(FUNNEL_STOPS[0]);
   evidence.expectedLinks = evidence.expectedLinks.filter((link) => link.href !== "/demo");
