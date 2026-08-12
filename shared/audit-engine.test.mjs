@@ -577,30 +577,34 @@ test("genuine failures are still not mistaken for throttling", () => {
 
 
 // Regression: a Cloudflare-hosted site whose origin briefly fails returns
-// 522 (connection timed out) / 523 (origin unreachable) for every same-origin
-// link at once. Those are Cloudflare-edge errors for the checked site's own
-// origin — transient infrastructure, not per-link breakage — and Google backs
-// off and retries 5xx instead of dropping the URLs. The public /check must not
-// turn a scan-time origin hiccup into verified critical "broken internal links"
-// findings the page does not have.
+// 522 (connection timed out) / 523 (origin unreachable) / 524 (origin did not
+// answer in time) for every same-origin link at once. Those are Cloudflare-edge
+// errors for the checked site's own origin — transient infrastructure, not
+// per-link breakage — and Google backs off and retries 5xx instead of dropping
+// the URLs. The public /check must not turn a scan-time origin hiccup into
+// verified critical "broken internal links" findings the page does not have.
 test("same-origin Cloudflare origin errors are not treated as broken internal links", () => {
-  for (const status of [522, 523]) {
+  for (const status of [522, 523, 524]) {
     assert.equal(
       isSameOriginInfraFailure({ status, ok: false, kind: "internal" }),
       true,
       `same-origin ${status} should count as transient infra, not broken`
     );
   }
-  assert.equal(
-    isSameOriginInfraFailure({ status: 522, ok: false, kind: "external" }),
-    false,
-    "an external target's 522 is a real observation and must still be reported"
-  );
-  assert.equal(
-    isSameOriginInfraFailure({ status: 523, ok: false, kind: "image" }),
-    false,
-    "522/523 on images stays reportable; only same-origin links are transient"
-  );
+  for (const status of [522, 523, 524]) {
+    assert.equal(
+      isSameOriginInfraFailure({ status, ok: false, kind: "external" }),
+      false,
+      `an external target's ${status} is a real observation and must still be reported`
+    );
+  }
+  for (const status of [522, 523, 524]) {
+    assert.equal(
+      isSameOriginInfraFailure({ status, ok: false, kind: "image" }),
+      false,
+      `${status} on images stays reportable; only same-origin links are transient`
+    );
+  }
   assert.equal(
     isSameOriginInfraFailure({ status: 404, ok: false, kind: "internal" }),
     false,
@@ -616,7 +620,7 @@ test("same-origin Cloudflare origin errors are not treated as broken internal li
   assert.equal(isSameOriginInfraFailure({ status: 522, ok: false }), false);
 });
 
-test("same-origin 522/523 link failures never become critical broken-link findings", async () => {
+test("same-origin 522/523/524 link failures never become critical broken-link findings", async () => {
   const engine = createAuditEngine({
     launchBrowser: async () =>
       fakeBrowser("https://public.example/", {
@@ -624,11 +628,13 @@ test("same-origin 522/523 link failures never become critical broken-link findin
         links: [
           { text: "About", href: "https://public.example/about", rawHref: "/about" },
           { text: "Contact", href: "https://public.example/contact", rawHref: "/contact" },
+          { text: "Pricing", href: "https://public.example/pricing", rawHref: "/pricing" },
           { text: "Reference", href: "https://other.example/ref", rawHref: "https://other.example/ref" }
         ],
         internalLinks: [
           { text: "About", href: "https://public.example/about", rawHref: "/about" },
-          { text: "Contact", href: "https://public.example/contact", rawHref: "/contact" }
+          { text: "Contact", href: "https://public.example/contact", rawHref: "/contact" },
+          { text: "Pricing", href: "https://public.example/pricing", rawHref: "/pricing" }
         ],
         externalLinks: [
           { text: "Reference", href: "https://other.example/ref", rawHref: "https://other.example/ref" }
@@ -647,6 +653,9 @@ test("same-origin 522/523 link failures never become critical broken-link findin
       if (url === "https://public.example/contact") {
         return new Response("connection timed out", { status: 522, headers: { "content-type": "text/html" } });
       }
+      if (url === "https://public.example/pricing") {
+        return new Response("origin did not answer in time", { status: 524, headers: { "content-type": "text/html" } });
+      }
       if (url === "https://other.example/ref") {
         return new Response("origin unreachable", { status: 523, headers: { "content-type": "text/html" } });
       }
@@ -657,7 +666,7 @@ test("same-origin 522/523 link failures never become critical broken-link findin
 
   const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
   const brokenInternal = (report.findings || []).filter((finding) => /Broken internal links/.test(finding.title || ""));
-  assert.deepEqual(brokenInternal, [], "same-origin 522/523 failures must not be reported as broken internal links");
+  assert.deepEqual(brokenInternal, [], "same-origin 522/523/524 failures must not be reported as broken internal links");
   assert.equal(report.summary.critical, 0, "a scan-time origin hiccup must not inflate the critical count");
 
   const brokenExternal = (report.findings || []).filter((finding) => /Broken external links/.test(finding.title || ""));
