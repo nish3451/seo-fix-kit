@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import test from "node:test";
+import nodeVm from "node:vm";
 import { auditUrl } from "../../server/audit/engine.js";
 import { renderedFixture } from "./audits.js";
 import {
@@ -110,6 +111,32 @@ test("public check page validates the URL client-side before any network round t
     "validation failure returns without fetching"
   );
   assert.match(html, /id="url-input" name="url" type="text" inputmode="url"/, "scheme-less entries stay allowed client-side");
+});
+
+test("the page's inline client-side validator actually executes with the server's rules", () => {
+  // The page is a template literal; a validator that only looks right in the
+  // source but breaks when served (e.g. a collapsed regex escape) must fail
+  // here. Execute the served function text in a fresh context and pin both
+  // the rejection and the acceptance sides.
+  const html = checkHtml(origin);
+  const served = html.match(/function publicUrlError[\s\S]*?return "";\n        }/);
+  assert.ok(served, "the served page includes the full validator function");
+  assert.match(
+    served[0],
+    /:\\\/\\\//,
+    "the served validator regex must keep its escaped slash (a bare // would comment out the rest of the line)"
+  );
+
+  const sandbox = { URL, String };
+  nodeVm.createContext(sandbox);
+  const validator = nodeVm.runInContext(`(${served[0]})`, sandbox);
+
+  for (const input of ["notaurl", "example", "intranet", "http://printer/", "", "https://"]) {
+    assert.equal(validator(input), "Enter a valid public website URL.", `client rejects: ${input}`);
+  }
+  for (const input of ["example.com", "https://example.com/x", "example.com/about?q=1", "8.8.8.8", "//example.com/a"]) {
+    assert.equal(validator(input), "", `client accepts: ${input}`);
+  }
 });
 
 test("public check quota buckets cover per-network and per-site windows without storing the target host", async () => {

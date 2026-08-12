@@ -446,7 +446,11 @@ export function checkHtml(origin) {
         function publicUrlError(value) {
           const trimmed = String(value || "").trim();
           if (!trimmed) return "Enter a valid public website URL.";
-          const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : "https://" + trimmed;
+          // This page is built as a template literal, so the regex escape
+          // must be written with doubled backslashes here: a single
+          // backslash-slash would collapse to a slash-slash comment marker
+          // in the served JS and break the whole line.
+          const withProtocol = /^[a-z][a-z0-9+.-]*:\\/\\//i.test(trimmed) ? trimmed : "https://" + trimmed;
           let parsed = null;
           try {
             parsed = new URL(withProtocol);
