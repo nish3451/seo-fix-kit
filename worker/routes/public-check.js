@@ -12,6 +12,11 @@
 //   network and per checked site) that expire with the same cleanup as every
 //   other abuse counter. It is rate-limited per network and per target site
 //   so the service and the pages it checks stay protected.
+// - The engine's `snippet` field is GENERATED repair markup (a proposed
+//   change the engine built), never an exact quote from the checked page.
+//   The response names it `proposedMarkup` and the page labels the code
+//   block as a proposed change, so the anonymous surface never presents
+//   generated repair markup as an unlabeled observed snippet.
 // - Full multi-page audits, saved proof reports, site verification, and the
 //   repair queue remain inside the private beta; this route only measures
 //   the handoff into that private access.
@@ -118,7 +123,10 @@ export function buildPublicCheckResponse(report) {
       why: finding.why,
       evidence: finding.evidence,
       fix: finding.fix,
-      snippet: finding.snippet || ""
+      // The engine's snippet is generated repair markup (a proposed change),
+      // not an exact quote from the checked page. Named and rendered as such
+      // so the anonymous surface cannot pass it off as observed text.
+      proposedMarkup: finding.snippet || ""
     }));
   return {
     ok: true,
@@ -194,6 +202,69 @@ export async function runPublicCheck(request, env) {
   }
 }
 
+// WebPage and FAQPage JSON-LD for the live /check surface. Every question
+// and answer mirrors text a visitor can read on the page itself, and the
+// answers keep the same no-ranking boundary the page and the API pin. The
+// `\\u003c` escape keeps "</script>" out of the block, same as pages.js.
+export function checkJsonLd(origin) {
+  const url = `${origin}/check`;
+  const jsonLd = JSON.stringify({
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebPage",
+        "@id": `${url}#webpage`,
+        name: "Check One Page for SEO Proof - SEO Fix Kit",
+        description:
+          "Paste any public page URL and see what a browser-rendered, proof-backed audit finds: static-vs-rendered evidence, guarded false positives, and actionable findings when present. No account, no ranking promises.",
+        url,
+        isPartOf: { "@type": "WebSite", name: "SEO Fix Kit", url: origin },
+        publisher: { "@type": "Organization", name: "SEO Fix Kit", url: origin },
+        mainEntity: { "@id": `${url}#faq` }
+      },
+      {
+        "@type": "FAQPage",
+        "@id": `${url}#faq`,
+        mainEntity: [
+          {
+            "@type": "Question",
+            name: "What does the one-page check measure?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: "It opens one public page in a real browser and compares the raw HTML with the rendered page: static vs rendered word count, rendered H1, rendered title, and internal links. It also shows guarded false positives and actionable findings when the shared audit engine finds them. No account, no email, and no stored report."
+            }
+          },
+          {
+            "@type": "Question",
+            name: "Is anything about my check stored?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: "No. The check is anonymous and ephemeral: nothing about your check is saved. The only records are rate-limit counters hashed per network and per target site."
+            }
+          },
+          {
+            "@type": "Question",
+            name: "Is this a full site audit?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: "No. This is one public page at one moment, not a full multi-page audit. Full reports, deeper crawls, saved proof reports, and the repair queue run in the private beta after secure email access."
+            }
+          },
+          {
+            "@type": "Question",
+            name: "Does this check promise rankings or traffic?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: "No. The one-page check does not guarantee rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility, and it does not replace a private multi-page report."
+            }
+          }
+        ]
+      }
+    ]
+  }).replace(/</g, "\\u003c");
+  return `<script type="application/ld+json">${jsonLd}</script>`;
+}
+
 export function checkHtml(origin) {
   return `<!doctype html>
 <html lang="en">
@@ -214,6 +285,7 @@ export function checkHtml(origin) {
     <meta name="twitter:title" content="Check One Page for SEO Proof - SEO Fix Kit" />
     <meta name="twitter:description" content="Paste any public page URL and see browser-rendered SEO proof. No account, no ranking promises." />
     <meta name="twitter:image" content="${origin}/og-image.svg" />
+    ${checkJsonLd(origin)}
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
       * { box-sizing: border-box; }
@@ -252,6 +324,7 @@ export function checkHtml(origin) {
       .finding h3 { font-size: 17px; margin: 0 0 6px; }
       .finding p { font-size: 15px; margin: 0 0 6px; }
       .snippet { background: #0c1210; border: 1px solid rgba(251,248,239,.14); border-radius: 8px; color: #fbf8ef; display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; margin: 8px 0 0; overflow-x: auto; padding: 12px; white-space: pre-wrap; }
+      .finding .snippet-label { color: rgba(251,248,239,.6); font-size: 12px; font-weight: 700; letter-spacing: .04em; margin: 10px 0 0; text-transform: uppercase; }
       .cta { align-items: center; background: #98f0cc; border-radius: 8px; color: #06100c; display: inline-flex; font-weight: 880; min-height: 48px; padding: 0 18px; }
       .next-step { border: 1px solid rgba(152,240,204,.28); }
       @media (max-width: 760px) { header { align-items: flex-start; gap: 18px; flex-direction: column; } .grid, .measure-grid { grid-template-columns: 1fr; } .check-form .row { flex-direction: column; } main { padding-top: 26px; } }
@@ -271,7 +344,7 @@ export function checkHtml(origin) {
       <form class="check-form" id="check-form" aria-label="One-page URL check">
         <label for="url-input">Public page URL</label>
         <div class="row">
-          <input id="url-input" name="url" type="url" inputmode="url" autocomplete="off" placeholder="https://example.com/about" required />
+          <input id="url-input" name="url" type="text" inputmode="url" autocomplete="off" placeholder="https://example.com/about" required />
           <button id="check-button" type="submit">Check this page</button>
         </div>
         <p class="form-note">One page per check. Rate-limited per network and per site to protect the service and the pages it checks. Use only pages you own or are authorized to audit.</p>
@@ -288,7 +361,7 @@ export function checkHtml(origin) {
         </article>
         <article class="panel proof">
           <strong>Findings when present</strong>
-          <p>Only real, evidence-backed issues become findings, with a concrete fix and an exact snippet when the engine has one.</p>
+          <p>Only real, evidence-backed issues become findings, with a concrete fix and a proposed markup change when the engine has one.</p>
         </article>
         <article class="panel proof">
           <strong>Measured handoff</strong>
@@ -299,12 +372,23 @@ export function checkHtml(origin) {
         <h2>What this check does not claim</h2>
         <p>This is one public page at one moment, not a full site audit. No report or URL is stored: only short-lived anonymous rate-limit counters (a hash of your network and a hash of the checked site) are kept, and they expire automatically. It does not guarantee rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility. It does not replace a private multi-page report.</p>
       </section>
+      <section class="band" aria-label="Frequently asked questions">
+        <h2>Frequently asked questions</h2>
+        <h3>What does the one-page check measure?</h3>
+        <p>It opens one public page in a real browser and compares the raw HTML with the rendered page: static vs rendered word count, rendered H1, rendered title, and internal links. It also shows guarded false positives and actionable findings when the shared audit engine finds them. No account, no email, and no stored report.</p>
+        <h3>Is anything about my check stored?</h3>
+        <p>No. The check is anonymous and ephemeral: nothing about your check is saved. The only records are rate-limit counters hashed per network and per target site.</p>
+        <h3>Is this a full site audit?</h3>
+        <p>No. This is one public page at one moment, not a full multi-page audit. Full reports, deeper crawls, saved proof reports, and the repair queue run in the private beta after secure email access.</p>
+        <h3>Does this check promise rankings or traffic?</h3>
+        <p>No. The one-page check does not guarantee rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility, and it does not replace a private multi-page report.</p>
+      </section>
       <section class="band next-step">
         <h2>After the check</h2>
         <p>To turn proof into a repair workflow, request a secure email access link: verified sessions get saved proof reports, crawl depth up to 1,000 pages per queued audit, and a repair queue with acceptance checks and one rerun after fixes.</p>
         <p><a class="cta" href="${origin}/">Request private access</a></p>
       </section>
-      <p><a href="${origin}/demo">View proof sample</a> · <a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a></p>
+      <p><a href="${origin}/demo">View proof sample</a> · <a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a> · <a href="${origin}/support">Support and refunds</a> · <a href="${origin}/terms">Terms</a> · <a href="${origin}/privacy">Privacy</a></p>
     </main>
     <script>
       (function () {
@@ -333,7 +417,10 @@ export function checkHtml(origin) {
           if (finding.evidence) box.appendChild(el("p", "Evidence: " + finding.evidence));
           if (finding.why) box.appendChild(el("p", finding.why));
           if (finding.fix) box.appendChild(el("p", "Fix: " + finding.fix));
-          if (finding.snippet) box.appendChild(el("code", finding.snippet, "snippet"));
+          if (finding.proposedMarkup) {
+            box.appendChild(el("p", "Proposed change — generated repair markup, not a quote from the page", "snippet-label"));
+            box.appendChild(el("code", finding.proposedMarkup, "snippet"));
+          }
           return box;
         }
 

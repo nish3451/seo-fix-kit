@@ -132,7 +132,9 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "static-vs-rendered proof panels", match: "Rendered proof" },
         { reason: "no-overclaim section", match: "What this sample does not claim" },
         { reason: "link to methodology limits", match: `href="${baseUrl}/methodology"` },
-        { reason: "link to package ladder", match: `href="${baseUrl}/packages"` }
+        { reason: "link to package ladder", match: `href="${baseUrl}/packages"` },
+        { reason: "link to terms", match: `href="${baseUrl}/terms"` },
+        { reason: "link to privacy", match: `href="${baseUrl}/privacy"` }
       ]
     },
     {
@@ -160,7 +162,10 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "limits section", match: "Limits we state up front" },
         { reason: "AI visibility tracking is not live", match: "No AI visibility tracking" },
         { reason: "no hidden site writes", match: "No hidden site writes" },
-        { reason: "50K crawl staged, not complete", match: "No fake scale claim" }
+        { reason: "50K crawl staged, not complete", match: "No fake scale claim" },
+        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
+        { reason: "link to terms", match: `href="${baseUrl}/terms"` },
+        { reason: "link to privacy", match: `href="${baseUrl}/privacy"` }
       ]
     },
     {
@@ -174,7 +179,9 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "public fix pack price", match: "$99.00 one-time" },
         { reason: "Dodo is the final price source", match: "Dodo shows the final checkout price" },
         { reason: "Proof Monitoring is config-gated", match: "Config-gated subscription" },
-        { reason: "roadmap packages marked", match: "Roadmap" }
+        { reason: "roadmap packages marked", match: "Roadmap" },
+        { reason: "link to terms", match: `href="${baseUrl}/terms"` },
+        { reason: "link to privacy", match: `href="${baseUrl}/privacy"` }
       ]
     },
     {
@@ -186,7 +193,8 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "no-ranking promise", match: "No ranking, traffic, or revenue promise is made." },
         { reason: "one repair pass plus rerun", match: "one proof-backed repair pass for one report plus one rerun after fixes" },
         { reason: "refund guard when the queue cannot start", match: "If payment succeeds but the repair queue cannot start, you are entitled to a full refund" },
-        { reason: "link to privacy", match: `href="${baseUrl}/privacy"` }
+        { reason: "link to privacy", match: `href="${baseUrl}/privacy"` },
+        { reason: "link to the anonymous check", match: `href="${baseUrl}/check"` }
       ]
     },
     {
@@ -198,7 +206,9 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "no-ranking promise", match: "No ranking, indexing, traffic, revenue, or search-engine outcome is promised" },
         { reason: "Dodo is merchant of record", match: "processed by Dodo Payments as merchant of record" },
         { reason: "refund window", match: "full refund within 14 days of payment" },
-        { reason: "link to privacy", match: `href="${baseUrl}/privacy"` }
+        { reason: "link to privacy", match: `href="${baseUrl}/privacy"` },
+        { reason: "link to support", match: `href="${baseUrl}/support"` },
+        { reason: "link to the anonymous check", match: `href="${baseUrl}/check"` }
       ]
     },
     {
@@ -209,7 +219,10 @@ export function publicPageSpotChecks(baseUrl) {
       expectations: [
         { reason: "data controller statement", match: "We are the data controller for this information" },
         { reason: "30-day report retention", match: "reports expire after 30 days" },
-        { reason: "no advertising or tracking cookies", match: "No advertising, analytics, or cross-site tracking cookies are set." }
+        { reason: "no advertising or tracking cookies", match: "No advertising, analytics, or cross-site tracking cookies are set." },
+        { reason: "link to terms", match: `href="${baseUrl}/terms"` },
+        { reason: "link to support", match: `href="${baseUrl}/support"` },
+        { reason: "link to the anonymous check", match: `href="${baseUrl}/check"` }
       ]
     }
   ];
@@ -284,6 +297,17 @@ export function publicSurfaceSpotChecks(baseUrl) {
       contentType: "application/json",
       expectations: [
         { reason: "route rejects invalid input with a JSON error", match: '"error"' }
+      ]
+    },
+    {
+      path: "/api/public-check",
+      name: "anonymous one-page check route rejects non-http URL schemes instead of mangling them",
+      method: "POST",
+      body: JSON.stringify({ url: "ftp://example.com" }),
+      acceptStatuses: [400],
+      contentType: "application/json",
+      expectations: [
+        { reason: "route rejects unsupported schemes before any browser render", match: "Enter a valid public website URL." }
       ]
     }
   ];

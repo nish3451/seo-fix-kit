@@ -2398,12 +2398,33 @@ function dedupeHreflangIssues(issues) {
 // same URLs politely returned 200 and 302.
 const THROTTLED_STATUSES = new Set([408, 425, 429, 503]);
 
+// 522 (connection timed out) and 523 (origin unreachable) are Cloudflare-edge
+// errors returned when the checked site's own origin temporarily cannot be
+// reached. Every same-origin link fails at once while the origin is down and
+// recovers with it; Google backs off and retries 5xx rather than treating the
+// URLs as dead. Reporting a scan-time origin hiccup as verified critical broken
+// internal links invents a defect the page does not have, so same-origin
+// (internal) 522/523 checks are treated as transient infra failures, not broken
+// links. External targets' 522/523 stay reportable: that is a real observation
+// about the referenced site, not our own footprint.
+const CLOUDFLARE_ORIGIN_ERRORS = new Set([522, 523]);
+
 export function isThrottledResource(check) {
   return Boolean(check && check.status && THROTTLED_STATUSES.has(check.status));
 }
 
+export function isSameOriginInfraFailure(check) {
+  return Boolean(
+    check &&
+      check.kind === "internal" &&
+      check.status &&
+      CLOUDFLARE_ORIGIN_ERRORS.has(check.status)
+  );
+}
+
 function isBrokenResource(check) {
   if (isThrottledResource(check)) return false;
+  if (isSameOriginInfraFailure(check)) return false;
   return !check || !check.ok || !check.status || check.status >= 400;
 }
 
@@ -2721,8 +2742,15 @@ function absolute(value, base) {
 
 export function normalizeUrl(input) {
   const trimmed = String(input || "").trim();
+  const explicitScheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(trimmed);
+  if (explicitScheme && !/^https?$/i.test(explicitScheme[1])) {
+    throw new Error(`Unsupported URL scheme "${explicitScheme[1]}".`);
+  }
   const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
   const url = new URL(withProtocol);
+  if (url.username || url.password) {
+    throw new Error("URLs with embedded credentials are not supported.");
+  }
   url.hash = "";
   return url.href;
 }

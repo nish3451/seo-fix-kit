@@ -206,6 +206,11 @@ test("README homepage anonymous-check claim matches the CTA beside the email for
     /<a className="check-entry-cta" href="\/check">/,
     "the homepage shows a primary CTA to the anonymous one-page check"
   );
+  assert.match(
+    appSource,
+    /Anyone can check one public page now at[\s\S]*<a href="\/check">\/check<\/a>[\s\S]*with no account/,
+    "the homepage FAQ names the anonymous /check entry path"
+  );
 });
 
 // State-truthfulness pins. The numeric caps and routes above are locked to
@@ -562,7 +567,14 @@ test("README large-crawl staged-plan claim keeps scale readiness honest", () => 
   assert.match(liveSection, /scale-readiness repair actions/i);
   assert.match(renderedCrawlScaleSource, /repairOpportunities/, "scale readiness repair actions exist");
   assert.match(liveSection, /never sold as completed 50K rendered validation/i);
-  assert.doesNotMatch(pagesSource, /completed 50K rendered validation/i, "public pages never claim completed 50K validation");
+  const completed50kMentions = (pagesSource.match(/completed 50K rendered validation/gi) || []).length;
+  const negated50kMentions = (pagesSource.match(/never sold as completed 50K rendered validation/gi) || []).length;
+  assert.ok(negated50kMentions >= 1, "public pages state the staged 50K crawl boundary");
+  assert.equal(
+    completed50kMentions,
+    negated50kMentions,
+    "public pages only mention completed 50K rendered validation inside the never-sold-as negation"
+  );
 });
 
 test("README sitemap inventory claim keeps rendered repair proof separate", () => {
