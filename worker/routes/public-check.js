@@ -197,9 +197,43 @@ export async function runPublicCheck(request, env) {
         503
       );
     }
-    const message = String(error?.message || "The check failed. Try another public URL.").slice(0, 260);
-    return jsonNoStore({ error: message }, 422);
+    return jsonNoStore({ error: friendlyCheckError(error) }, 422);
   }
+}
+
+// Maps raw Chromium/Playwright navigation failures to copy a visitor can act
+// on. The anonymous /check surface is the first product touch for most
+// visitors; a raw `net::ERR_NAME_NOT_RESOLVED at https://...` string is not
+// an error state a first-time visitor should meet. Unknown messages keep the
+// previous truncated-message behavior so no information is lost.
+export function friendlyCheckError(error) {
+  const raw = String(error?.message || "").trim();
+  if (!raw) return "The check failed. Try another public URL.";
+  if (/net::ERR_NAME_NOT_RESOLVED/i.test(raw)) {
+    return "That domain could not be found. Check the spelling and try again.";
+  }
+  if (/net::ERR_CONNECTION_RESET/i.test(raw)) {
+    return "The site reset the connection. It may be down or blocking automated browsers.";
+  }
+  if (/net::ERR_CONNECTION_REFUSED/i.test(raw)) {
+    return "The site refused the connection. It may be down or blocking automated browsers.";
+  }
+  if (/net::ERR_CONNECTION_TIMED_OUT|net::ERR_TIMED_OUT/i.test(raw)) {
+    return "The connection timed out before the page could load. Try again later or check the address.";
+  }
+  if (/net::ERR_SSL/i.test(raw)) {
+    return "The site did not serve a valid secure connection. Check that the address is spelled correctly.";
+  }
+  if (/net::ERR_ABORTED/i.test(raw)) {
+    return "The page load was aborted before it finished. Try again in a moment.";
+  }
+  if (/net::ERR_/i.test(raw)) {
+    return "Could not open that page in a real browser. The site may be down, blocking automated browsers, or the address may be wrong.";
+  }
+  if (/timeout/i.test(raw)) {
+    return "The page took too long to load. Try again later or check the address.";
+  }
+  return raw.slice(0, 260);
 }
 
 // WebPage and FAQPage JSON-LD for the live /check surface. Every question
@@ -404,6 +438,27 @@ export function checkHtml(origin) {
           return node;
         }
 
+        // Mirrors the server-side public URL rule (shared/audit-engine.js
+        // publicAuditUrlStatus): scheme-less entries are allowed, but a
+        // single-label hostname (no dot, no IPv6 colons) is never a public
+        // website. Checking here stops typos before they consume a browser
+        // render or rate-limit quota and before a raw net:: error comes back.
+        function publicUrlError(value) {
+          const trimmed = String(value || "").trim();
+          if (!trimmed) return "Enter a valid public website URL.";
+          const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : "https://" + trimmed;
+          let parsed = null;
+          try {
+            parsed = new URL(withProtocol);
+          } catch {
+            return "Enter a valid public website URL.";
+          }
+          if (!["http:", "https:"].includes(parsed.protocol)) return "Enter a valid public website URL.";
+          const host = parsed.hostname.toLowerCase();
+          if (!host.includes(".") && !host.includes(":")) return "Enter a valid public website URL.";
+          return "";
+        }
+
         function measure(label, value) {
           const box = el("div", "", "measure");
           box.appendChild(el("div", label, "label"));
@@ -428,6 +483,14 @@ export function checkHtml(origin) {
           event.preventDefault();
           const url = urlInput.value.trim();
           if (!url) return;
+          result.classList.remove("show");
+          result.replaceChildren();
+          const validationError = publicUrlError(url);
+          if (validationError) {
+            result.appendChild(el("div", validationError, "error-box"));
+            result.classList.add("show");
+            return;
+          }
           button.disabled = true;
           button.textContent = "Checking...";
           result.classList.remove("show");

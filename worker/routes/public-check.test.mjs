@@ -7,6 +7,7 @@ import {
   buildPublicCheckResponse,
   checkHtml,
   checkJsonLd,
+  friendlyCheckError,
   publicCheckQuotaChecks,
   validatePublicCheckUrl
 } from "./public-check.js";
@@ -34,6 +35,81 @@ test("public check URL validation rejects malformed and private targets", () => 
   const protocolRelative = validatePublicCheckUrl("//example.com/about");
   assert.equal(protocolRelative.ok, true);
   assert.equal(protocolRelative.url, "https://example.com/about");
+});
+
+test("public check URL validation rejects single-label hostnames before any render", () => {
+  // A dotless hostname is a typo, an intranet name, or a local alias — never
+  // a public website. It must fail here with the friendly validation message
+  // instead of sending the browser to `https://notaurl/` and returning a raw
+  // `net::ERR_*` navigation failure.
+  for (const input of ["notaurl", "example", "intranet", "https://printer/", "http://nish-laptop"]) {
+    const result = validatePublicCheckUrl(input);
+    assert.equal(result.ok, false, `dotless hostname must be rejected: ${input}`);
+    assert.equal(result.error, "Enter a valid public website URL.", `friendly message for: ${input}`);
+  }
+  // Dotted public hosts and IP literals still pass through to the browser.
+  assert.equal(validatePublicCheckUrl("example.com").ok, true);
+  assert.equal(validatePublicCheckUrl("https://8.8.8.8/").ok, true);
+});
+
+test("public check browser failures are mapped to friendly, actionable error copy", () => {
+  assert.equal(
+    friendlyCheckError(new Error("net::ERR_NAME_NOT_RESOLVED at https://nonexistent-domain-xyzzy-12345.com/")),
+    "That domain could not be found. Check the spelling and try again."
+  );
+  assert.equal(
+    friendlyCheckError(new Error("net::ERR_CONNECTION_RESET at https://notaurl/")),
+    "The site reset the connection. It may be down or blocking automated browsers."
+  );
+  assert.equal(
+    friendlyCheckError(new Error("net::ERR_CONNECTION_REFUSED at https://down.site/")),
+    "The site refused the connection. It may be down or blocking automated browsers."
+  );
+  assert.equal(
+    friendlyCheckError(new Error("net::ERR_TIMED_OUT at https://slow.site/")),
+    "The connection timed out before the page could load. Try again later or check the address."
+  );
+  assert.equal(
+    friendlyCheckError(new Error("net::ERR_CONNECTION_TIMED_OUT at https://slow.site/")),
+    "The connection timed out before the page could load. Try again later or check the address."
+  );
+  assert.equal(
+    friendlyCheckError(new Error("net::ERR_SSL_PROTOCOL_ERROR at https://bad-tls.site/")),
+    "The site did not serve a valid secure connection. Check that the address is spelled correctly."
+  );
+  assert.equal(
+    friendlyCheckError(new Error("net::ERR_ABORTED")),
+    "The page load was aborted before it finished. Try again in a moment."
+  );
+  assert.equal(
+    friendlyCheckError(new Error("net::ERR_UNKNOWN_WEIRD at https://x.example/")),
+    "Could not open that page in a real browser. The site may be down, blocking automated browsers, or the address may be wrong."
+  );
+  assert.equal(
+    friendlyCheckError(new Error("page.goto: Timeout 25000ms exceeded.")),
+    "The page took too long to load. Try again later or check the address."
+  );
+  // Unknown failures keep the previous truncated-message behavior.
+  assert.equal(friendlyCheckError(new Error("some other engine failure")), "some other engine failure");
+  assert.equal(friendlyCheckError(new Error()), "The check failed. Try another public URL.");
+});
+
+test("public check page validates the URL client-side before any network round trip", () => {
+  const html = checkHtml(origin);
+  assert.match(html, /function publicUrlError\(value\)/, "the page carries a client-side validator");
+  assert.match(html, /single-label hostname/, "the validator mirrors the server-side public-URL rule");
+  assert.ok(
+    (html.match(/Enter a valid public website URL\./g) || []).length >= 2,
+    "the validator emits the same friendly message the server emits"
+  );
+  const submit = html.match(/form\.addEventListener\("submit"[\s\S]*?finally\s*\{[\s\S]*?\}\)\(\);/);
+  assert.ok(submit, "submit handler present");
+  assert.match(submit[0], /validationError/, "a validation failure short-circuits before the fetch");
+  assert.ok(
+    /if \(validationError\) \{[\s\S]*?return;[\s\S]*?\}/.test(submit[0]),
+    "validation failure returns without fetching"
+  );
+  assert.match(html, /id="url-input" name="url" type="text" inputmode="url"/, "scheme-less entries stay allowed client-side");
 });
 
 test("public check quota buckets cover per-network and per-site windows without storing the target host", async () => {
