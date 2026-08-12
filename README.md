@@ -94,7 +94,9 @@ waitlist lead or access token is created), on desktop and an iPhone-13 mobile
 viewport. It verifies each stop serves the expected title, canonical where one
 exists, and load-bearing funnel copy; records console/page errors, broken
 internal links, and mobile horizontal overflow; and emits the walk JSON (the
-"summarized in journal" record) plus a human summary:
+"summarized in journal" record) plus a human summary. Each live walk's result
+is journaled verbatim in
+`docs/growth/private-beta-funnel-walk-ledger.md`:
 
 ```bash
 npm run audit:funnel-walk
