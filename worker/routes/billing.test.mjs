@@ -1536,6 +1536,58 @@ test("signed Dodo subscription.paused webhook revokes Proof Monitoring entitleme
   assert.equal(env.dodoWebhookEvents.at(-1).payment_id, "sub-paused-1");
 });
 
+test("Dodo webhook signature gate rejects missing, wrong-secret, and stale requests with zero mutations", async () => {
+  const payload = {
+    type: "subscription.active",
+    data: subscriptionEventData({
+      id: "sub-unsigned-1",
+      status: "active"
+    })
+  };
+  const scenarios = [
+    {
+      label: "missing signature",
+      buildRequest(env) {
+        return signedDodoWebhookRequest(payload, "wh_missing_signature", env, { includeSignature: false });
+      }
+    },
+    {
+      label: "wrong secret",
+      buildRequest(env) {
+        return signedDodoWebhookRequest(payload, "wh_wrong_secret", env, { secret: "whsec_wrong" });
+      }
+    },
+    {
+      label: "stale timestamp",
+      buildRequest(env) {
+        return signedDodoWebhookRequest(payload, "wh_stale_timestamp", env, {
+          timestamp: Math.floor(Date.now() / 1000) - 60 * 60
+        });
+      }
+    }
+  ];
+
+  for (const scenario of scenarios) {
+    const env = await fakeBillingEnv();
+    const response = await handleDodoWebhook(scenario.buildRequest(env), env, null);
+
+    assert.equal(response.status, 400, scenario.label);
+    const body = await response.json();
+    assert.equal(body.error, "Invalid signature.", scenario.label);
+
+    // The gate must reject before any mutation: webhook ledger rows, entitlements,
+    // entitlement events, fix requests, fix request events, and repair proposals
+    // all have to stay untouched so a spoofed or replayed webhook cannot pay,
+    // revoke, or activate anything.
+    assert.equal(env.dodoWebhookEvents.length, 0, `${scenario.label}: webhook ledger mutated`);
+    assert.equal(env.entitlements.length, 0, `${scenario.label}: entitlement mutated`);
+    assert.equal(env.entitlementEvents.length, 0, `${scenario.label}: entitlement event mutated`);
+    assert.equal(env.fixRequests.length, 0, `${scenario.label}: fix request mutated`);
+    assert.equal(env.events.length, 0, `${scenario.label}: fix request event mutated`);
+    assert.equal(env.repairProposals.length, 0, `${scenario.label}: repair proposal mutated`);
+  }
+});
+
 test("Dodo subscription webhook reactivates recoverable on-hold monitoring", async () => {
   const env = await fakeBillingEnv();
   const active = extractDodoSubscription(subscriptionEventData({ id: "sub-on-hold-1", status: "active" }));
@@ -2208,20 +2260,24 @@ function subscriptionEventData(overrides = {}) {
   return payload;
 }
 
-function signedDodoWebhookRequest(payload, webhookId, env) {
+function signedDodoWebhookRequest(payload, webhookId, env, options = {}) {
   const body = JSON.stringify(payload);
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const signature = createHmac("sha256", dodoWebhookSecretBytes(env.DODO_SEOFIXKIT_WEBHOOK_SECRET))
-    .update(`${webhookId}.${timestamp}.${body}`)
-    .digest("base64");
+  const timestamp = String(options.timestamp ?? Math.floor(Date.now() / 1000));
+  const headers = {
+    "content-type": "application/json",
+    "webhook-id": webhookId,
+    "webhook-timestamp": timestamp
+  };
+  if (options.includeSignature !== false) {
+    const secret = options.secret ?? env.DODO_SEOFIXKIT_WEBHOOK_SECRET;
+    const signature = createHmac("sha256", dodoWebhookSecretBytes(secret))
+      .update(`${webhookId}.${timestamp}.${body}`)
+      .digest("base64");
+    headers["webhook-signature"] = `v1=${signature}`;
+  }
   return new Request("https://seofixkit.test/api/webhooks/dodo", {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "webhook-id": webhookId,
-      "webhook-timestamp": timestamp,
-      "webhook-signature": `v1=${signature}`
-    },
+    headers,
     body
   });
 }
