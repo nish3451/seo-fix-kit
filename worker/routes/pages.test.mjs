@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { auditUrl } from "../../server/audit/engine.js";
 import { escapeHtml, rootSitemap } from "../../shared/audit-engine.js";
-import { DEMO_PROOF, DEMO_FIXTURE_PATH } from "./demo-proof.js";
+import { DEMO_PROOF, DEMO_FIXTURE_PATH, demoProofSnippet } from "./demo-proof.js";
 import { renderedFixture } from "./audits.js";
 import { checkHtml } from "./public-check.js";
 import {
@@ -287,6 +287,68 @@ test("demo brief is verbatim real engine output for the public test page", async
     assert.match(demo, /Check one page now/, "the demo must keep the low-friction entry into the live anonymous check");
   } finally {
     server.close();
+  }
+});
+
+test("demo proof list reflows at 320px and 390px without hiding evidence", async () => {
+  const { chromium } = await import("playwright");
+  const html = demoHtml(origin);
+  const expectedProofStrings = [
+    ...DEMO_PROOF.guards.flatMap((guard) => [guard.title, guard.evidence, guard.why, guard.fix]),
+    ...DEMO_PROOF.repairPlan.flatMap((item) => [
+      item.title,
+      item.fix,
+      demoProofSnippet(item.snippet, origin)
+    ].filter(Boolean))
+  ].map((value) => String(value).replace(/\s+/g, " ").trim());
+
+  assert.doesNotMatch(html, /overflow-x\s*:\s*hidden/i, "must wrap proof tokens instead of hiding document overflow");
+
+  const browser = await chromium.launch({ headless: true });
+  try {
+    for (const width of [320, 390]) {
+      const page = await browser.newPage({ viewport: { width, height: 844 }, isMobile: true });
+      await page.setContent(html, { waitUntil: "domcontentloaded" });
+      const measured = await page.evaluate(() => {
+        const root = document.documentElement;
+        const compact = (value) => String(value || "").replace(/\s+/g, " ").trim();
+        return {
+          scrollWidth: root.scrollWidth,
+          clientWidth: root.clientWidth,
+          htmlOverflowX: getComputedStyle(root).overflowX,
+          bodyOverflowX: getComputedStyle(document.body).overflowX,
+          overflowingItems: [...document.querySelectorAll("li")]
+            .filter((el) => el.scrollWidth > el.clientWidth + 1)
+            .map((el) => ({
+              text: compact(el.innerText).slice(0, 220),
+              scrollWidth: el.scrollWidth,
+              clientWidth: el.clientWidth
+            })),
+          text: compact(document.body.textContent)
+        };
+      });
+
+      assert.notEqual(measured.htmlOverflowX, "hidden", `html overflow-x must stay visible at ${width}px`);
+      assert.notEqual(measured.bodyOverflowX, "hidden", `body overflow-x must stay visible at ${width}px`);
+      assert.ok(
+        measured.scrollWidth <= measured.clientWidth,
+        `document overflow at ${width}px: scrollWidth=${measured.scrollWidth}/clientWidth=${measured.clientWidth} overflowing=${JSON.stringify(measured.overflowingItems)}`
+      );
+      assert.equal(
+        measured.overflowingItems.length,
+        0,
+        `proof list items overflow at ${width}px: ${JSON.stringify(measured.overflowingItems)}`
+      );
+      for (const proof of expectedProofStrings) {
+        assert.ok(
+          measured.text.includes(proof),
+          `proof string missing at ${width}px: ${proof.slice(0, 160)}`
+        );
+      }
+      await page.close();
+    }
+  } finally {
+    await browser.close();
   }
 });
 
