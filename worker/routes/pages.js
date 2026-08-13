@@ -150,15 +150,15 @@ ${pageSocialHead({ origin, title: "Proof-Backed SEO Repair Demo - SEO Fix Kit", 
       header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 54px; }
       h1 { font-size: clamp(44px, 9vw, 104px); letter-spacing: 0; line-height: .9; margin: 0 0 18px; max-width: 780px; }
       h2 { font-size: clamp(24px, 3vw, 34px); margin: 0; }
-      p, li { color: rgba(251,248,239,.75); font-size: 18px; line-height: 1.6; }
+      p, li { color: rgba(251,248,239,.75); font-size: 18px; line-height: 1.6; overflow-wrap: anywhere; word-break: break-word; }
       .kicker { color: #98f0cc; font-size: 13px; font-weight: 880; letter-spacing: .08em; text-transform: uppercase; }
       .grid { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 34px 0; }
-      .panel { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; padding: 20px; }
+      .panel { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; padding: 20px; min-width: 0; }
       .panel strong { color: #dcc062; display: block; font-size: 14px; margin-bottom: 10px; text-transform: uppercase; }
       .proof { border-color: rgba(152,240,204,.28); }
       .proof strong { color: #98f0cc; }
       .cta { align-items: center; background: #98f0cc; border-radius: 8px; color: #06100c; display: inline-flex; font-weight: 880; min-height: 48px; padding: 0 18px; }
-      code { color: #fbf8ef; white-space: pre-wrap; }
+      code { color: #fbf8ef; display: block; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
       .site-footer { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-top: 30px; }
       @media (max-width: 760px) { header { align-items: flex-start; gap: 18px; flex-direction: column; } .grid { grid-template-columns: 1fr; } }
     </style>
