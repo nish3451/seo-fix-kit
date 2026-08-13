@@ -64,7 +64,8 @@ export const DEMO_PROOF = {
       severity: "warning",
       title: "Social share image incomplete on home",
       fix: "Add 1200x630 Open Graph and Twitter images.",
-      snippet: `<meta property="og:title" content="Proof Demo App Shell" />
+      snippet: `<!-- The audited page had no working og:image. Create {ORIGIN}/og-image.png (1200x630) or replace it with your real share image. -->
+<meta property="og:title" content="Proof Demo App Shell" />
 <meta property="og:description" content="A JavaScript-rendered demo page for proving false-positive SEO audit behavior." />
 <meta property="og:image" content="{ORIGIN}/og-image.png" />
 <meta name="twitter:card" content="summary_large_image" />

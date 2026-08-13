@@ -237,6 +237,127 @@ test("resource validation blocks private-DNS resources and redirect targets befo
   assert.equal(fetched.includes("https://private.example/canonical"), false);
 });
 
+
+// Regression: a site can declare og:image/twitter:image while pointing them at a
+// file that does not load as an image. Presence alone was previously treated as
+// a working social preview, and the suggested snippet hard-coded
+// ${origin}/og-image.png even when that file did not exist on the audited site.
+test("social images that are declared but not loadable produce a broken-preview finding", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser("https://public.example/", {
+        openGraph: { image: "https://public.example/social/og.png" },
+        twitter: { image: "https://public.example/social/og.png" }
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      if (url === "https://public.example/social/og.png") {
+        return new Response("not really an image", { status: 200, headers: { "content-type": "text/html" } });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const broken = report.findings.find((finding) => /Social share image is not loadable/.test(finding.title));
+  assert.ok(broken, "a declared-but-not-image social tag must be reported");
+  // og:image and twitter:image point at the same URL, so the check is deduped:
+  // the evidence names the single shared image URL and its broken response.
+  assert.match(broken.evidence, /og:image \(https:\/\/public\.example\/social\/og\.png\): returned 200 with content-type text\/html/);
+  assert.doesNotMatch(broken.evidence, /twitter:image \(https:\/\/public\.example\/social\/og\.png\)/, "a shared social image URL is checked once");
+});
+
+test("social images that are declared and loadable are not reported broken", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser("https://public.example/", {
+        openGraph: { image: "https://public.example/social/og.png" },
+        twitter: { image: "https://public.example/social/og.png" }
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      if (url === "https://public.example/social/og.png") {
+        return new Response("fake png bytes", { status: 200, headers: { "content-type": "image/png" } });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const broken = report.findings.find((finding) => /Social share image (is not loadable|incomplete)/.test(finding.title));
+  assert.equal(broken, undefined, "a live social image must not be reported as broken");
+});
+
+test("social snippet never guesses an unverified og-image path when the audited page has no working social image", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser("https://public.example/", {
+        openGraph: {},
+        twitter: {}
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const social = report.findings.find((finding) => /Social share image incomplete/.test(finding.title));
+  assert.ok(social, "missing social tags must still be reported");
+  assert.match(social.snippet, /Create https:\/\/public\.example\/og-image\.png \(1200x630\)/,
+    "the snippet must tell the customer the og-image.png path is a placeholder they need to create");
+});
+
+test("social snippet uses the verified live og:image URL when one exists", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser("https://public.example/", {
+        openGraph: { image: "https://public.example/social/og.png" },
+        twitter: { image: "https://public.example/social/og.png" }
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      if (url === "https://public.example/social/og.png") {
+        return new Response("fake png bytes", { status: 200, headers: { "content-type": "image/png" } });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const social = report.findings.find((finding) => /Social share image incomplete/.test(finding.title));
+  // og and twitter both present and live: no incomplete finding, no broken finding.
+  assert.equal(social, undefined);
+  const socialPreview = report.fixPack.find((fix) => fix.title === "Social preview tags");
+  assert.ok(socialPreview, "the fix pack must still carry a social preview snippet");
+  assert.match(socialPreview.snippet, /content="https:\/\/public\.example\/social\/og\.png"/);
+  assert.doesNotMatch(socialPreview.snippet, /og-image\.png/);
+});
+
 test("rendered audit navigation rechecks private DNS before browser goto", async () => {
   const gotoUrls = [];
   let staticPageFetched = false;
