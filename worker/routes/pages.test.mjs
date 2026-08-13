@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import http from "node:http";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { auditUrl } from "../../server/audit/engine.js";
 import { escapeHtml, rootSitemap } from "../../shared/audit-engine.js";
@@ -349,6 +349,100 @@ test("demo proof list reflows at 320px and 390px without hiding evidence", async
     }
   } finally {
     await browser.close();
+  }
+});
+
+test("waitlist-shell pages collapse to viewport below 320px without hiding overflow", async () => {
+  const { chromium } = await import("playwright");
+  const widths = [240, 260, 280, 300, 320, 360, 390];
+  const pages = {
+    "/demo": demoHtml(origin),
+    "/methodology": methodologyHtml(origin),
+    "/packages": packagesHtml(origin)
+  };
+
+  for (const [path, html] of Object.entries(pages)) {
+    assert.doesNotMatch(
+      html,
+      /overflow-x\s*:\s*hidden/i,
+      `${path} must wrap shell content instead of hiding document overflow`
+    );
+    assert.doesNotMatch(
+      html,
+      /min-width\s*:\s*320px/i,
+      `${path} body must not pin the shell at 320px`
+    );
+  }
+
+  const browser = await chromium.launch({ headless: true });
+  try {
+    for (const [path, html] of Object.entries(pages)) {
+      for (const width of widths) {
+        const page = await browser.newPage({ viewport: { width, height: 844 }, isMobile: true });
+        await page.setContent(html, { waitUntil: "domcontentloaded" });
+        const measured = await page.evaluate(() => {
+          const root = document.documentElement;
+          const main = document.querySelector("main");
+          const compact = (value) => String(value || "").replace(/\s+/g, " ").trim();
+          return {
+            scrollWidth: root.scrollWidth,
+            clientWidth: root.clientWidth,
+            htmlOverflowX: getComputedStyle(root).overflowX,
+            bodyOverflowX: getComputedStyle(document.body).overflowX,
+            mainRight: main ? main.getBoundingClientRect().right : null,
+            text: compact(document.body.textContent)
+          };
+        });
+        await page.close();
+
+        assert.notEqual(
+          measured.htmlOverflowX,
+          "hidden",
+          `${path} html overflow-x must stay visible at ${width}px`
+        );
+        assert.notEqual(
+          measured.bodyOverflowX,
+          "hidden",
+          `${path} body overflow-x must stay visible at ${width}px`
+        );
+        assert.equal(
+          measured.scrollWidth,
+          measured.clientWidth,
+          `${path} shell must collapse to viewport at ${width}px: scrollWidth=${measured.scrollWidth} clientWidth=${measured.clientWidth}`
+        );
+        assert.ok(
+          measured.mainRight === null || measured.mainRight <= width + 0.5,
+          `${path} main right edge must stay inside viewport at ${width}px: mainRight=${measured.mainRight}`
+        );
+        assert.ok(measured.text.length > 100, `${path} must keep its body copy at ${width}px`);
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+});
+
+test("SPA shell bundle pins no 320px floor and no html/body overflow-x hidden", () => {
+  const distIndexHtml = new URL("../../dist/index.html", import.meta.url);
+  if (!existsSync(distIndexHtml)) {
+    return;
+  }
+  const html = readFileSync(distIndexHtml, "utf8");
+  const cssMatches = [
+    ...html.matchAll(/(?:href|src)="(\/assets\/[^"]+\.css)"/g)
+  ].map((match) => match[1]);
+  for (const cssPath of cssMatches) {
+    const css = readFileSync(new URL(`../../dist${cssPath}`, import.meta.url), "utf8");
+    assert.doesNotMatch(
+      css,
+      /(?:html|body|#root)[^{}]*\{[^}]*min-width\s*:\s*320px/i,
+      `dist${cssPath} must not pin the waitlist shell at 320px on html/body/#root`
+    );
+    assert.doesNotMatch(
+      css,
+      /(?:html|body|#root)[^{}]*\{[^}]*overflow-x\s*:\s*hidden/i,
+      `dist${cssPath} must not hide horizontal overflow on html/body/#root`
+    );
   }
 });
 
