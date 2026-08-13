@@ -1141,6 +1141,264 @@ test("Dodo webhook drill marker can pay only a test Fix Pack request and seed pr
   assert.ok(paymentEvent);
 });
 
+test("signed Dodo payment failure webhook transitions a checkout Fix Pack to payment_failed", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-fail-1"
+  }));
+  const payload = {
+    type: "payment.failed",
+    data: paymentEventData(env, { id: "payment-fail-1" })
+  };
+
+  const response = await handleDodoWebhook(signedDodoWebhookRequest(payload, "wh_fail_1", env), env, null);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.received, true);
+  assert.equal(body.status, "processed");
+  assert.equal(body.paid, false);
+
+  const row = env.fixRequests[0];
+  assert.equal(row.status, "payment_failed");
+  assert.equal(row.payment_id, "payment-fail-1");
+  assert.equal(row.checkout_session_id, "dodo-session-1");
+  const failedEvent = env.events.find((event) => event.event === "payment_failed");
+  assert.ok(failedEvent);
+  assert.equal(failedEvent.from_status, "checkout_created");
+  assert.equal(failedEvent.to_status, "payment_failed");
+  assert.equal(failedEvent.reason, "payment.failed");
+  assert.equal(env.dodoWebhookEvents.at(-1).status, "processed");
+  assert.equal(env.dodoWebhookEvents.at(-1).payment_id, "payment-fail-1");
+
+  // Replaying the same signed webhook id must dedupe at the ledger: no second
+  // mutation and no second payment_failed event, so a retried webhook cannot
+  // re-apply the failure transition.
+  const replay = await handleDodoWebhook(signedDodoWebhookRequest(payload, "wh_fail_1", env), env, null);
+  assert.equal(replay.status, 200);
+  const replayBody = await replay.json();
+  assert.equal(replayBody.duplicate, true);
+  assert.equal(env.fixRequests.length, 1);
+  assert.equal(env.fixRequests[0].status, "payment_failed");
+  assert.equal(env.events.filter((event) => event.event === "payment_failed").length, 1);
+});
+
+test("signed Dodo payment failure webhook never regresses an already paid Fix Pack", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-paid-fail",
+    status: "paid",
+    payment_id: "payment-original",
+    paid_at: "2026-06-20T00:00:00.000Z"
+  }));
+  const payload = {
+    type: "payment.cancelled",
+    data: paymentEventData(env, { id: "payment-cancel-2" })
+  };
+
+  const response = await handleDodoWebhook(signedDodoWebhookRequest(payload, "wh_fail_paid", env), env, null);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, "processed");
+  assert.equal(body.paid, false);
+
+  // A paid Fix Pack must never fall back to payment_failed, and the original
+  // payment id must survive the COALESCE instead of being overwritten.
+  const row = env.fixRequests[0];
+  assert.equal(row.status, "paid");
+  assert.equal(row.payment_id, "payment-original");
+  const failedEvent = env.events.find((event) => event.event === "payment_failed");
+  assert.ok(failedEvent);
+  assert.equal(failedEvent.from_status, "paid");
+  assert.equal(failedEvent.to_status, "paid");
+});
+
+test("signed Dodo refund success webhook transitions a paid Fix Pack to refunded", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-refunded",
+    status: "paid",
+    payment_id: "payment-refund-me",
+    paid_at: "2026-06-20T00:00:00.000Z"
+  }));
+  const payload = {
+    type: "refund.succeeded",
+    data: {
+      id: "refund-webhook-1",
+      payment_id: "payment-refund-me",
+      refund_id: "refund-1",
+      total_amount: 9900,
+      currency: "USD",
+      brand_id: "brand-1",
+      customer: { email: "owner@example.com" }
+    }
+  };
+
+  const response = await handleDodoWebhook(signedDodoWebhookRequest(payload, "wh_refund_ok", env), env, null);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.received, true);
+  assert.equal(body.status, "processed");
+  assert.equal(body.refunded, true);
+
+  const row = env.fixRequests[0];
+  assert.equal(row.status, "refunded");
+  assert.equal(row.refund_id, "refund-1");
+  assert.equal(row.refund_amount, 9900);
+  assert.equal(row.refund_currency, "USD");
+  assert.ok(row.refunded_at);
+  const refundEvent = env.events.find((event) => event.event === "refund_succeeded");
+  assert.ok(refundEvent);
+  assert.equal(refundEvent.from_status, "paid");
+  assert.equal(refundEvent.to_status, "refunded");
+  assert.equal(refundEvent.reason, "refund-1");
+  assert.equal(env.dodoWebhookEvents.at(-1).status, "processed");
+});
+
+test("signed Dodo refund failure webhook transitions a paid Fix Pack to refund_failed", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-refund-failed",
+    status: "paid",
+    payment_id: "payment-refund-fail",
+    paid_at: "2026-06-20T00:00:00.000Z"
+  }));
+  const payload = {
+    type: "refund.failed",
+    data: {
+      id: "refund-webhook-fail",
+      payment_id: "payment-refund-fail",
+      refund_id: "refund-fail-1",
+      total_amount: 9900,
+      currency: "USD",
+      brand_id: "brand-1",
+      customer: { email: "owner@example.com" }
+    }
+  };
+
+  const response = await handleDodoWebhook(signedDodoWebhookRequest(payload, "wh_refund_fail", env), env, null);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, "processed");
+  assert.equal(body.refundFailed, true);
+
+  const row = env.fixRequests[0];
+  assert.equal(row.status, "refund_failed");
+  assert.equal(row.refund_id, "refund-fail-1");
+  const refundEvent = env.events.find((event) => event.event === "refund_failed");
+  assert.ok(refundEvent);
+  assert.equal(refundEvent.from_status, "paid");
+  assert.equal(refundEvent.to_status, "refund_failed");
+});
+
+test("signed Dodo refund failure webhook keeps an already refunded Fix Pack refunded", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-refunded-again",
+    status: "refunded",
+    payment_id: "payment-refunded",
+    paid_at: "2026-06-20T00:00:00.000Z",
+    refund_id: "refund-done",
+    refunded_at: "2026-06-21T00:00:00.000Z"
+  }));
+  const payload = {
+    type: "refund.failed",
+    data: {
+      id: "refund-webhook-retry",
+      payment_id: "payment-refunded",
+      refund_id: "refund-retry",
+      total_amount: 9900,
+      currency: "USD",
+      brand_id: "brand-1",
+      customer: { email: "owner@example.com" }
+    }
+  };
+
+  const response = await handleDodoWebhook(signedDodoWebhookRequest(payload, "wh_refund_retry", env), env, null);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.refundFailed, true);
+
+  // A refunded Fix Pack must survive a later refund failure, and the original
+  // refund id must survive the COALESCE instead of being overwritten.
+  const row = env.fixRequests[0];
+  assert.equal(row.status, "refunded");
+  assert.equal(row.refund_id, "refund-done");
+  const refundEvent = env.events.find((event) => event.event === "refund_failed");
+  assert.ok(refundEvent);
+  assert.equal(refundEvent.from_status, "refunded");
+  assert.equal(refundEvent.to_status, "refunded");
+});
+
+test("signed Dodo dispute webhook transitions a paid Fix Pack to disputed", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-disputed",
+    status: "paid",
+    payment_id: "payment-dispute-me",
+    paid_at: "2026-06-20T00:00:00.000Z"
+  }));
+  const payload = {
+    type: "dispute.opened",
+    data: {
+      id: "dispute-webhook-1",
+      payment_id: "payment-dispute-me",
+      brand_id: "brand-1",
+      customer: { email: "owner@example.com" }
+    }
+  };
+
+  const response = await handleDodoWebhook(signedDodoWebhookRequest(payload, "wh_dispute_1", env), env, null);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, "processed");
+  assert.equal(body.disputed, true);
+
+  const row = env.fixRequests[0];
+  assert.equal(row.status, "disputed");
+  assert.equal(row.dispute_event, "dispute.opened");
+  assert.ok(row.disputed_at);
+  const disputeEvent = env.events.find((event) => event.event === "dispute_event");
+  assert.ok(disputeEvent);
+  assert.equal(disputeEvent.from_status, "paid");
+  assert.equal(disputeEvent.to_status, "disputed");
+  assert.equal(disputeEvent.reason, "dispute.opened");
+});
+
+test("signed Dodo dispute webhook never regresses a delivered Fix Pack", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-delivered-dispute",
+    status: "delivered",
+    payment_id: "payment-delivered",
+    paid_at: "2026-06-20T00:00:00.000Z",
+    delivered_at: "2026-06-21T00:00:00.000Z"
+  }));
+  const payload = {
+    type: "dispute.lost",
+    data: {
+      id: "dispute-webhook-lost",
+      payment_id: "payment-delivered",
+      brand_id: "brand-1",
+      customer: { email: "owner@example.com" }
+    }
+  };
+
+  const response = await handleDodoWebhook(signedDodoWebhookRequest(payload, "wh_dispute_lost", env), env, null);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.disputed, true);
+
+  // A delivered Fix Pack must survive a dispute instead of regressing, while
+  // the dispute marker is still recorded for the payment history.
+  const row = env.fixRequests[0];
+  assert.equal(row.status, "delivered");
+  assert.equal(row.dispute_event, "dispute.lost");
+  const disputeEvent = env.events.find((event) => event.event === "dispute_event");
+  assert.ok(disputeEvent);
+  assert.equal(disputeEvent.from_status, "delivered");
+  assert.equal(disputeEvent.to_status, "delivered");
+});
+
 test("billing summary exposes customer delivery readiness from repair proposal state", async () => {
   const env = await fakeBillingEnv();
   env.fixRequests.push(checkoutFixRequest(env, {
@@ -1773,6 +2031,92 @@ test("Dodo subscription webhook refuses entitlement mutation without a subscript
   assert.equal(env.entitlements.length, 0);
 });
 
+test("signed active webhook for a second subscription never grants a duplicate entitlement", async () => {
+  const env = await fakeBillingEnv();
+  const first = {
+    type: "subscription.active",
+    data: subscriptionEventData({ id: "sub-first-1", status: "active" })
+  };
+  const firstResponse = await handleDodoWebhook(signedDodoWebhookRequest(first, "wh_sub_first", env), env, null);
+  assert.equal(firstResponse.status, 200);
+  assert.equal(env.entitlements.length, 1);
+  assert.equal(env.entitlements[0].subscription_id, "sub-first-1");
+
+  // A second, distinct subscription becoming active for the same owner while
+  // the first entitlement is still active must be ignored: the owner keeps the
+  // existing grant and exactly zero new entitlement rows are created.
+  const second = {
+    type: "subscription.updated",
+    data: subscriptionEventData({ id: "sub-second-1", status: "active" })
+  };
+  const secondResponse = await handleDodoWebhook(signedDodoWebhookRequest(second, "wh_sub_second", env), env, null);
+  assert.equal(secondResponse.status, 200);
+  const body = await secondResponse.json();
+  assert.equal(body.received, true);
+  assert.equal(body.status, "processed");
+  assert.equal(body.ignored, true);
+  assert.equal(body.reason, "active_entitlement_exists");
+
+  assert.equal(env.entitlements.length, 1);
+  assert.equal(env.entitlements[0].subscription_id, "sub-first-1");
+  assert.equal(env.entitlements[0].status, "active");
+  assert.equal(env.entitlements[0].revoked_at, null);
+  const ignoredEvent = env.entitlementEvents.at(-1);
+  assert.equal(ignoredEvent.event, "subscription_ignored");
+  assert.equal(ignoredEvent.entitlement_id, env.entitlements[0].id);
+  assert.equal(ignoredEvent.from_status, "active");
+  assert.equal(ignoredEvent.to_status, "active");
+  assert.equal(env.dodoWebhookEvents.length, 2);
+  assert.equal(env.dodoWebhookEvents.at(-1).status, "processed");
+});
+
+test("signed active webhook for a second subscription grants exactly one entitlement after the first is revoked", async () => {
+  const env = await fakeBillingEnv();
+  const firstActive = {
+    type: "subscription.active",
+    data: subscriptionEventData({ id: "sub-first-revoked-1", status: "active" })
+  };
+  const firstResponse = await handleDodoWebhook(signedDodoWebhookRequest(firstActive, "wh_first_active", env), env, null);
+  assert.equal(firstResponse.status, 200);
+  assert.equal(env.entitlements.length, 1);
+
+  const firstCancelled = {
+    type: "subscription.cancelled",
+    data: subscriptionEventData({ id: "sub-first-revoked-1", status: "cancelled" })
+  };
+  const cancelResponse = await handleDodoWebhook(signedDodoWebhookRequest(firstCancelled, "wh_first_cancelled", env), env, null);
+  assert.equal(cancelResponse.status, 200);
+  assert.equal(env.entitlements[0].status, "cancelled");
+  assert.ok(env.entitlements[0].revoked_at);
+
+  // Once the first subscription's entitlement is revoked, a second subscription
+  // becoming active is a fresh grant: exactly one new active entitlement row
+  // for the new subscription, never a second concurrent active grant.
+  const secondActive = {
+    type: "subscription.active",
+    data: subscriptionEventData({ id: "sub-second-after-revoke", status: "active" })
+  };
+  const secondResponse = await handleDodoWebhook(signedDodoWebhookRequest(secondActive, "wh_second_after_revoke", env), env, null);
+  assert.equal(secondResponse.status, 200);
+  const body = await secondResponse.json();
+  assert.equal(body.ignored, false);
+  assert.equal(body.entitlementStatus, "active");
+
+  assert.equal(env.entitlements.length, 2);
+  const active = env.entitlements.filter((row) => row.status === "active");
+  assert.equal(active.length, 1);
+  assert.equal(active[0].subscription_id, "sub-second-after-revoke");
+  assert.equal(active[0].revoked_at, null);
+  const firstEntitlement = env.entitlements.find((row) => row.subscription_id === "sub-first-revoked-1");
+  assert.equal(firstEntitlement.status, "cancelled");
+  assert.ok(firstEntitlement.revoked_at);
+  const activeEvent = env.entitlementEvents.at(-1);
+  assert.equal(activeEvent.event, "subscription_active");
+  assert.equal(activeEvent.entitlement_id, active[0].id);
+  assert.equal(activeEvent.from_status, "");
+  assert.equal(activeEvent.to_status, "active");
+});
+
 test("billing summary exposes Proof Monitoring checkout and entitlement state", async () => {
   const env = await fakeBillingEnv();
 
@@ -2293,7 +2637,12 @@ function dodoWebhookSecretBytes(secret) {
 
 function statement(sql, values, env) {
   return {
-    first: async () => first(sql, values, env),
+    first: async () => {
+      const row = await first(sql, values, env);
+      // D1 returns a fresh snapshot; a live reference would let later UPDATEs
+      // rewrite the row before event logs read their pre-transition state.
+      return row && typeof row === "object" ? { ...row } : row;
+    },
     all: async () => all(sql, values, env),
     run: async () => run(sql, values, env)
   };
@@ -2337,10 +2686,13 @@ function first(sql, values, env) {
   if (sql.includes("FROM offer_entitlements") && sql.includes("owner_email = ?")) {
     if (env.missingEntitlementSchema) throw new Error("no such table: offer_entitlements");
     const [ownerEmail, offerKey] = values;
+    // Mirror the revoked_at IS NULL predicate from the SQL text (not the test
+    // logic) so a mutation dropping that filter is applied and detected.
+    const activeOnly = sql.includes("revoked_at IS NULL");
     return env.entitlements.find((row) =>
       row.owner_email === ownerEmail &&
       row.offer_key === offerKey &&
-      !row.revoked_at
+      (!activeOnly || !row.revoked_at)
     ) || null;
   }
   if (sql.includes("FROM offer_entitlements")) {
@@ -2669,6 +3021,78 @@ function run(sql, values, env) {
       row.product_id = values[3];
       row.checkout_repair_json = values[4];
       row.updated_at = values[5];
+    }
+    return { meta: { changes: row ? 1 : 0 } };
+  }
+  if (sql.includes("UPDATE fix_requests") && sql.includes("payment_failed")) {
+    // Dispatched before the generic success UPDATE (payment_id = ?) so a
+    // mutated failure statement that drops its COALESCE cannot be mistaken for
+    // a success statement; behavior mirrors the SQL text so mutations apply.
+    const row = env.fixRequests.find((item) => item.id === values[3]);
+    if (row) {
+      if (row.paid_at && sql.includes("paid_at IS NOT NULL THEN status")) {
+        // WHEN paid_at IS NOT NULL THEN status: keep the paid state.
+      } else if (sql.includes("ELSE 'payment_failed'")) {
+        row.status = "payment_failed";
+      }
+      row.payment_id = sql.includes("payment_id = COALESCE(payment_id, ?)")
+        ? (row.payment_id || values[0])
+        : values[0];
+      row.checkout_session_id = sql.includes("checkout_session_id = COALESCE(checkout_session_id, ?)")
+        ? (row.checkout_session_id || values[1])
+        : values[1];
+      row.updated_at = values[2];
+    }
+    return { meta: { changes: row ? 1 : 0 } };
+  }
+  if (sql.includes("UPDATE fix_requests") && sql.includes("SET status = 'refunded',")) {
+    const row = env.fixRequests.find((item) => item.id === values[5]);
+    if (row) {
+      if (sql.includes("SET status = 'refunded',")) row.status = "refunded";
+      row.refund_id = values[0];
+      row.refund_amount = values[1];
+      row.refund_currency = values[2];
+      row.refunded_at = sql.includes("refunded_at = COALESCE(refunded_at, ?)")
+        ? (row.refunded_at || values[3])
+        : values[3];
+      row.updated_at = values[4];
+    }
+    return { meta: { changes: row ? 1 : 0 } };
+  }
+  if (sql.includes("UPDATE fix_requests") && sql.includes("refund_failed")) {
+    const row = env.fixRequests.find((item) => item.id === values[4]);
+    if (row) {
+      if (row.status === "refunded" && sql.includes("status = 'refunded' THEN status")) {
+        // WHEN status = 'refunded' THEN status: keep the refunded state.
+      } else if (sql.includes("ELSE 'refund_failed'")) {
+        row.status = "refund_failed";
+      }
+      row.refund_id = sql.includes("refund_id = COALESCE(refund_id, ?)")
+        ? (row.refund_id || values[0])
+        : values[0];
+      row.refund_amount = sql.includes("refund_amount = COALESCE(refund_amount, ?)")
+        ? (row.refund_amount || values[1])
+        : values[1];
+      row.refund_currency = sql.includes("refund_currency = COALESCE(refund_currency, ?)")
+        ? (row.refund_currency || values[2])
+        : values[2];
+      row.updated_at = values[3];
+    }
+    return { meta: { changes: row ? 1 : 0 } };
+  }
+  if (sql.includes("UPDATE fix_requests") && sql.includes("dispute_event")) {
+    const row = env.fixRequests.find((item) => item.id === values[3]);
+    if (row) {
+      if (row.status === "delivered" && sql.includes("status = 'delivered' THEN status")) {
+        // WHEN status = 'delivered' THEN status: keep the delivered state.
+      } else if (sql.includes("ELSE 'disputed'")) {
+        row.status = "disputed";
+      }
+      row.dispute_event = values[0];
+      row.disputed_at = sql.includes("disputed_at = COALESCE(disputed_at, ?)")
+        ? (row.disputed_at || values[1])
+        : values[1];
+      row.updated_at = values[2];
     }
     return { meta: { changes: row ? 1 : 0 } };
   }
