@@ -460,6 +460,54 @@ test("demo proof list reflows at 320px and 390px without hiding evidence", async
   }
 });
 
+test("shared public-product shell reflows at narrow viewports without a 320px floor", async () => {
+  const { chromium } = await import("playwright");
+  const shellPages = [
+    { name: "/methodology", html: methodologyHtml(origin) },
+    { name: "/packages", html: packagesHtml(origin) },
+    { name: "/small-business-seo-audit", html: smallBusinessSeoAuditHtml(origin) },
+    { name: "/rendered-vs-static-seo-audit", html: renderedVsStaticAuditHtml(origin) },
+    { name: "/ai-answer-readiness", html: aiAnswerReadinessHtml(origin) }
+  ];
+  for (const { name, html } of shellPages) {
+    assert.doesNotMatch(html, /min-width:\s*320px/, `${name} must not ship the 320px floor`);
+    assert.doesNotMatch(html, /overflow-x\s*:\s*hidden/i, `${name} must wrap instead of hiding overflow`);
+  }
+
+  const browser = await chromium.launch({ headless: true });
+  try {
+    for (const { name, html } of shellPages) {
+      for (const width of [390, 320, 300, 280, 240]) {
+        const page = await browser.newPage({ viewport: { width, height: 844 }, isMobile: true });
+        await page.setContent(html, { waitUntil: "domcontentloaded" });
+        const measured = await page.evaluate(() => {
+          const root = document.documentElement;
+          return {
+            scrollWidth: root.scrollWidth,
+            clientWidth: root.clientWidth,
+            htmlOverflowX: getComputedStyle(root).overflowX,
+            bodyOverflowX: getComputedStyle(document.body).overflowX,
+            bodyMinWidth: getComputedStyle(document.body).minWidth,
+            wideCount: [...document.querySelectorAll("*")]
+              .filter((el) => el.getBoundingClientRect().right > root.clientWidth + 1).length
+          };
+        });
+        assert.notEqual(measured.htmlOverflowX, "hidden", `${name} html overflow-x must stay visible at ${width}px`);
+        assert.notEqual(measured.bodyOverflowX, "hidden", `${name} body overflow-x must stay visible at ${width}px`);
+        assert.equal(measured.bodyMinWidth, "0px", `${name} must not keep the 320px floor at ${width}px`);
+        assert.ok(
+          measured.scrollWidth <= measured.clientWidth,
+          `${name} overflow at ${width}px: scrollWidth=${measured.scrollWidth}/clientWidth=${measured.clientWidth}`
+        );
+        assert.equal(measured.wideCount, 0, `${name} has ${measured.wideCount} elements wider than the viewport at ${width}px`);
+        await page.close();
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+});
+
 test("static public skill and sitemap files keep buyer-facing boundaries", () => {
   const skill = readFileSync(new URL("../../public/.well-known/skill.md", import.meta.url), "utf8");
   const sitemap = readFileSync(new URL("../../public/sitemap.xml", import.meta.url), "utf8");
