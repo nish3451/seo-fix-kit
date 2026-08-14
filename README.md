@@ -41,6 +41,7 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Founder-friendly React interface.
 - Cloudflare Worker target using Workers Static Assets and Browser Run.
 - Locked private-beta homepage with `/api/waitlist` and `/api/access/request` backed by D1.
+- First-party private-beta funnel instrumentation in D1 `access_events` with ordered steps `beta_view`, `beta_input`, `beta_submit`, `access_requested`, `access_link_sent`, `access_link_verified`, `session_created`, `audit_started`; `GET /admin/funnel` (admin token) returns per-step counts and conversion percentages for any 1-90 day window, and `POST /api/access/track` records a rate-limited client-side beacon so the homepage `beta_view` / `beta_input` events reach storage without any third-party analytics.
 - Public anonymous one-page URL check at `/check` and `POST /api/public-check`: real browser rendering of one public page, static-vs-rendered proof, guarded false positives, actionable findings when present, per-network and per-site rate limits with hashed, short-lived counters, no stored report, and a handoff into private beta access with no ranking promise.
 - Public `/demo`, `/methodology`, and `/packages` pages showing the proof loop, limits, and package ladder before payment.
 - Intent-matching public landing pages at `/small-business-seo-audit`, `/rendered-vs-static-seo-audit`, and `/ai-answer-readiness`, each with unique title and meta, a visible FAQ rendered from the same source as FAQPage JSON-LD, truthful SoftwareApplication schema, and links into `/check` and `/demo`; none claim live AI-engine sampling or AI citation monitoring.
@@ -129,7 +130,8 @@ Cloudflare cannot run the local Express + Chromium server directly. The deployab
 - `/api/health` is a shallow public runtime check; `/api/deep-health` is a public-safe readiness check for bindings, D1 schema, Dodo checkout/webhook config, and self-serve repair capabilities without exposing secrets, provider ids, checkout URLs, customer data, or table counts
 - `/api/public-check` runs the anonymous one-page URL check for any visitor: one public page rendered in a real browser, proof fields and guarded false positives from the shared audit engine, findings when present, per-network and per-site rate limits with hashed, short-lived counters, and no stored report; `/check` is the indexable public entry page
 - `/api/waitlist` handled by `worker/index.js` and stored in D1
-- `/admin/summary` powers the private ops dashboard, and `/admin/leads.csv` exports waitlist leads when called with the admin export token
+- `/admin/summary` powers the private ops dashboard, and `/admin/funnel` returns the ordered private-beta activation funnel (counts and conversion percentages) for any 1-90 day window
+- `/admin/leads.csv` exports waitlist leads when called with the admin export token
 - `/admin/invites` creates invite codes for specific emails
 - `/admin/beta-session` creates an admin-authorized founder-override beta session for production proof drills without returning raw session tokens
 - `/beta` serves the private workbench with `noindex` and `no-store` headers
