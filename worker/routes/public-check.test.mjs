@@ -194,7 +194,7 @@ test("public check page carries WebPage and truthful FAQ JSON-LD", () => {
   const noPromiseAnswer = faq.mainEntity.find((question) => question.name === "Does this check promise rankings or traffic?");
   assert.match(noPromiseAnswer.acceptedAnswer.text, /does not guarantee rankings, traffic, indexing, revenue, AI citations/i);
   const storedAnswer = faq.mainEntity.find((question) => question.name === "Is anything about my check stored?");
-  assert.match(storedAnswer.acceptedAnswer.text, /nothing about your check is saved/i);
+  assert.match(storedAnswer.acceptedAnswer.text, /no report or URL from your check is stored/i);
 
   // Every schema answer is a claim a visitor can read in the rendered page.
   const html = checkHtml(origin);
