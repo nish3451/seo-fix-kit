@@ -266,7 +266,7 @@ export function checkJsonLd(origin) {
             name: "Is anything about my check stored?",
             acceptedAnswer: {
               "@type": "Answer",
-              text: "No. The check is anonymous and ephemeral: nothing about your check is saved. The only records are rate-limit counters hashed per network and per target site."
+              text: "No report or URL from your check is stored. The only records are short-lived anonymous rate-limit counters: a hash of your network and a hash of the checked site, which expire automatically."
             }
           },
           {
@@ -404,7 +404,7 @@ export function checkHtml(origin) {
         <h3>What does the one-page check measure?</h3>
         <p>It opens one public page in a real browser and compares the raw HTML with the rendered page: static vs rendered word count, rendered H1, rendered title, and internal links. It also shows guarded false positives and actionable findings when the shared audit engine finds them. No account, no email, and no stored report.</p>
         <h3>Is anything about my check stored?</h3>
-        <p>No. The check is anonymous and ephemeral: nothing about your check is saved. The only records are rate-limit counters hashed per network and per target site.</p>
+        <p>No report or URL from your check is stored. The only records are short-lived anonymous rate-limit counters: a hash of your network and a hash of the checked site, which expire automatically.</p>
         <h3>Is this a full site audit?</h3>
         <p>No. This is one public page at one moment, not a full multi-page audit. Full reports, deeper crawls, saved proof reports, and the repair queue run in the private beta after secure email access.</p>
         <h3>Does this check promise rankings or traffic?</h3>
