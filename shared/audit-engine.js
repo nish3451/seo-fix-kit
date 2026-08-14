@@ -498,11 +498,18 @@ export function createAuditEngine({
         kind: "image"
       }));
 
+    const canonicalOrigin = rendered.canonical
+      ? safeOrigin(rendered.canonical)
+      : "";
+    const canonicalKind = canonicalOrigin && canonicalOrigin === pageOrigin
+      ? "internal"
+      : "canonical";
+
     const [linkChecks, imageChecks, canonicalCheck] = await Promise.all([
       Promise.all(links.map(checkResource)),
       Promise.all(images.map(checkResource)),
       rendered.canonical
-        ? checkResource({ url: rendered.canonical, label: "canonical", kind: "canonical" })
+        ? checkResource({ url: rendered.canonical, label: "canonical", kind: canonicalKind })
         : Promise.resolve(null)
     ]);
 
@@ -2405,6 +2412,14 @@ function isHttpResourceUrl(value = "") {
     return ["http:", "https:"].includes(new URL(value).protocol);
   } catch {
     return false;
+  }
+}
+
+function safeOrigin(value = "") {
+  try {
+    return new URL(value).origin || "";
+  } catch {
+    return "";
   }
 }
 
