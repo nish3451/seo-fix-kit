@@ -28,6 +28,7 @@ import { jsonNoStore } from "../lib/http.js";
 import { checkQuotaSet, requestIpHash, sha256Hex } from "../lib/security.js";
 import { dayWindow, hourWindow } from "../lib/text.js";
 import { auditUrl } from "./audits.js";
+import { SOCIAL_IMAGE_PATH } from "./pages.js";
 
 export const CHECK_PAGE_PATH = "/check";
 export const PUBLIC_CHECK_API_PATH = "/api/public-check";
@@ -307,11 +308,11 @@ export function checkHtml(origin) {
     <meta property="og:title" content="Check One Page for SEO Proof - SEO Fix Kit" />
     <meta property="og:description" content="Paste any public page URL and see what a browser-rendered, proof-backed audit finds. No account, no ranking promises." />
     <meta property="og:url" content="${origin}/check" />
-    <meta property="og:image" content="${origin}/og-image.svg" />
+    <meta property="og:image" content="${origin}${SOCIAL_IMAGE_PATH}" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Check One Page for SEO Proof - SEO Fix Kit" />
     <meta name="twitter:description" content="Paste any public page URL and see browser-rendered SEO proof. No account, no ranking promises." />
-    <meta name="twitter:image" content="${origin}/og-image.svg" />
+    <meta name="twitter:image" content="${origin}${SOCIAL_IMAGE_PATH}" />
     ${checkJsonLd(origin)}
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
