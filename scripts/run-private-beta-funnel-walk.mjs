@@ -293,7 +293,12 @@ async function walkStop({ baseUrl, stop, page, timeoutMs, viewport, appliedViewp
       const anchors = Array.from(document.querySelectorAll("a[href]"))
         .map((anchor) => anchor.getAttribute("href"))
         .filter((href) => href && !href.startsWith("#") && !/^(mailto:|tel:|javascript:)/i.test(href));
+      // Compare against the layout viewport, not window.innerWidth: on a
+      // page whose content overflows horizontally, mobile browsers inflate
+      // innerWidth to the overflowing width, which would hide the very
+      // regression this walk exists to catch.
       const scrollWidth = document.documentElement.scrollWidth;
+      const clientWidth = document.documentElement.clientWidth;
       const innerWidth = window.innerWidth;
       const emailInput = document.querySelector("#email");
       const companyInput = document.querySelector("#company");
@@ -306,6 +311,7 @@ async function walkStop({ baseUrl, stop, page, timeoutMs, viewport, appliedViewp
         bodyText,
         anchors: [...new Set(anchors)],
         scrollWidth,
+        clientWidth,
         innerWidth,
         accessForm: {
           emailPresent: Boolean(emailInput),
@@ -325,13 +331,17 @@ async function walkStop({ baseUrl, stop, page, timeoutMs, viewport, appliedViewp
       bodyText: "",
       anchors: [],
       scrollWidth: 0,
+      clientWidth: 0,
       innerWidth: 0,
       accessForm: null,
       walkerError: String(error?.message || error)
     }));
 
   const brokenLinks = await checkLinksLive({ baseUrl, anchors: pageState.anchors, timeoutMs });
-  const horizontalOverflow = pageState.scrollWidth > pageState.innerWidth + 1;
+  // clientWidth is the layout viewport width; innerWidth can inflate to the
+  // overflowing width on mobile, so it stays recorded only as diagnostic
+  // context alongside the verdict-bearing comparison.
+  const horizontalOverflow = pageState.scrollWidth > pageState.clientWidth + 1;
 
   const copyChecks = stop.copyChecks.map((check) => ({
     match: check.match,
@@ -369,7 +379,7 @@ async function walkStop({ baseUrl, stop, page, timeoutMs, viewport, appliedViewp
     copyChecks,
     expectedLinks,
     brokenLinks,
-    horizontalOverflow: { scrollWidth: pageState.scrollWidth, innerWidth: pageState.innerWidth, overflow: horizontalOverflow },
+    horizontalOverflow: { scrollWidth: pageState.scrollWidth, clientWidth: pageState.clientWidth, innerWidth: pageState.innerWidth, overflow: horizontalOverflow },
     accessForm,
     walkerError: pageState.walkerError || (response.error ? response.error : null)
   };
@@ -453,7 +463,7 @@ export function evaluateStopEvidence(evidence) {
   }
   if (evidence.horizontalOverflow?.overflow === true) {
     failures.push(
-      `horizontal scroll on ${evidence.viewport}: scrollWidth ${evidence.horizontalOverflow.scrollWidth} > innerWidth ${evidence.horizontalOverflow.innerWidth}`
+      `horizontal scroll on ${evidence.viewport}: scrollWidth ${evidence.horizontalOverflow.scrollWidth} > clientWidth ${evidence.horizontalOverflow.clientWidth}`
     );
   }
   if (stop.accessForm) {
