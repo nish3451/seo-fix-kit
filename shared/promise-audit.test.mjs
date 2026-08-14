@@ -109,7 +109,11 @@ test("README weekly monitor promise matches the schedule interval", () => {
 
 test("README public page promise matches Worker routing and copy", () => {
   assert.match(liveSection, /Public `\/demo`, `\/methodology`, and `\/packages` pages showing the proof loop, limits, and package ladder before payment/i);
+  assert.match(liveSection, /Intent-matching public landing pages at `\/small-business-seo-audit`, `\/rendered-vs-static-seo-audit`, and `\/ai-answer-readiness`/i);
   for (const path of ["/demo", "/methodology", "/packages", "/check"]) {
+    assert.ok(workerIndex.includes(`url.pathname === "${path}"`), `Worker must route ${path}`);
+  }
+  for (const path of ["/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness"]) {
     assert.ok(workerIndex.includes(`url.pathname === "${path}"`), `Worker must route ${path}`);
   }
   assert.match(pagesSource, /FIX_PACK_PUBLIC_PRICE/, "packages page price constant exists");
@@ -156,6 +160,9 @@ test("README Cloudflare path routes are actually registered in the Worker", () =
     "/demo",
     "/methodology",
     "/packages",
+    "/small-business-seo-audit",
+    "/rendered-vs-static-seo-audit",
+    "/ai-answer-readiness",
     "/check",
     "/api/public-check",
     "/beta"
