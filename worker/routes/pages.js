@@ -23,6 +23,7 @@ Live product claims:
 - Verified sessions can import Search Console or rank-tracker keyword rows for low-CTR, page-two, decline, cannibalization, intent-match, uncrawled landing-page repair actions, and rank observation history.
 - Reports include rendered WordPress and ecommerce platform proof for Product schema, breadcrumbs, faceted links, archives, and plugin resource impact.
 - Reports include proof-derived AI Answer Readiness checks for rendered content depth, helpful schema, canonical/internal-link clarity, question-led structure, sitemap context, and optional llms.txt reachability.
+- Intent-matching landing pages at ${origin}/small-business-seo-audit, ${origin}/rendered-vs-static-seo-audit, and ${origin}/ai-answer-readiness describe the proof-backed small-business audit, rendered-vs-static proof loop, and site-proof AI Answer Readiness boundary; none claim live answer-engine sampling or AI citation monitoring.
 - Reports include draft-only growth briefs from verified keyword, competitor, AI-readiness, and crawl gaps.
 - Reports include a private repair queue with proof, acceptance checks, status, safe draft action records, approval state, owner-approved implementation packs, and proof receipts after fixed rerun proof.
 - The account dashboard includes a repair-agent feed that ranks open repairs, drafted actions, applied items needing rerun proof, and monitor regressions.
@@ -85,6 +86,9 @@ Useful routes:
 - ${origin}/demo
 - ${origin}/methodology
 - ${origin}/packages
+- ${origin}/small-business-seo-audit
+- ${origin}/rendered-vs-static-seo-audit
+- ${origin}/ai-answer-readiness
 `;
 }
 
@@ -100,9 +104,17 @@ Public proof before payment:
 - Sample proof report: ${origin}/demo
 - Methodology and limits: ${origin}/methodology
 - Package ladder: ${origin}/packages
+- Small-business SEO audit: ${origin}/small-business-seo-audit
+- Rendered vs static audit: ${origin}/rendered-vs-static-seo-audit
+- AI Answer Readiness check: ${origin}/ai-answer-readiness
 
 Start at ${origin}/.
 `;
+}
+
+// Serialize a JSON-LD block safely inside a <script> tag.
+function ldBlock(value) {
+  return `<script type="application/ld+json">${JSON.stringify(value).replace(/</g, "\\u003c")}</script>`;
 }
 
 function pageSocialHead({ origin, title, description, path = "/" }) {
@@ -375,7 +387,198 @@ function packagesHtml(origin) {
   });
 }
 
-function publicProductPageHtml({ origin, path, title, description, eyebrow, heading, lead, body }) {
+function smallBusinessSeoAuditHtml(origin) {
+  return publicProductPageHtml({
+    origin,
+    path: "/small-business-seo-audit",
+    title: "Small Business SEO Audit",
+    description: "A proof-backed SEO audit for small businesses: check one public page free, see the rendered evidence behind each finding, and only pay for a repair pass when real fixes exist.",
+    eyebrow: "Small-business SEO audit",
+    heading: "An SEO audit that shows proof, not homework.",
+    lead: "Small businesses lose hours to audit tools that dump red flags and generic checklists. SEO Fix Kit checks one page free, shows the rendered proof behind each finding, and only queues a repair when the browser-visible page is actually wrong.",
+    softwareDescription: "Private-beta SEO repair software for small businesses that turns rendered proof into safe repair queues, approval records, and rerun checks.",
+    body: `
+      <section class="band">
+        <h2>What a small-business audit should actually show</h2>
+        <ul class="check-list">
+          <li>The earliest failure stage on each URL, with page-level evidence you can open and re-check.</li>
+          <li>Which findings are real and which are static-crawler false positives on JavaScript-rendered pages.</li>
+          <li>A plain-language repair brief with priority, effort, and an acceptance check you can rerun after a change ships.</li>
+          <li>Fixed, still-open, new, and regressed status on reruns instead of a one-time red-flag dump.</li>
+        </ul>
+      </section>
+      <section class="grid three" aria-label="How to start">
+        <article class="panel proof"><strong>Free one-page check</strong><p>Paste a public URL at ${origin}/check. You get rendered proof, guarded false positives, and actionable findings when present — no account, no email, nothing stored.</p></article>
+        <article class="panel"><strong>Private audit for your site</strong><p>Request a secure email access link for rate-limited private audits. Verified hosts unlock self-serve crawl depth up to 1,000 pages per queued audit.</p></article>
+        <article class="panel"><strong>Fix Pack only when fixes exist</strong><p>The paid offer is one proof-backed repair pass tied to one report, plus one rerun after fixes. Dodo shows the checkout price before payment.</p></article>
+      </section>
+      <section class="band">
+        <h2>Why proof beats a checklist</h2>
+        <p>A generic audit can say "add an H1" to a page whose rendered version already has one. SEO Fix Kit opens the page in a real browser, compares raw HTML with the rendered DOM, and keeps that item out of the repair queue. The same standard applies to every report: render, prove, queue, re-measure.</p>
+      </section>
+      <section class="band">
+        <h2>What this page does not claim</h2>
+        <p>This page is a landing page, not an audit of your site. The free check covers one public page at one moment; full multi-page reports run inside the private beta. SEO Fix Kit does not replace Ahrefs or Semrush, does not provide live AI citation monitoring or answer-engine sampling, and never guarantees rankings, traffic, indexing, or revenue.</p>
+      </section>
+      <section class="band">
+        <h2>Start with proof</h2>
+        <p><a class="cta" href="${origin}/check">Check one page now</a></p>
+        <p><a href="${origin}/demo">View the proof sample</a> · <a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a></p>
+      </section>
+    `,
+    faq: [
+      { q: "Is there a free way to check my site before requesting access?", a: "Yes. The one-page check at /check accepts one public URL, renders it in a real browser, and returns proof fields and findings when present, with no account, no email, and nothing stored." },
+      { q: "What does the paid Fix Pack include?", a: "One proof-backed repair pass tied to one saved report, plus one rerun after fixes. Dodo shows the checkout price before payment, and no ranking, traffic, or revenue promise is made." },
+      { q: "Do I need to verify my site to start?", a: "A one-page Lite check runs before verification. Verified hosts unlock normal self-serve crawl depth up to 1,000 pages per queued audit." },
+      { q: "Will SEO Fix Kit guarantee my rankings?", a: "No. Reports are diagnostic and reflect what the crawl and browser render could observe at scan time. Rankings, traffic, indexing, and revenue are never guaranteed." }
+    ]
+  });
+}
+
+function renderedVsStaticAuditHtml(origin) {
+  return publicProductPageHtml({
+    origin,
+    path: "/rendered-vs-static-seo-audit",
+    title: "Rendered vs Static SEO Audit",
+    description: "Why static crawlers invent SEO problems on JavaScript-rendered pages, and how SEO Fix Kit compares raw HTML with the rendered DOM to keep false positives out of the repair queue.",
+    eyebrow: "Rendered vs static audit",
+    heading: "Static crawlers invent work. Rendered proof does not.",
+    lead: "JavaScript-heavy sites fail static scanners that read the raw app shell. SEO Fix Kit opens the page in a real browser, compares raw HTML with the rendered DOM, and only creates a repair when the browser-visible page is actually wrong.",
+    softwareDescription: "Private-beta SEO repair software that renders pages in a real browser to compare static HTML with the final DOM and guard static-crawler false positives.",
+    body: `
+      <section class="grid three" aria-label="Static scanner vs rendered proof">
+        <article class="panel"><strong>Static scanner</strong><p>No H1. No internal links. Thin content. Needs cleanup.</p></article>
+        <article class="panel proof"><strong>Rendered proof</strong><p>Browser render shows a real H1, normal internal links, and substantial page content.</p></article>
+        <article class="panel"><strong>Repair brief</strong><p>No duplicate H1. No fake internal links. No busywork. Keep monitoring and rerun after real content changes.</p></article>
+      </section>
+      <section class="band">
+        <h2>Why this matters for repair work</h2>
+        <p>An agent that trusts a static crawl can make a site worse: if a scanner says "add an H1" when the rendered page already has one, the suggested repair is a duplicate heading, not a fix. Rendered-vs-static comparison separates a crawler limitation from a real customer problem, so the repair queue only receives proven findings.</p>
+      </section>
+      <section class="band">
+        <h2>Where you can see it live</h2>
+        <ul class="check-list">
+          <li>${origin}/demo: the public sample shows a static scanner's false positive against the rendered proof, step by step.</li>
+          <li>${origin}/check: paste any public URL and get rendered proof, guarded false positives, and actionable findings when present — no account and nothing stored.</li>
+          <li>Private reports for verified sites include rendered crawl intelligence, resource waterfall proof, and rerun deltas.</li>
+        </ul>
+      </section>
+      <section class="band">
+        <h2>What this page does not claim</h2>
+        <p>The one-page check covers a single public URL, not a full site audit. Full multi-page reports run inside the private beta. Rendered proof does not guarantee rankings, traffic, indexing, revenue, or AI citations, and SEO Fix Kit does not provide live answer-engine sampling or citation monitoring.</p>
+      </section>
+      <section class="band">
+        <h2>Start with proof</h2>
+        <p><a class="cta" href="${origin}/check">Check one page now</a></p>
+        <p><a href="${origin}/demo">View the proof sample</a> · <a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a></p>
+      </section>
+    `,
+    faq: [
+      { q: "Why does my static SEO tool report problems I cannot see in the browser?", a: "Static scanners read the raw HTML response and miss content rendered by JavaScript. SEO Fix Kit renders the page in a real browser and only reports what the final DOM actually shows." },
+      { q: "Can I see a rendered-vs-static example before signing up?", a: "Yes. The public sample at /demo shows a static scanner false positive against the rendered proof, and the free one-page check at /check runs the same proof loop on any public URL." },
+      { q: "Does rendered proof mean guaranteed fixes or rankings?", a: "No. Every report is diagnostic and reflects what the crawl could observe at scan time. Rankings, traffic, indexing, revenue, and AI citations are never guaranteed." },
+      { q: "How does the repair queue use rendered proof?", a: "Only proven findings become queue items. Each item keeps its source proof, suggested action, effort estimate, and an acceptance check that can be rerun after a change ships." }
+    ]
+  });
+}
+
+function aiAnswerReadinessHtml(origin) {
+  return publicProductPageHtml({
+    origin,
+    path: "/ai-answer-readiness",
+    title: "AI Answer Readiness Check",
+    description: "A site-proof AI Answer Readiness check: rendered content depth, helpful schema, canonical and internal-link clarity, question-led structure, sitemap context, and optional llms.txt reachability — no live citation monitoring.",
+    eyebrow: "AI Answer Readiness",
+    heading: "A site-proof AI readiness check, not a citation tracker.",
+    lead: "AI search visibility starts with content and markup answer engines can actually use. SEO Fix Kit derives AI Answer Readiness from your rendered pages, schema, links, sitemap context, and optional llms.txt — it does not sample live answer engines or monitor citations.",
+    softwareDescription: "Private-beta SEO repair software with proof-derived AI Answer Readiness checks built from rendered content, schema, canonical and internal-link clarity, sitemap context, and optional llms.txt reachability.",
+    body: `
+      <section class="band">
+        <h2>What the readiness check measures</h2>
+        <ul class="check-list">
+          <li>Rendered content depth: whether the browser-visible page carries substantive, crawlable text.</li>
+          <li>Helpful schema: Organization, WebSite, SoftwareApplication, WebPage, FAQPage, and product markup that names entities clearly.</li>
+          <li>Canonical and internal-link clarity: one canonical per URL and a link graph an engine can follow.</li>
+          <li>Question-led structure: headings and copy that answer the questions searchers and answer engines ask.</li>
+          <li>Sitemap context and coverage, plus optional llms.txt reachability when present.</li>
+        </ul>
+      </section>
+      <section class="grid two" aria-label="Readiness boundaries">
+        <article class="panel"><strong>No live answer-engine sampling</strong><p>SEO Fix Kit does not query ChatGPT, Perplexity, Google AI Overview, or other engines to see what they answer about your site.</p></article>
+        <article class="panel"><strong>No AI citation monitoring</strong><p>There is no live tracking of citations, mentions, or visibility scores across AI engines.</p></article>
+        <article class="panel"><strong>llms.txt stays optional</strong><p>llms.txt reachability is an optional signal. SEO Fix Kit does not claim llms.txt is required for Google Search or generative search surfaces.</p></article>
+        <article class="panel"><strong>Site-proof only</strong><p>Readiness is derived from your rendered pages, schema, links, sitemap, and optional llms.txt — not from any engine's internal behavior.</p></article>
+      </section>
+      <section class="band">
+        <h2>How to get the check</h2>
+        <ul class="check-list">
+          <li>Free: paste a public URL at ${origin}/check for rendered proof, guarded false positives, and actionable findings when present — no account and nothing stored.</li>
+          <li>Private reports for verified sites include proof-derived AI Answer Readiness checks beside the rendered crawl evidence.</li>
+          <li>Read the exact boundaries on ${origin}/methodology before relying on any readiness signal.</li>
+        </ul>
+      </section>
+      <section class="band">
+        <h2>What this page does not claim</h2>
+        <p>This page is a landing page, not a readiness report for your site. AI Answer Readiness does not guarantee rankings, traffic, AI citations, or revenue, and it does not replace live AI visibility tracking, which is not part of the product.</p>
+      </section>
+      <section class="band">
+        <h2>Start with proof</h2>
+        <p><a class="cta" href="${origin}/check">Check one page now</a></p>
+        <p><a href="${origin}/demo">View the proof sample</a> · <a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a></p>
+      </section>
+    `,
+    faq: [
+      { q: "Is AI Answer Readiness the same as monitoring citations in ChatGPT or Perplexity?", a: "No. Readiness is site-proof: it evaluates what your rendered pages, schema, links, sitemap context, and optional llms.txt allow an answer engine to understand. Live answer-engine sampling, AI citation monitoring, and AI visibility score tracking are not live." },
+      { q: "Do I need an llms.txt file to pass the check?", a: "No. llms.txt reachability is an optional signal. SEO Fix Kit does not claim llms.txt is required for Google Search or generative search surfaces." },
+      { q: "Can I check my site's AI readiness for free?", a: "The anonymous one-page check at /check renders one public URL and returns proof fields and findings when present. Full proof-derived AI Answer Readiness checks appear in private reports for verified sites." },
+      { q: "Does a good readiness signal guarantee AI visibility?", a: "No. Readiness is a site-proof diagnostic, and rankings, traffic, AI citations, and revenue are never guaranteed." }
+    ]
+  });
+}
+
+// Shared public product page shell. `faq` is an array of { q, a } pairs that is
+// rendered as a visible section AND emitted as FAQPage JSON-LD, so machine
+// schema can never drift from the visible copy. `softwareDescription`, when
+// provided, adds a truthful SoftwareApplication block for the tool itself.
+function publicProductPageHtml({ origin, path, title, description, eyebrow, heading, lead, body, faq = [], softwareDescription = null }) {
+  const extraLd = [];
+  if (softwareDescription) {
+    extraLd.push(
+      ldBlock({
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        name: "SEO Fix Kit",
+        applicationCategory: "SEO software",
+        operatingSystem: "Web",
+        url: origin,
+        provider: { "@type": "Organization", name: "SEO Fix Kit", url: origin },
+        description: softwareDescription
+      })
+    );
+  }
+  if (faq.length > 0) {
+    extraLd.push(
+      ldBlock({
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        mainEntity: faq.map(({ q, a }) => ({
+          "@type": "Question",
+          name: q,
+          acceptedAnswer: { "@type": "Answer", text: a }
+        }))
+      })
+    );
+  }
+  const faqSection = faq.length > 0
+    ? `
+      <section class="band" aria-label="Frequently asked questions">
+        <h2>Frequently asked questions</h2>
+        <div class="faq-list">
+          ${faq.map(({ q, a }) => `<article class="faq-item"><h3>${escapeHtml(q)}</h3><p>${escapeHtml(a)}</p></article>`).join("")}
+        </div>
+      </section>
+    `
+    : "";
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -384,6 +587,7 @@ function publicProductPageHtml({ origin, path, title, description, eyebrow, head
     <title>${escapeHtml(title)} - SEO Fix Kit</title>
     <meta name="description" content="${escapeHtml(description)}" />
 ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })}
+${extraLd.join("\n")}
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
       * { box-sizing: border-box; }
@@ -412,6 +616,8 @@ ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })
       .package-card a { align-items: center; border: 1px solid rgba(152,240,204,.32); border-radius: 8px; display: inline-flex; justify-content: center; min-height: 44px; padding: 0 14px; width: fit-content; }
       .check-list { display: grid; gap: 12px; list-style: none; padding-left: 0; }
       .check-list li { background: rgba(7,13,10,.58); border: 1px solid rgba(251,248,239,.1); border-radius: 8px; padding: 14px 16px; }
+      .faq-list { display: grid; gap: 14px; }
+      .faq-item { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; padding: 18px 20px; }
       .cta { align-items: center; background: #98f0cc; border-radius: 8px; color: #06100c; display: inline-flex; font-weight: 880; min-height: 48px; padding: 0 18px; }
       .site-footer { align-items: center; border-top: 1px solid rgba(251,248,239,.14); display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; margin-top: 24px; padding-top: 26px; }
       .site-footer a { font-size: 14px; font-weight: 760; }
@@ -434,6 +640,7 @@ ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })
         <p class="lead">${escapeHtml(lead)}</p>
       </section>
       ${body}
+      ${faqSection}
       <footer class="site-footer">
         <span>Audit it. Prove it. Fix it.</span>
         <a href="${origin}/demo">Demo</a>
@@ -607,6 +814,7 @@ ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })
 }
 
 export {
+  aiAnswerReadinessHtml,
   demoHtml,
   homeMarkdown,
   llmsText,
@@ -614,6 +822,8 @@ export {
   packagesHtml,
   policyPageHtml,
   privacyHtml,
+  renderedVsStaticAuditHtml,
+  smallBusinessSeoAuditHtml,
   supportHtml,
   termsHtml
 };

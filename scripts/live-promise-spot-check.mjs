@@ -185,6 +185,47 @@ export function publicPageSpotChecks(baseUrl) {
       ]
     },
     {
+      path: "/small-business-seo-audit",
+      name: "small-business landing page keeps the proof-first boundary",
+      isPage: true,
+      acceptStatuses: [200],
+      expectations: [
+        { reason: "proof-not-homework headline", match: "An SEO audit that shows proof, not homework." },
+        { reason: "free one-page check entry", match: "Free one-page check" },
+        { reason: "no-overclaim section", match: "What this page does not claim" },
+        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
+        { reason: "link to the proof sample", match: `href="${baseUrl}/demo"` },
+        { reason: "link to methodology limits", match: `href="${baseUrl}/methodology"` }
+      ]
+    },
+    {
+      path: "/rendered-vs-static-seo-audit",
+      name: "rendered-vs-static landing page keeps the false-positive guard boundary",
+      isPage: true,
+      acceptStatuses: [200],
+      expectations: [
+        { reason: "static-vs-rendered headline", match: "Static crawlers invent work. Rendered proof does not." },
+        { reason: "static scanner vs rendered proof panels", match: "Rendered proof" },
+        { reason: "no-overclaim section", match: "What this page does not claim" },
+        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
+        { reason: "link to the proof sample", match: `href="${baseUrl}/demo"` }
+      ]
+    },
+    {
+      path: "/ai-answer-readiness",
+      name: "AI Answer Readiness landing page keeps the site-proof boundary",
+      isPage: true,
+      acceptStatuses: [200],
+      expectations: [
+        { reason: "site-proof headline", match: "A site-proof AI readiness check, not a citation tracker." },
+        { reason: "no live answer-engine sampling", match: "No live answer-engine sampling" },
+        { reason: "no AI citation monitoring", match: "No AI citation monitoring" },
+        { reason: "llms.txt stays optional", match: "llms.txt stays optional" },
+        { reason: "no-overclaim section", match: "What this page does not claim" },
+        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` }
+      ]
+    },
+    {
       path: "/support",
       name: "support page keeps the no-ranking promise and refund guard",
       isPage: true,
