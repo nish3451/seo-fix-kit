@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createAuditEngine, isThrottledResource } from "./audit-engine.js";
+import {
+  createAuditEngine,
+  isSameOriginInfraFailure,
+  isThrottledResource,
+  normalizeUrl
+} from "./audit-engine.js";
 import { buildBacklinkAudit } from "./backlink-audit.js";
 import { buildCrawlInventory } from "./crawl-inventory.js";
 import { buildLocalSeoAudit } from "./local-seo-audit.js";
@@ -230,6 +235,127 @@ test("resource validation blocks private-DNS resources and redirect targets befo
   assert.equal(fetched.includes("https://redirect.example/resource"), true);
   assert.equal(fetched.includes("https://private.example/resource"), false);
   assert.equal(fetched.includes("https://private.example/canonical"), false);
+});
+
+
+// Regression: a site can declare og:image/twitter:image while pointing them at a
+// file that does not load as an image. Presence alone was previously treated as
+// a working social preview, and the suggested snippet hard-coded
+// ${origin}/og-image.png even when that file did not exist on the audited site.
+test("social images that are declared but not loadable produce a broken-preview finding", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser("https://public.example/", {
+        openGraph: { image: "https://public.example/social/og.png" },
+        twitter: { image: "https://public.example/social/og.png" }
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      if (url === "https://public.example/social/og.png") {
+        return new Response("not really an image", { status: 200, headers: { "content-type": "text/html" } });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const broken = report.findings.find((finding) => /Social share image is not loadable/.test(finding.title));
+  assert.ok(broken, "a declared-but-not-image social tag must be reported");
+  // og:image and twitter:image point at the same URL, so the check is deduped:
+  // the evidence names the single shared image URL and its broken response.
+  assert.match(broken.evidence, /og:image \(https:\/\/public\.example\/social\/og\.png\): returned 200 with content-type text\/html/);
+  assert.doesNotMatch(broken.evidence, /twitter:image \(https:\/\/public\.example\/social\/og\.png\)/, "a shared social image URL is checked once");
+});
+
+test("social images that are declared and loadable are not reported broken", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser("https://public.example/", {
+        openGraph: { image: "https://public.example/social/og.png" },
+        twitter: { image: "https://public.example/social/og.png" }
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      if (url === "https://public.example/social/og.png") {
+        return new Response("fake png bytes", { status: 200, headers: { "content-type": "image/png" } });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const broken = report.findings.find((finding) => /Social share image (is not loadable|incomplete)/.test(finding.title));
+  assert.equal(broken, undefined, "a live social image must not be reported as broken");
+});
+
+test("social snippet never guesses an unverified og-image path when the audited page has no working social image", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser("https://public.example/", {
+        openGraph: {},
+        twitter: {}
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const social = report.findings.find((finding) => /Social share image incomplete/.test(finding.title));
+  assert.ok(social, "missing social tags must still be reported");
+  assert.match(social.snippet, /Create https:\/\/public\.example\/og-image\.png \(1200x630\)/,
+    "the snippet must tell the customer the og-image.png path is a placeholder they need to create");
+});
+
+test("social snippet uses the verified live og:image URL when one exists", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser("https://public.example/", {
+        openGraph: { image: "https://public.example/social/og.png" },
+        twitter: { image: "https://public.example/social/og.png" }
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      if (url === "https://public.example/social/og.png") {
+        return new Response("fake png bytes", { status: 200, headers: { "content-type": "image/png" } });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const social = report.findings.find((finding) => /Social share image incomplete/.test(finding.title));
+  // og and twitter both present and live: no incomplete finding, no broken finding.
+  assert.equal(social, undefined);
+  const socialPreview = report.fixPack.find((fix) => fix.title === "Social preview tags");
+  assert.ok(socialPreview, "the fix pack must still carry a social preview snippet");
+  assert.match(socialPreview.snippet, /content="https:\/\/public\.example\/social\/og\.png"/);
+  assert.doesNotMatch(socialPreview.snippet, /og-image\.png/);
 });
 
 test("rendered audit navigation rechecks private DNS before browser goto", async () => {
@@ -571,6 +697,105 @@ test("genuine failures are still not mistaken for throttling", () => {
 });
 
 
+// Regression: a Cloudflare-hosted site whose origin briefly fails returns
+// 522 (connection timed out) / 523 (origin unreachable) / 524 (origin did not
+// answer in time) for every same-origin link at once. Those are Cloudflare-edge
+// errors for the checked site's own origin — transient infrastructure, not
+// per-link breakage — and Google backs off and retries 5xx instead of dropping
+// the URLs. The public /check must not turn a scan-time origin hiccup into
+// verified critical "broken internal links" findings the page does not have.
+test("same-origin Cloudflare origin errors are not treated as broken internal links", () => {
+  for (const status of [522, 523, 524]) {
+    assert.equal(
+      isSameOriginInfraFailure({ status, ok: false, kind: "internal" }),
+      true,
+      `same-origin ${status} should count as transient infra, not broken`
+    );
+  }
+  for (const status of [522, 523, 524]) {
+    assert.equal(
+      isSameOriginInfraFailure({ status, ok: false, kind: "external" }),
+      false,
+      `an external target's ${status} is a real observation and must still be reported`
+    );
+  }
+  for (const status of [522, 523, 524]) {
+    assert.equal(
+      isSameOriginInfraFailure({ status, ok: false, kind: "image" }),
+      false,
+      `${status} on images stays reportable; only same-origin links are transient`
+    );
+  }
+  assert.equal(
+    isSameOriginInfraFailure({ status: 404, ok: false, kind: "internal" }),
+    false,
+    "a real 404 on an internal link is still broken"
+  );
+  assert.equal(
+    isSameOriginInfraFailure({ status: 502, ok: false, kind: "internal" }),
+    false,
+    "502 stays a real failure"
+  );
+  assert.equal(isSameOriginInfraFailure(null), false);
+  assert.equal(isSameOriginInfraFailure({ ok: false }), false);
+  assert.equal(isSameOriginInfraFailure({ status: 522, ok: false }), false);
+});
+
+test("same-origin 522/523/524 link failures never become critical broken-link findings", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser("https://public.example/", {
+        title: "Proof page with useful content",
+        links: [
+          { text: "About", href: "https://public.example/about", rawHref: "/about" },
+          { text: "Contact", href: "https://public.example/contact", rawHref: "/contact" },
+          { text: "Pricing", href: "https://public.example/pricing", rawHref: "/pricing" },
+          { text: "Reference", href: "https://other.example/ref", rawHref: "https://other.example/ref" }
+        ],
+        internalLinks: [
+          { text: "About", href: "https://public.example/about", rawHref: "/about" },
+          { text: "Contact", href: "https://public.example/contact", rawHref: "/contact" },
+          { text: "Pricing", href: "https://public.example/pricing", rawHref: "/pricing" }
+        ],
+        externalLinks: [
+          { text: "Reference", href: "https://other.example/ref", rawHref: "https://other.example/ref" }
+        ]
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      if (url === "https://public.example/about") {
+        return new Response("origin unreachable", { status: 523, headers: { "content-type": "text/html" } });
+      }
+      if (url === "https://public.example/contact") {
+        return new Response("connection timed out", { status: 522, headers: { "content-type": "text/html" } });
+      }
+      if (url === "https://public.example/pricing") {
+        return new Response("origin did not answer in time", { status: 524, headers: { "content-type": "text/html" } });
+      }
+      if (url === "https://other.example/ref") {
+        return new Response("origin unreachable", { status: 523, headers: { "content-type": "text/html" } });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const brokenInternal = (report.findings || []).filter((finding) => /Broken internal links/.test(finding.title || ""));
+  assert.deepEqual(brokenInternal, [], "same-origin 522/523/524 failures must not be reported as broken internal links");
+  assert.equal(report.summary.critical, 0, "a scan-time origin hiccup must not inflate the critical count");
+
+  const brokenExternal = (report.findings || []).filter((finding) => /Broken external links/.test(finding.title || ""));
+  assert.equal(brokenExternal.length, 1, "an external origin failure is still a real observation");
+  assert.match(brokenExternal[0].evidence, /other\.example\/ref returned 523/, "external 523 stays evidenced");
+});
+
+
 // Regression: 0509.io serves HSTS on every route, but /search took 7.6s to
 // settle so no headers were captured, and the audit reported the header as
 // missing. Verified with curl that the header is present for both a browser
@@ -758,4 +983,21 @@ test("rendered-vs-static guards stay truthful for the live script-rendered fixtu
     guardTitles.some((title) => title.includes("internal links exist after render")),
     `expected an internal-links guard, got: ${guardTitles.join(" | ")}`
   );
+});
+
+test("normalizeUrl adds https to scheme-less input and keeps valid http(s) URLs intact", () => {
+  assert.equal(normalizeUrl("example.com/about?q=1"), "https://example.com/about?q=1");
+  assert.equal(normalizeUrl("  example.com  "), "https://example.com/");
+  assert.equal(normalizeUrl("//example.com/about"), "https://example.com/about");
+  assert.equal(normalizeUrl("https://example.com/a?b=c#frag"), "https://example.com/a?b=c");
+  assert.equal(normalizeUrl("HTTP://EXAMPLE.COM/a"), "http://example.com/a");
+  assert.equal(normalizeUrl("example.com:8080/page"), "https://example.com:8080/page");
+});
+
+test("normalizeUrl rejects non-http schemes and embedded credentials instead of mangling them", () => {
+  assert.throws(() => normalizeUrl("ftp://example.com"), /Unsupported URL scheme "ftp"/);
+  assert.throws(() => normalizeUrl("javascript://example.com/x"), /Unsupported URL scheme "javascript"/);
+  assert.throws(() => normalizeUrl("mailto:hello@example.com"), /embedded credentials/i);
+  assert.throws(() => normalizeUrl("https://user:pass@example.com/"), /embedded credentials/i);
+  assert.throws(() => normalizeUrl("https://user@example.com/"), /embedded credentials/i);
 });

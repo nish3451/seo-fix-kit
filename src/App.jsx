@@ -97,9 +97,9 @@ function WaitlistPage() {
         <h1 id="page-title">SEO Fix Kit</h1>
         <p className="coming-soon">Private beta access.</p>
         <p className="hero-text">
-          Evidence-backed SEO audits are opening by secure email link. Join the
-          private beta, run a proof audit, and only pay when the report finds
-          repairs worth doing.
+          Evidence-backed SEO audits for site owners and founders are opening by
+          secure email link. Join the private beta, run a proof audit, and only
+          pay when the report finds repairs worth doing.
         </p>
         <p className="hero-pricing">
           Audits are free in the beta. The paid SEO Fix Pack shows the Dodo checkout
@@ -160,7 +160,7 @@ function WaitlistPage() {
               Check one page now
             </a>
             <p className="check-entry-note">
-              Live rendered proof for one public page. Nothing is stored.
+              Live rendered proof for one public page. No report or URL is stored.
             </p>
           </div>
         </div>
@@ -216,10 +216,12 @@ function WaitlistPage() {
           <article>
             <h3>What happens after I enter a URL?</h3>
             <p>
-              You get a rate-limited private audit. A one-page Lite check can run
-              before verification; verified sites unlock deeper self-serve crawls,
-              imports, saved reports, monitoring controls, and owner-scoped repair
-              queues.
+              Anyone can check one public page now at{" "}
+              <a href="/check">/check</a> with no account. After a secure email
+              access link you get a rate-limited private audit: a one-page Lite
+              check can run before verification, and verified sites unlock deeper
+              self-serve crawls, imports, saved reports, monitoring controls, and
+              owner-scoped repair queues.
             </p>
           </article>
           <article>

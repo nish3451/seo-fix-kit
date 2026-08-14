@@ -13,11 +13,14 @@ import {
   whiteLabelReportFilename
 } from "../shared/white-label-report.js";
 import {
+  aiAnswerReadinessHtml,
   demoHtml,
   llmsText,
   methodologyHtml,
   packagesHtml,
   privacyHtml,
+  renderedVsStaticAuditHtml,
+  smallBusinessSeoAuditHtml,
   supportHtml,
   termsHtml
 } from "../worker/routes/pages.js";
@@ -1835,6 +1838,21 @@ app.get("/packages", (req, res) => {
   res.set("content-type", "text/html; charset=utf-8").send(packagesHtml(origin));
 });
 
+app.get("/small-business-seo-audit", (req, res) => {
+  const origin = `http://${req.get("host")}`;
+  res.set("content-type", "text/html; charset=utf-8").send(smallBusinessSeoAuditHtml(origin));
+});
+
+app.get("/rendered-vs-static-seo-audit", (req, res) => {
+  const origin = `http://${req.get("host")}`;
+  res.set("content-type", "text/html; charset=utf-8").send(renderedVsStaticAuditHtml(origin));
+});
+
+app.get("/ai-answer-readiness", (req, res) => {
+  const origin = `http://${req.get("host")}`;
+  res.set("content-type", "text/html; charset=utf-8").send(aiAnswerReadinessHtml(origin));
+});
+
 app.get("/privacy", (req, res) => {
   const origin = `http://${req.get("host")}`;
   res.set("content-type", "text/html; charset=utf-8").send(privacyHtml(origin));
@@ -1898,7 +1916,7 @@ app.post("/api/public-check", async (req, res) => {
     const ipHash = await requestIpHash({
       headers: { get: (name) => String(req.headers[name.toLowerCase()] || "") }
     });
-    const quota = localPublicCheckQuota(publicCheckQuotaChecks(ipHash, hostname));
+    const quota = localPublicCheckQuota(await publicCheckQuotaChecks(ipHash, hostname));
     if (!quota.ok) {
       res.status(429).set("cache-control", "no-store").json({ error: quota.error, resetAt: quota.resetAt });
       return;

@@ -184,18 +184,20 @@ export function createAuditEngine({
       disabled: pagespeedDisabled
     });
 
+    const socialImages = await checkSocialImages(pages);
     let findings = buildFindings({
       pages,
       startUrl,
       robots,
       sitemap,
-      performance
+      performance,
+      socialImages
     });
     let score = scoreFindings(findings);
     let pageSummaries = buildPageSummaries(pages, findings, startUrl);
     let summary = summarize(findings, pages, maxPages);
     let repairPlan = buildRepairPlan(findings);
-    const fixPack = buildFixPack(pages[0], origin, findings);
+    const fixPack = buildFixPack(pages[0], origin, findings, socialImages);
     const report = {
       id: `${new URL(startUrl).hostname.replace(/[^a-z0-9]+/gi, "-")}-${startedAt.toString(36)}`,
       url: startUrl,
@@ -512,16 +514,62 @@ export function createAuditEngine({
   }
 
   async function checkResource(resource) {
-    const checked = await fetchResource(resource.url, "HEAD");
-    const result =
-      checked.status === 403 || checked.status === 405
-        ? await fetchResource(resource.url, "GET")
-        : checked;
+    const result = await fetchResourceResult(resource.url);
     return {
       ...resource,
       ...result,
       redirected: (result.redirectChain || []).length > 0
     };
+  }
+
+  async function fetchResourceResult(url) {
+    const checked = await fetchResource(url, "HEAD");
+    const result =
+      checked.status === 403 || checked.status === 405
+        ? await fetchResource(url, "GET")
+        : checked;
+    return result;
+  }
+
+  // Verify the declared social-share images actually load as images instead of
+  // trusting tag presence alone. A page that points og:image/twitter:image at a
+  // dead file or at an HTML page has no working social preview, so the snippet
+  // must not guess a replacement path that may not exist on the customer's
+  // origin: it names a placeholder the customer has to create.
+  async function checkSocialImages(pages) {
+    const results = [];
+    const seen = new Set();
+    for (const page of pages) {
+      const rendered = page.rendered || {};
+      const candidates = [
+        { key: "og", url: rendered.openGraph?.image },
+        { key: "twitter", url: rendered.twitter?.image }
+      ];
+      for (const candidate of candidates) {
+        if (!candidate.url || seen.has(candidate.url)) continue;
+        seen.add(candidate.url);
+        const checked = await checkResource({ url: candidate.url, label: candidate.key, kind: "image" });
+        const contentType = String(checked.contentType || "").toLowerCase();
+        // A declared content-type wins over the file extension: a 200 response
+        // that is text/html is not a working social image even when the URL
+        // ends in .png. The extension fallback only applies when the server
+        // returned no content-type at all.
+        const isImage =
+          contentType.includes("image/") ||
+          (!contentType && /\.(png|jpe?g|gif|webp|avif|svg)$/.test(new URL(candidate.url).pathname));
+        results.push({
+          pageUrl: page.url,
+          key: candidate.key,
+          url: candidate.url,
+          ok: Boolean(checked.ok) && isImage,
+          status: checked.status,
+          contentType: checked.contentType,
+          error: checked.error || "",
+          redirected: Boolean(checked.redirected)
+        });
+      }
+    }
+    return results;
   }
 
   async function fetchResource(url, method) {
@@ -1159,7 +1207,7 @@ function extractStaticFacts(html, url, fetchResult = {}) {
   };
 }
 
-function buildFindings({ pages, startUrl, robots, sitemap, performance }) {
+function buildFindings({ pages, startUrl, robots, sitemap, performance, socialImages = [] }) {
   const findings = [];
   let activePage = null;
   const add = (finding) => {
@@ -1693,8 +1741,37 @@ function buildFindings({ pages, startUrl, robots, sitemap, performance }) {
           rendered.twitter.image || "missing"
         }`,
         fix: "Add 1200x630 Open Graph and Twitter images.",
-        snippet: buildSocialSnippet(page.url, rendered)
+        snippet: buildSocialSnippet(page.url, rendered, socialImages)
       });
+    } else {
+      const brokenSocialImages = socialImages.filter(
+        (check) =>
+          check.pageUrl === page.url &&
+          (check.key === "og" || check.key === "twitter") &&
+          !check.ok
+      );
+      if (brokenSocialImages.length) {
+        const reasons = brokenSocialImages
+          .map((check) => {
+            const label = check.key === "og" ? "og:image" : "twitter:image";
+            if (check.error) return `${label} (${check.url}): ${check.error}`;
+            if (!check.ok && check.contentType) {
+              return `${label} (${check.url}): returned ${check.status || "no status"} with content-type ${check.contentType}`;
+            }
+            return `${label} (${check.url}): returned ${check.status || "no status"}`;
+          })
+          .join("; ");
+        add({
+          type: "issue",
+          severity: "warning",
+          title: `Social share image is not loadable on ${label}`,
+          why: "A social image tag that points at a file which does not load as an image leaves the share preview broken. It is not a direct ranking claim.",
+          evidence: reasons,
+          fix: "Replace each social image URL with a live 1200x630 image file, or remove the broken tag.",
+          snippet: buildSocialSnippet(page.url, rendered, socialImages),
+          confidence: "needs-review"
+        });
+      }
     }
 
     if (!rendered.appleTouchIcon) {
@@ -1913,7 +1990,7 @@ function buildRepairBrief({ startUrl, score, summary, pages, findings, repairPla
   return lines.join("\n");
 }
 
-function buildFixPack(page, origin, findings = []) {
+function buildFixPack(page, origin, findings = [], socialImages = []) {
   if (!page) return [];
   const issueFixes = findings
     .filter((finding) => finding.severity !== "good" && finding.snippet)
@@ -1929,7 +2006,7 @@ function buildFixPack(page, origin, findings = []) {
     {
       title: "Social preview tags",
       body: "Use this when og:image or twitter:image is missing.",
-      snippet: buildSocialSnippet(page.url, page.rendered)
+      snippet: buildSocialSnippet(page.url, page.rendered, socialImages)
     },
     {
       title: "Canonical tag",
@@ -2039,11 +2116,20 @@ function fenceSafe(value) {
   return String(value || "").replaceAll("```", "` ` `");
 }
 
-function buildSocialSnippet(url, facts) {
+function buildSocialSnippet(url, facts, socialImages = []) {
   const title = escapeHtml(facts.title || suggestTitle(url, facts));
   const description = escapeHtml(facts.description || suggestDescription(facts));
   const origin = new URL(url).origin;
-  const image = `${origin}/og-image.png`;
+  // Only reference an image path we verified actually loads as an image on the
+  // audited origin. Guessing ${origin}/og-image.png for a site that serves no
+  // such file ships a broken tag into the customer's head.
+  const liveImage =
+    socialImages.find((check) => check.key === "og" && check.ok && check.url.startsWith(origin)) ||
+    socialImages.find((check) => check.key === "twitter" && check.ok && check.url.startsWith(origin));
+  const image = liveImage ? liveImage.url : `${origin}/og-image.png`;
+  const placeholderNote = liveImage
+    ? ""
+    : `<!-- The audited page had no working og:image. Create ${origin}/og-image.png (1200x630) or replace it with your real share image. -->\n`;
   return [
     `<meta property="og:title" content="${title}" />`,
     `<meta property="og:description" content="${description}" />`,
@@ -2052,7 +2138,8 @@ function buildSocialSnippet(url, facts) {
     `<meta name="twitter:title" content="${title}" />`,
     `<meta name="twitter:description" content="${description}" />`,
     `<meta name="twitter:image" content="${image}" />`
-  ].join("\n");
+  ].join("\n")
+    .replace(/^/, placeholderNote);
 }
 
 function buildSchemaSnippet(url, facts) {
@@ -2398,12 +2485,34 @@ function dedupeHreflangIssues(issues) {
 // same URLs politely returned 200 and 302.
 const THROTTLED_STATUSES = new Set([408, 425, 429, 503]);
 
+// 522 (connection timed out), 523 (origin unreachable), and 524 (origin did
+// not answer in time) are Cloudflare-edge errors returned when the checked
+// site's own origin temporarily cannot be reached. Every same-origin link
+// fails at once while the origin is down and recovers with it; Google backs
+// off and retries 5xx rather than treating the URLs as dead. Reporting a
+// scan-time origin hiccup as verified critical broken internal links invents
+// a defect the page does not have, so same-origin (internal) 522/523/524
+// checks are treated as transient infra failures, not broken links. External
+// targets' 522/523/524 stay reportable: that is a real observation about the
+// referenced site, not our own footprint.
+const CLOUDFLARE_ORIGIN_ERRORS = new Set([522, 523, 524]);
+
 export function isThrottledResource(check) {
   return Boolean(check && check.status && THROTTLED_STATUSES.has(check.status));
 }
 
+export function isSameOriginInfraFailure(check) {
+  return Boolean(
+    check &&
+      check.kind === "internal" &&
+      check.status &&
+      CLOUDFLARE_ORIGIN_ERRORS.has(check.status)
+  );
+}
+
 function isBrokenResource(check) {
   if (isThrottledResource(check)) return false;
+  if (isSameOriginInfraFailure(check)) return false;
   return !check || !check.ok || !check.status || check.status >= 400;
 }
 
@@ -2721,8 +2830,15 @@ function absolute(value, base) {
 
 export function normalizeUrl(input) {
   const trimmed = String(input || "").trim();
+  const explicitScheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(trimmed);
+  if (explicitScheme && !/^https?$/i.test(explicitScheme[1])) {
+    throw new Error(`Unsupported URL scheme "${explicitScheme[1]}".`);
+  }
   const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
   const url = new URL(withProtocol);
+  if (url.username || url.password) {
+    throw new Error("URLs with embedded credentials are not supported.");
+  }
   url.hash = "";
   return url.href;
 }
@@ -2874,7 +2990,7 @@ function wait(ms) {
 }
 
 export function rootSitemap(origin) {
-  const urls = ["/", "/demo", "/check", "/methodology", "/packages", "/privacy", "/support", "/terms"];
+  const urls = ["/", "/demo", "/check", "/methodology", "/packages", "/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness", "/privacy", "/support", "/terms"];
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls
     .map((path) => `<url><loc>${origin}${path}</loc></url>`)
     .join("")}</urlset>`;

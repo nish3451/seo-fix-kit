@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { rootSitemap } from "../shared/audit-engine.js";
-import { demoHtml, llmsText, methodologyHtml, packagesHtml, privacyHtml, supportHtml, termsHtml } from "../worker/routes/pages.js";
+import {
+  aiAnswerReadinessHtml,
+  demoHtml,
+  llmsText,
+  methodologyHtml,
+  packagesHtml,
+  privacyHtml,
+  renderedVsStaticAuditHtml,
+  smallBusinessSeoAuditHtml,
+  supportHtml,
+  termsHtml
+} from "../worker/routes/pages.js";
 import { checkHtml } from "../worker/routes/public-check.js";
 import { canonicalHostSpotChecks, publicPageSpotChecks, publicSurfaceSpotChecks, spotCheckPublicPages } from "./live-promise-spot-check.mjs";
 
@@ -11,6 +22,9 @@ const pages = {
   "/check": checkHtml(origin),
   "/methodology": methodologyHtml(origin),
   "/packages": packagesHtml(origin),
+  "/small-business-seo-audit": smallBusinessSeoAuditHtml(origin),
+  "/rendered-vs-static-seo-audit": renderedVsStaticAuditHtml(origin),
+  "/ai-answer-readiness": aiAnswerReadinessHtml(origin),
   "/support": supportHtml(origin),
   "/terms": termsHtml(origin),
   "/privacy": privacyHtml(origin)
@@ -39,7 +53,7 @@ const surfaces = {
       version: "0.9.0",
       scope: "runtime_config_and_schema_readiness"
     }),
-  "/api/public-check": () => jsonBody({ error: "Enter a valid public http(s) URL." }, 400)
+  "/api/public-check": () => jsonBody({ error: "Enter a valid public website URL." }, 400)
 };
 
 function pageFetcher(overrides = {}) {
@@ -74,24 +88,24 @@ function textResponse(body, contentType = "text/plain; charset=utf-8") {
   return new Response(body, { status: 200, headers: { "content-type": contentType } });
 }
 
-test("live spot-check covers the seven promised public pages", () => {
+test("live spot-check covers the ten promised public pages", () => {
   assert.deepEqual(
     publicPageSpotChecks(origin).map((check) => check.path),
-    ["/demo", "/check", "/methodology", "/packages", "/support", "/terms", "/privacy"]
+    ["/demo", "/check", "/methodology", "/packages", "/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness", "/support", "/terms", "/privacy"]
   );
 });
 
 test("live spot-check covers the public machine surfaces", () => {
   assert.deepEqual(
     publicSurfaceSpotChecks(origin).map((check) => check.path),
-    ["/llms.txt", "/sitemap.xml", "/robots.txt", "/api/health", "/api/deep-health", "/api/public-check"]
+    ["/llms.txt", "/sitemap.xml", "/robots.txt", "/api/health", "/api/deep-health", "/api/public-check", "/api/public-check"]
   );
 });
 
 test("live spot-check covers the www-to-apex canonical redirect", () => {
   assert.deepEqual(
     canonicalHostSpotChecks(origin).map((check) => check.path),
-    ["www.seofixkit.com/", "www.seofixkit.com/check"]
+    ["www.seofixkit.com/", "www.seofixkit.com/check", "www.seofixkit.com/favicon.svg"]
   );
   for (const check of canonicalHostSpotChecks(origin)) {
     assert.equal(check.redirectManual, true, "redirect checks must observe the 301 itself");
@@ -101,7 +115,7 @@ test("live spot-check covers the www-to-apex canonical redirect", () => {
 
 test("live spot-check passes against the shipped public page copy", async () => {
   const results = await spotCheckPublicPages({ baseUrl: origin, fetcher: pageFetcher() });
-  assert.equal(results.length, 15);
+  assert.equal(results.length, 20);
   for (const result of results) {
     assert.deepEqual(result.failures, [], `${result.path} must pass: ${result.name}`);
   }
@@ -131,7 +145,7 @@ test("live spot-check flags a stale Worker serving the SPA fallback", async () =
     const url = new URL(rawUrl);
     const method = options.method || "GET";
     if (method === "POST") {
-      return jsonBody({ error: "Enter a valid public http(s) URL." }, 400);
+      return jsonBody({ error: "Enter a valid public website URL." }, 400);
     }
     if (url.pathname === "/check") {
       return new Response(spaShell, { headers: { "content-type": "text/html" } });

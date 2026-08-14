@@ -22,7 +22,7 @@ import {
   saveAuditReport,
   saveAuditReportWithContext
 } from "../lib/report-data.js";
-import { checkQuotaSet, requestIpHash, workerLargeCrawlId } from "../lib/security.js";
+import { checkQuotaSet, requestIpHash, sha256Hex, workerLargeCrawlId } from "../lib/security.js";
 import {
   apiAuditResponse,
   apiReportResponse,
@@ -886,7 +886,11 @@ async function auditQuotaStatus(request, env, access, targetUrl) {
   const ipHash = await requestIpHash(request);
   const targetHost = new URL(targetUrl).hostname.toLowerCase();
   const sessionKey = access.sessionHash.slice(0, 24);
-  const targetKey = targetHost.replace(/[^a-z0-9.-]/gi, "").slice(0, 120);
+  // The audited site is stored only as a hash (same pattern as the network
+  // hash and the anonymous /check target buckets), so the quota rows never
+  // hold a readable target hostname. Per-site rate limiting is unchanged
+  // because the hash is deterministic per host.
+  const targetKey = (await sha256Hex(targetHost)).slice(0, 32);
 
   return checkQuotaSet(env, [
     {
