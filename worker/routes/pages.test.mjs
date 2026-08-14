@@ -8,12 +8,15 @@ import { DEMO_PROOF, DEMO_FIXTURE_PATH, demoProofSnippet } from "./demo-proof.js
 import { renderedFixture } from "./audits.js";
 import { checkHtml } from "./public-check.js";
 import {
+  aiAnswerReadinessHtml,
   demoHtml,
   homeMarkdown,
   llmsText,
   methodologyHtml,
   packagesHtml,
   privacyHtml,
+  renderedVsStaticAuditHtml,
+  smallBusinessSeoAuditHtml,
   supportHtml,
   termsHtml
 } from "./pages.js";
@@ -25,6 +28,9 @@ const expectedSitemapUrls = [
   `${origin}/check`,
   `${origin}/methodology`,
   `${origin}/packages`,
+  `${origin}/small-business-seo-audit`,
+  `${origin}/rendered-vs-static-seo-audit`,
+  `${origin}/ai-answer-readiness`,
   `${origin}/privacy`,
   `${origin}/support`,
   `${origin}/terms`
@@ -101,7 +107,7 @@ test("machine-readable public surfaces list proof pages and limits", () => {
   const sitemap = rootSitemap(origin);
 
   assert.deepEqual(parseSitemapUrls(sitemap), expectedSitemapUrls);
-  for (const path of ["/demo", "/methodology", "/packages", "/check"]) {
+  for (const path of ["/demo", "/methodology", "/packages", "/check", "/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness"]) {
     assert.match(llms, new RegExp(`${origin}${path}`));
     assert.match(markdown, new RegExp(`${origin}${path}`));
     assert.match(sitemap, new RegExp(`${origin}${path}`));
@@ -134,6 +140,48 @@ test("machine-readable public surfaces list proof pages and limits", () => {
   assert.match(llms, new RegExp(`The plain answer is on ${origin}/methodology`));
   assert.match(llms, /no live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/);
   assert.match(markdown, new RegExp(`Anonymous one-page check: ${origin}/check`));
+});
+
+test("intent-matching landing pages carry unique, truthful, machine-readable proof", () => {
+  const pages = [
+    { name: "small-business", path: "/small-business-seo-audit", html: smallBusinessSeoAuditHtml(origin) },
+    { name: "rendered-vs-static", path: "/rendered-vs-static-seo-audit", html: renderedVsStaticAuditHtml(origin) },
+    { name: "ai-answer-readiness", path: "/ai-answer-readiness", html: aiAnswerReadinessHtml(origin) }
+  ];
+
+  for (const { name, path, html } of pages) {
+    // Unique per-page title, meta description, and canonical.
+    assert.match(html, new RegExp(`<title>[^<]+ - SEO Fix Kit</title>`), `${name} must carry a page title`);
+    assert.match(html, /<meta name="description" content="[^"]+" \/>/, `${name} must carry a meta description`);
+    assert.match(html, new RegExp(`rel="canonical" href="${origin}${path}"`), `${name} must carry its own canonical`);
+    // Machine-readable proof: WebPage + SoftwareApplication + FAQPage JSON-LD.
+    const ldBlocks = html.match(/<script type="application\/ld\+json">/g) || [];
+    assert.equal(ldBlocks.length, 3, `${name} must emit WebPage, SoftwareApplication, and FAQPage JSON-LD`);
+    assert.match(html, /"@type"\s*:\s*"SoftwareApplication"/, `${name} must describe the tool truthfully as software`);
+    assert.match(html, /"@type"\s*:\s*"FAQPage"/, `${name} must emit FAQPage JSON-LD`);
+    // Visible FAQ must render from the same source as the JSON-LD FAQ.
+    assert.match(html, /Frequently asked questions/, `${name} must render the FAQ section visibly`);
+    assert.match(html, /class="faq-item"/, `${name} must render visible FAQ items`);
+    // Landing pages stay boundary-honest.
+    assert.match(html, /What this page does not claim/, `${name} must carry an explicit no-overclaim section`);
+    assert.match(html, new RegExp(`href="${origin}/check"`), `${name} must link the anonymous one-page check`);
+    assert.match(html, new RegExp(`href="${origin}/demo"`), `${name} must link the proof sample`);
+    assert.match(html, /does not guarantee rankings|never guarantees rankings/, `${name} must keep the no-ranking promise`);
+    assert.ok(visibleWordCount(html) >= 250, `${name} must not look thin to rendered audits`);
+  }
+
+  // Each landing page must be intent-specific, not a duplicate shell.
+  const titles = pages.map(({ html }) => (html.match(/<title>([^<]+) - SEO Fix Kit<\/title>/) || [])[1]);
+  assert.equal(new Set(titles).size, 3, "each landing page must have a unique title");
+  assert.match(pages[0].html, /Small Business SEO Audit/);
+  assert.match(pages[1].html, /Rendered vs Static SEO Audit/);
+  assert.match(pages[2].html, /AI Answer Readiness Check/);
+  // AI readiness boundary: no live answer-engine sampling, llms.txt optional.
+  assert.match(pages[2].html, /No live answer-engine sampling/);
+  assert.match(pages[2].html, /No AI citation monitoring/);
+  assert.match(pages[2].html, /llms\.txt stays optional/);
+  assert.match(pages[2].html, /does not sample live answer engines or monitor citations/);
+  assert.doesNotMatch(pages[2].html, /live AI citation monitoring is live/i);
 });
 
 test("public proof pages carry a site footer with terms and privacy links", () => {
@@ -357,7 +405,7 @@ test("static public skill and sitemap files keep buyer-facing boundaries", () =>
   const sitemap = readFileSync(new URL("../../public/sitemap.xml", import.meta.url), "utf8");
 
   assert.deepEqual(parseSitemapUrls(sitemap), expectedSitemapUrls);
-  for (const path of ["/demo", "/methodology", "/packages", "/check", "/support", "/terms"]) {
+  for (const path of ["/demo", "/methodology", "/packages", "/check", "/support", "/terms", "/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness"]) {
     assert.match(skill, new RegExp(`${origin}${path}`));
     assert.match(sitemap, new RegExp(`${origin}${path}`));
   }
