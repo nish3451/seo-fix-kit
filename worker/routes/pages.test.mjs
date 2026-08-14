@@ -14,6 +14,8 @@ import {
   methodologyHtml,
   packagesHtml,
   privacyHtml,
+  proofCaseHtml,
+  proofCaseMarkdown,
   supportHtml,
   termsHtml
 } from "./pages.js";
@@ -26,6 +28,7 @@ const expectedSitemapUrls = [
   `${origin}/methodology`,
   `${origin}/packages`,
   `${origin}/privacy`,
+  `${origin}/proof`,
   `${origin}/support`,
   `${origin}/terms`
 ];
@@ -357,7 +360,7 @@ test("static public skill and sitemap files keep buyer-facing boundaries", () =>
   const sitemap = readFileSync(new URL("../../public/sitemap.xml", import.meta.url), "utf8");
 
   assert.deepEqual(parseSitemapUrls(sitemap), expectedSitemapUrls);
-  for (const path of ["/demo", "/methodology", "/packages", "/check", "/support", "/terms"]) {
+  for (const path of ["/demo", "/methodology", "/packages", "/check", "/proof", "/support", "/terms"]) {
     assert.match(skill, new RegExp(`${origin}${path}`));
     assert.match(sitemap, new RegExp(`${origin}${path}`));
   }
@@ -408,10 +411,42 @@ test("Cloudflare asset routing sends public proof pages through the Worker", () 
   );
   if (Array.isArray(runWorkerFirst)) {
     const covered = new Set(runWorkerFirst);
-    for (const path of ["/demo", "/methodology", "/packages", "/check", "/support", "/terms", "/privacy"]) {
+    for (const path of ["/demo", "/methodology", "/packages", "/check", "/proof", "/support", "/terms", "/privacy"]) {
       assert.equal(covered.has(path), true, `${path} must be served by the Worker before SPA assets`);
     }
   }
+});
+
+test("real before/after proof receipt pins the same measurement path before and after", () => {
+  const html = proofCaseHtml(origin);
+  const markdown = proofCaseMarkdown(origin);
+
+  assert.match(html, /One real repair, with the same measurement path before and after\./);
+  assert.match(html, /Score <strong>85<\/strong>\/100 &middot; 7 findings/);
+  assert.match(html, /Score <strong>99<\/strong>\/100 &middot; 2 findings/);
+  assert.match(html, /Score <strong>100<\/strong>\/100 &middot; 0 findings/);
+  assert.match(html, /tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b/);
+  assert.match(html, /tinystudio-in-75ffee26-02ae-41d3-b2ef-5beb40722e50/);
+  assert.match(html, /tinystudio-in-0a45637f-1354-4d26-ace3-d3b594162961/);
+  assert.match(html, /github\.com\/nish3451\/tinystudio-in\/pull\/4/);
+  assert.match(html, /github\.com\/nish3451\/tinystudio-in\/pull\/5/);
+  assert.match(html, new RegExp(`<a class="cta" href="${origin}/proof\\.md">`));
+  assert.match(html, new RegExp(`href="${origin}/methodology"`));
+  assert.match(html, new RegExp(`href="${origin}/packages"`));
+  assert.match(html, /No ranking, traffic, indexing, citation, or revenue promise is made/);
+  assert.match(html, /SEO Fix Kit did not publish CMS changes, open GitHub pull requests, merge code/);
+  assert.match(html, /Founder-owned \(consented and redacted\)/);
+  assert.doesNotMatch(html, /guaranteed rankings|guarantees traffic|guarantees revenue/i);
+  assert.match(html, /<link rel="canonical" href="https:\/\/seofixkit\.com\/proof" \/>/);
+
+  assert.match(markdown, /^# SEO Fix Kit .* Repair proof receipt/m);
+  assert.match(markdown, /85\/100 with 7 findings/);
+  assert.match(markdown, /100\/100 with 0 findings/);
+  assert.match(markdown, /github\.com\/nish3451\/tinystudio-in\/pull\/4/);
+  assert.match(markdown, /github\.com\/nish3451\/tinystudio-in\/pull\/5/);
+  assert.match(markdown, /No ranking, traffic, indexing, citation, or revenue promise is made/);
+  assert.match(markdown, new RegExp(`Anonymous one-page check: ${origin}/check`));
+  assert.doesNotMatch(markdown, /guaranteed rankings|guarantees traffic|guarantees revenue/i);
 });
 
 function visibleWordCount(html) {

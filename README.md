@@ -42,7 +42,7 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Cloudflare Worker target using Workers Static Assets and Browser Run.
 - Locked private-beta homepage with `/api/waitlist` and `/api/access/request` backed by D1.
 - Public anonymous one-page URL check at `/check` and `POST /api/public-check`: real browser rendering of one public page, static-vs-rendered proof, guarded false positives, actionable findings when present, per-network and per-site rate limits with hashed, short-lived counters, no stored report, and a handoff into private beta access with no ranking promise.
-- Public `/demo`, `/methodology`, and `/packages` pages showing the proof loop, limits, and package ladder before payment.
+- Public `/demo`, `/methodology`, `/packages`, and `/proof` pages showing the proof loop, limits, package ladder, and a real before/after repair receipt (founder-owned Tiny Studio portfolio: 85/7 → 99/2 → 100/0 across the same measurement path, with consent and redaction) before payment.
 - Hidden `/beta` private audit workbench protected by invite code login or a secure one-use email access link.
 - Expiring beta sessions backed by D1 `beta_sessions`.
 - Explicit session access modes for invite, self-serve, and founder override sessions.
@@ -76,9 +76,9 @@ npm run check
 ```
 
 For a live spot-check that the public `/check`, `/demo`, `/methodology`, `/packages`,
-`/support`, `/terms`, and `/privacy` pages on the deployed site still show the anonymous
-proof check, proof loop, stated limits, package ladder, and no-ranking promise the README
-makes, that `/llms.txt`, `/sitemap.xml`, `/robots.txt`, `/api/health`,
+`/proof`, `/support`, `/terms`, and `/privacy` pages on the deployed site still show the anonymous
+proof check, proof loop, stated limits, package ladder, real before/after repair receipt, and
+no-ranking promise the README makes, that `/llms.txt`, `/sitemap.xml`, `/robots.txt`, `/api/health`,
 `/api/deep-health`, and the `POST /api/public-check` route are still served, and that
 `www.seofixkit.com` still 301-redirects onto the apex host:
 
@@ -124,7 +124,7 @@ invitation copy, both prepared 2026-08-12) lives at
 Cloudflare cannot run the local Express + Chromium server directly. The deployable path is:
 
 - React UI served by Workers Static Assets from `dist/`
-- Public `/check`, `/demo`, `/methodology`, `/packages`, `/privacy`, `/support`, `/terms`, `/sitemap.xml`, and `/llms.txt` stay served by the Worker/public asset path
+- Public `/check`, `/demo`, `/methodology`, `/packages`, `/proof`, `/privacy`, `/support`, `/terms`, `/sitemap.xml`, and `/llms.txt` stay served by the Worker/public asset path
 - `/api/health` is a shallow public runtime check; `/api/deep-health` is a public-safe readiness check for bindings, D1 schema, Dodo checkout/webhook config, and self-serve repair capabilities without exposing secrets, provider ids, checkout URLs, customer data, or table counts
 - `/api/public-check` runs the anonymous one-page URL check for any visitor: one public page rendered in a real browser, proof fields and guarded false positives from the shared audit engine, findings when present, per-network and per-site rate limits with hashed, short-lived counters, and no stored report; `/check` is the indexable public entry page
 - `/api/waitlist` handled by `worker/index.js` and stored in D1
