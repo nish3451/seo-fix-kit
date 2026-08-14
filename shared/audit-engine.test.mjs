@@ -602,6 +602,20 @@ function fakeBrowser(finalUrl, overrides = {}, hooks = {}) {
         },
         async goto(url) {
           hooks.gotoUrls?.push(url);
+          const gotoCall = (hooks.gotoCalls || 0) + 1;
+          hooks.gotoCalls = gotoCall;
+          // hooks.gotoTimeoutMs: the first navigation burns the timeout budget
+          // (simulating a page that never reaches network idle), then throws a
+          // timeout so the engine falls back to domcontentloaded.
+          if (hooks.gotoTimeoutMs && gotoCall === 1) {
+            await new Promise((resolve) => setTimeout(resolve, hooks.gotoTimeoutMs));
+            throw new Error(`Navigation timeout of ${hooks.gotoTimeoutMs} ms exceeded`);
+          }
+          // hooks.gotoSettleMs: the first navigation takes that long but DOES
+          // settle (network idle reached), for the slow-but-settled control.
+          if (hooks.gotoSettleMs && gotoCall === 1) {
+            await new Promise((resolve) => setTimeout(resolve, hooks.gotoSettleMs));
+          }
           if (routeHandler) {
             for (const requestUrl of hooks.requestUrls || []) {
               await routeHandler({
@@ -1077,4 +1091,61 @@ test("normalizeUrl rejects non-http schemes and embedded credentials instead of 
   assert.throws(() => normalizeUrl("mailto:hello@example.com"), /embedded credentials/i);
   assert.throws(() => normalizeUrl("https://user:pass@example.com/"), /embedded credentials/i);
   assert.throws(() => normalizeUrl("https://user@example.com/"), /embedded credentials/i);
+});
+
+// Regression: aiconverter.app never reaches network idle (analytics beacons,
+// polling), so the audit falls back to domcontentloaded. The elapsed time is
+// then dominated by OUR navigation timeout — reporting "reached network idle in
+// 26.9s" as a Slow rendered load finding sells our measurement policy as the
+// customer's defect (same family as the throttled-link and empty-header bugs).
+test("never-idle fallback does not become a slow-load repair finding", async () => {
+  const hooks = { gotoTimeoutMs: 2600 };
+  const engine = createAuditEngine({
+    launchBrowser: async () => fakeBrowser("https://public.example/", {}, hooks),
+    fetchImpl: async () =>
+      new Response(
+        "<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof</h1><p>Useful content here.</p></body></html>",
+        { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
+      ),
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const rendered = report.pages?.[0]?.rendered || {};
+
+  // The fallback measurement is genuinely long (over the slow-render
+  // threshold), so this test would fail before the fix: the finding fired
+  // purely from our own timeout budget.
+  assert.equal(rendered.loadSettled, false, "fallback render must record that idle was never reached");
+  assert.ok(rendered.loadDurationMs > 4000, "test setup must exceed the slow-render threshold");
+
+  const slowLoad = (report.findings || []).filter((f) => /Slow rendered load/i.test(f.title || ""));
+  assert.deepEqual(slowLoad, [], "a page that never settled must not become slow-load repair work");
+  assert.ok(
+    !(report.repairBrief || "").includes("reached network idle"),
+    "the brief must not claim network idle was reached"
+  );
+  assert.match(report.repairBrief || "", /network idle never reached/);
+});
+
+test("settled slow pages still get a slow-load finding with truthful evidence", async () => {
+  const hooks = { gotoSettleMs: 4200 };
+  const engine = createAuditEngine({
+    launchBrowser: async () => fakeBrowser("https://public.example/", {}, hooks),
+    fetchImpl: async () =>
+      new Response(
+        "<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof</h1><p>Useful content here.</p></body></html>",
+        { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
+      ),
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const rendered = report.pages?.[0]?.rendered || {};
+
+  assert.equal(rendered.loadSettled, true, "a settling navigation must record idle as reached");
+  const slowLoad = (report.findings || []).filter((f) => /Slow rendered load/i.test(f.title || ""));
+  assert.equal(slowLoad.length, 1, "a genuinely slow page that settled must still be flagged");
+  assert.match(slowLoad[0].evidence, /reached network idle/);
+  assert.ok(!(report.repairBrief || "").includes("network idle never reached"));
 });
