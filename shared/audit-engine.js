@@ -185,13 +185,15 @@ export function createAuditEngine({
     });
 
     const socialImages = await checkSocialImages(pages);
+    const appleTouchIcons = await checkAppleTouchIcons(pages);
     let findings = buildFindings({
       pages,
       startUrl,
       robots,
       sitemap,
       performance,
-      socialImages
+      socialImages,
+      appleTouchIcons
     });
     let score = scoreFindings(findings);
     let pageSummaries = buildPageSummaries(pages, findings, startUrl);
@@ -568,6 +570,38 @@ export function createAuditEngine({
           redirected: Boolean(checked.redirected)
         });
       }
+    }
+    return results;
+  }
+
+  // Verify the declared apple-touch-icon URL actually loads as an image. A
+  // page can declare the link tag but point it at a 404, an HTML page, or a
+  // private address; treating tag presence as a working mobile icon ships a
+  // broken tag into the customer's head. Same probe shape as social images so
+  // the engine treats brand-critical icon assets the same way it treats
+  // share-preview assets.
+  async function checkAppleTouchIcons(pages) {
+    const results = [];
+    const seen = new Set();
+    for (const page of pages) {
+      const rendered = page.rendered || {};
+      const url = rendered.appleTouchIcon;
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      const checked = await checkResource({ url, label: "apple-touch-icon", kind: "image" });
+      const contentType = String(checked.contentType || "").toLowerCase();
+      const isImage =
+        contentType.includes("image/") ||
+        (!contentType && /\.(png|jpe?g|gif|webp|avif|svg)$/.test(new URL(url).pathname));
+      results.push({
+        pageUrl: page.url,
+        url,
+        ok: Boolean(checked.ok) && isImage,
+        status: checked.status,
+        contentType: checked.contentType,
+        error: checked.error || "",
+        redirected: Boolean(checked.redirected)
+      });
     }
     return results;
   }
@@ -1207,7 +1241,7 @@ function extractStaticFacts(html, url, fetchResult = {}) {
   };
 }
 
-function buildFindings({ pages, startUrl, robots, sitemap, performance, socialImages = [] }) {
+function buildFindings({ pages, startUrl, robots, sitemap, performance, socialImages = [], appleTouchIcons = [] }) {
   const findings = [];
   let activePage = null;
   const add = (finding) => {
@@ -1233,6 +1267,7 @@ function buildFindings({ pages, startUrl, robots, sitemap, performance, socialIm
     const label = pathLabel(page.url, startUrl);
     const finalUrl = rendered.finalUrl || page.finalUrl || page.url;
     const finalUrlObject = new URL(finalUrl);
+    const origin = finalUrlObject.origin;
     const linkChecks = page.linkChecks || [];
     const imageChecks = page.imageChecks || [];
     const brokenInternalLinks = linkChecks.filter((check) => check.kind === "internal" && isBrokenResource(check));
@@ -1782,8 +1817,29 @@ function buildFindings({ pages, startUrl, robots, sitemap, performance, socialIm
         why: "This improves mobile saved-page presentation. It is not a ranking claim.",
         evidence: "No apple-touch-icon link found.",
         fix: "Add an Apple touch icon.",
-        snippet: '<link rel="apple-touch-icon" href="/apple-touch-icon.png" />'
+        snippet: `<link rel="apple-touch-icon" href="${origin}/apple-touch-icon.svg" />`
       });
+    } else {
+      const brokenIcon = appleTouchIcons.find(
+        (check) => check.pageUrl === page.url && !check.ok
+      );
+      if (brokenIcon) {
+        const reasons = brokenIcon.error
+          ? `apple-touch-icon (${brokenIcon.url}): ${brokenIcon.error}`
+          : brokenIcon.contentType
+            ? `apple-touch-icon (${brokenIcon.url}): returned ${brokenIcon.status || "no status"} with content-type ${brokenIcon.contentType}`
+            : `apple-touch-icon (${brokenIcon.url}): returned ${brokenIcon.status || "no status"}`;
+        add({
+          type: "issue",
+          severity: "warning",
+          title: `Apple touch icon is not loadable on ${label}`,
+          why: "An apple-touch-icon link tag that points at a file which does not load as an image leaves the mobile saved-page icon broken. The engine probes the declared URL instead of trusting tag presence.",
+          evidence: reasons,
+          fix: "Replace the icon URL with a live image file, or update the link to the working icon.",
+          snippet: `<link rel="apple-touch-icon" href="${origin}/apple-touch-icon.svg" />`,
+          confidence: "needs-review"
+        });
+      }
     }
 
     if (rendered.images.length > 0 && rendered.imagesMissingAlt.length > 0) {

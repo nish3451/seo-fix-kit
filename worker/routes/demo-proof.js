@@ -77,7 +77,7 @@ export const DEMO_PROOF = {
       severity: "notice",
       title: "Apple touch icon missing on home",
       fix: "Add an Apple touch icon.",
-      snippet: `<link rel="apple-touch-icon" href="/apple-touch-icon.png" />`
+      snippet: `<link rel="apple-touch-icon" href="{ORIGIN}/apple-touch-icon.svg" />`
     },
     {
       severity: "notice",
