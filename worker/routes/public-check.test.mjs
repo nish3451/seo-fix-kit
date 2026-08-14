@@ -10,6 +10,7 @@ import {
   checkJsonLd,
   friendlyCheckError,
   publicCheckQuotaChecks,
+  runPublicCheck,
   validatePublicCheckUrl
 } from "./public-check.js";
 
@@ -96,6 +97,77 @@ test("public check quota buckets cover per-network and per-site windows without 
     "a different host hashes to different bucket keys"
   );
   assert.ok(checks.every((check) => Number(check.limit) > 0), "all limits are positive");
+});
+
+// The bucket tests above pin KEY GENERATION only. This test drives the real
+// route against an `audit_usage` table where every bucket is already at its
+// cap and proves the handler returns 429 BEFORE the audit engine is touched.
+// Without it, disabling the `!quota.ok` guard in public-check.js leaves the
+// whole suite green (mutation-proved). A D1 insert reports
+// `{ meta: { changes: 0 } }` when `WHERE count < limit` matches nothing, which
+// is exactly what an exhausted bucket returns.
+test("public check route returns 429 from an exhausted audit_usage bucket with zero audit-engine work", async () => {
+  const statements = [];
+  const exhaustedDb = {
+    prepare(sql) {
+      statements.push(String(sql));
+      return {
+        bind() {
+          return {
+            run: async () => ({ meta: { changes: 0 } })
+          };
+        }
+      };
+    }
+  };
+
+  // The audit engine reads these env bindings the moment it is wired up
+  // (worker/routes/audits.js auditUrl). Recording those reads gives a direct,
+  // deterministic "the engine was never invoked" signal — no browser, no
+  // network. The target is a public literal IP, so the route's private-address
+  // check also short-circuits syntactically without a DoH lookup.
+  const engineBindingsRead = [];
+  const env = new Proxy(
+    {
+      WAITLIST_DB: exhaustedDb,
+      BROWSER: "engine-must-not-run",
+      GOOGLE_PAGESPEED_API_KEY: "",
+      PAGESPEED_API_KEY: "",
+      SEOFIXKIT_PAGESPEED_DISABLED: "1"
+    },
+    {
+      get(target, prop) {
+        if (
+          typeof prop === "string" &&
+          ["BROWSER", "GOOGLE_PAGESPEED_API_KEY", "PAGESPEED_API_KEY", "SEOFIXKIT_PAGESPEED_DISABLED"].includes(prop)
+        ) {
+          engineBindingsRead.push(prop);
+        }
+        return target[prop];
+      }
+    }
+  );
+
+  const request = new Request("https://seofixkit.com/api/public-check", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "cf-connecting-ip": "198.51.100.7"
+    },
+    body: JSON.stringify({ url: "https://93.184.216.34/" })
+  });
+
+  const response = await runPublicCheck(request, env);
+
+  assert.equal(response.status, 429, "an exhausted quota must reject the check with 429");
+  assert.ok(
+    statements.some((sql) => sql.includes("INSERT INTO audit_usage") && sql.includes("ON CONFLICT(bucket)")),
+    "the route must enforce quota through the audit_usage table"
+  );
+  const body = await response.json();
+  assert.match(body.error, /limit/i, "429 body explains the rate limit");
+  assert.ok(body.resetAt, "429 body carries the bucket reset time");
+  assert.deepEqual(engineBindingsRead, [], "the audit engine must never be wired up for an exhausted quota");
 });
 
 test("public check response is built only from engine fields with truthful copy", () => {
@@ -439,6 +511,10 @@ function visibleWordCount(html) {
     .filter(Boolean).length;
 }
 
+// Pass-6 collapsed the waitlist-shell pages (/demo, /methodology, /packages)
+// below 320px; /check was missed. This test pins the same collapse on
+// /check so the 320px floor cannot come back, and so the regression fails
+// before the fix and passes after it (red-before, green-after).
 test("public check page collapses to viewport below 320px without hiding overflow", async () => {
   const { chromium } = await import("playwright");
   const html = checkHtml(origin);
