@@ -150,6 +150,50 @@ test("public check page is searchable and hands off into private access", () => 
   assert.doesNotMatch(html, /noindex/i, "the entry page must stay searchable");
 });
 
+// Regression: the /check page must not impose a 320px minimum width on the
+// document. The old body { min-width: 320px } floor made every viewport
+// narrower than 320px overflow horizontally by exactly the missing amount.
+test("public check page has no 320px floor and reflows below 320px", async () => {
+  const html = checkHtml(origin);
+  assert.doesNotMatch(html, /body\s*\{\s*margin:\s*0;\s*min-width:\s*320px\s*\}/, "body must not force a 320px floor");
+
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch({ headless: true });
+  try {
+    for (const width of [240, 200, 180]) {
+      const page = await browser.newPage({ viewport: { width, height: 844 }, isMobile: true });
+      await page.setContent(html, { waitUntil: "domcontentloaded" });
+      const measured = await page.evaluate(() => {
+        const root = document.documentElement;
+        return {
+          scrollWidth: root.scrollWidth,
+          clientWidth: root.clientWidth,
+          overflowingItems: [...document.querySelectorAll("*")]
+            .filter((el) => el.scrollWidth > el.clientWidth + 1)
+            .map((el) => ({
+              tag: el.tagName,
+              cls: String(el.className || "").slice(0, 60),
+              scrollWidth: el.scrollWidth,
+              clientWidth: el.clientWidth
+            }))
+        };
+      });
+      assert.ok(
+        measured.scrollWidth <= measured.clientWidth,
+        `document overflow at ${width}px: scrollWidth=${measured.scrollWidth}/clientWidth=${measured.clientWidth} overflowing=${JSON.stringify(measured.overflowingItems)}`
+      );
+      assert.equal(
+        measured.overflowingItems.length,
+        0,
+        `elements overflow the viewport at ${width}px: ${JSON.stringify(measured.overflowingItems)}`
+      );
+      await page.close();
+    }
+  } finally {
+    await browser.close();
+  }
+});
+
 test("public check page labels generated repair markup as a proposed change, never an exact snippet", () => {
   const html = checkHtml(origin);
   assert.doesNotMatch(html, /exact snippet/i, "the page must not call generated markup an exact snippet");

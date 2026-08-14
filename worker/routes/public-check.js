@@ -317,11 +317,11 @@ export function checkHtml(origin) {
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
       * { box-sizing: border-box; }
-      body { margin: 0; min-width: 320px; }
+      body { margin: 0; }
       main { margin: 0 auto; max-width: 980px; padding: 36px 22px 68px; }
       a { color: #98f0cc; font-weight: 780; text-decoration: none; }
       header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 54px; }
-      h1 { font-size: clamp(40px, 8vw, 88px); letter-spacing: 0; line-height: .92; margin: 0 0 18px; max-width: 820px; }
+      h1 { font-size: clamp(40px, 8vw, 88px); letter-spacing: 0; line-height: .92; margin: 0 0 18px; max-width: 820px; overflow-wrap: break-word; }
       h2 { font-size: clamp(22px, 3vw, 30px); margin: 0 0 12px; }
       p, li { color: rgba(251,248,239,.75); font-size: 18px; line-height: 1.6; }
       .kicker { color: #98f0cc; font-size: 13px; font-weight: 880; letter-spacing: .08em; text-transform: uppercase; }
@@ -329,7 +329,7 @@ export function checkHtml(origin) {
       .check-form { background: rgba(251,248,239,.055); border: 1px solid rgba(152,240,204,.28); border-radius: 10px; display: flex; flex-direction: column; gap: 10px; margin: 30px 0 8px; padding: 18px; }
       .check-form label { color: #fbf8ef; font-size: 14px; font-weight: 760; }
       .check-form .row { display: flex; gap: 10px; }
-      .check-form input { background: #0c1210; border: 1px solid rgba(251,248,239,.22); border-radius: 8px; color: #fbf8ef; flex: 1; font-size: 16px; min-height: 48px; padding: 0 14px; }
+      .check-form input { background: #0c1210; border: 1px solid rgba(251,248,239,.22); border-radius: 8px; color: #fbf8ef; flex: 1; font-size: 16px; min-height: 48px; min-width: 0; padding: 0 14px; }
       .check-form button { background: #98f0cc; border: 0; border-radius: 8px; color: #06100c; cursor: pointer; font-weight: 880; min-height: 48px; padding: 0 20px; }
       .check-form button:disabled { cursor: wait; opacity: .6; }
       .form-note { color: rgba(251,248,239,.6); font-size: 14px; margin: 0; }
@@ -355,6 +355,7 @@ export function checkHtml(origin) {
       .finding .snippet-label { color: rgba(251,248,239,.6); font-size: 12px; font-weight: 700; letter-spacing: .04em; margin: 10px 0 0; text-transform: uppercase; }
       .cta { align-items: center; background: #98f0cc; border-radius: 8px; color: #06100c; display: inline-flex; font-weight: 880; min-height: 48px; padding: 0 18px; }
       .next-step { border: 1px solid rgba(152,240,204,.28); }
+      .box-min { min-width: 0; }
       @media (max-width: 760px) { header { align-items: flex-start; gap: 18px; flex-direction: column; } .grid, .measure-grid { grid-template-columns: 1fr; } .check-form .row { flex-direction: column; } main { padding-top: 26px; } }
     </style>
   </head>
@@ -364,9 +365,9 @@ export function checkHtml(origin) {
         <a href="${origin}/">SEO Fix Kit</a>
         <span class="kicker">Anonymous one-page check</span>
       </header>
-      <section>
+      <section class="box-min">
         <p class="kicker">Proof before access</p>
-        <h1>See what a browser-visible audit proves about one page.</h1>
+        <h1 class="box-min">See what a browser-visible audit proves about one page.</h1>
         <p class="lead">Paste a public URL. We open the page in a real browser, compare the raw HTML with the rendered page, and show the evidence — guarded false positives included. No account, no email, no stored report.</p>
       </section>
       <form class="check-form" id="check-form" aria-label="One-page URL check">
@@ -439,6 +440,13 @@ export function checkHtml(origin) {
           return box;
         }
 
+        function resultSection(title, className) {
+          const section = el("section");
+          if (className) section.className = className;
+          section.appendChild(el("h2", title));
+          return section;
+        }
+
         function findingNode(finding) {
           const box = el("div", "", "finding " + finding.severity);
           box.appendChild(el("h3", finding.title));
@@ -447,7 +455,7 @@ export function checkHtml(origin) {
           if (finding.fix) box.appendChild(el("p", "Fix: " + finding.fix));
           if (finding.proposedMarkup) {
             box.appendChild(el("p", "Proposed change — generated repair markup, not a quote from the page", "snippet-label"));
-            box.appendChild(el("code", finding.proposedMarkup, "snippet"));
+            box.appendChild(el("code", finding.proposedMarkup, "snippet box-min"));
           }
           return box;
         }
@@ -479,8 +487,7 @@ export function checkHtml(origin) {
             result.appendChild(checked);
             if (payload.engineVersion) result.appendChild(el("p", "Engine version " + payload.engineVersion + " · scanned " + payload.scannedAt + " · one page"));
 
-            const section = el("section");
-            section.appendChild(el("h2", "Rendered proof"));
+            const section = resultSection("Rendered proof");
             const grid = el("div", "", "measure-grid");
             grid.appendChild(measure("Static HTML words", payload.measured.staticWordCount));
             grid.appendChild(measure("Rendered words", payload.measured.renderedWordCount));
@@ -490,8 +497,7 @@ export function checkHtml(origin) {
             section.appendChild(grid);
             result.appendChild(section);
 
-            const guardSection = el("section");
-            guardSection.appendChild(el("h2", "Guarded false positives"));
+            const guardSection = resultSection("Guarded false positives");
             if (payload.guards.length === 0) {
               guardSection.appendChild(el("p", "No static-vs-rendered false positives were found on this page."));
             } else {
@@ -501,8 +507,7 @@ export function checkHtml(origin) {
             }
             result.appendChild(guardSection);
 
-            const findingSection = el("section");
-            findingSection.appendChild(el("h2", "Actionable findings"));
+            const findingSection = resultSection("Actionable findings");
             if (payload.findings.length === 0) {
               findingSection.appendChild(el("p", "No actionable findings on this one page from this scan."));
             } else {
