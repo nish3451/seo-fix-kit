@@ -44,6 +44,25 @@ Re-verified live 2026-08-12 (before this window starts): `npm run audit:live-pro
 `/methodology`, `/packages`, `/llms.txt`, `/sitemap.xml`, www→apex 301s); homepage bundle serves
 the `a.check-entry-cta` "Check one page now" link to `/check`. Both preconditions hold today.
 
+Re-verified 2026-08-14 (lane-1 run, evidence in `.lane/reports/lane1-icp-precondition-regression-20260814.md`):
+**preconditions are NOT green today — do not start the seven-day window yet.** `npm run
+audit:live-promise` fails on 9 of 16 surfaces against the deployed site: `/check` no longer
+carries the truthful no-storage disclosure ("No report or URL is stored; only short-lived
+anonymous rate-limit counters" is absent), `/demo` `/methodology` `/packages` lost their
+footer terms/privacy links, `/methodology` lost its clickable CTA into `/check`, `/support`
+`/terms` `/privacy` lost their cross-links to `/check`, `POST /api/public-check` returns HTTP
+422 instead of 400 for a non-http scheme, and `www.seofixkit.com/favicon.svg` serves 200
+instead of the promised 301 onto the apex host. Root cause is outside the repo: the fleet
+release deployed a stale Worker + assets bundle on 2026-08-13 22:40 (its own log says
+"No updated asset files to upload" while recording `assets/index-Dd3Lei8e.js` as the marker;
+the live site serves the older `assets/index-DX7O9nYF.js`). The repo source is correct —
+`npm run check` and the offline spot-check lock are green on main — so this is a deploy
+machinery regression, not a copy drift. The founder should re-verify (`npm run
+audit:live-promise`) after the next successful fleet release that actually swaps the live
+Worker, before sending invitation #1. The known-limitation item (false 522/523 criticals,
+fabricated snippets) is closed since 2026-08-12 (PR #102 shipped); treat any reappearance as
+a fresh objection per the rules below.
+
 ## Numeric gates (seven-day window)
 
 Window starts on the day the first invitation is sent. Record `window_start` and `window_end`
