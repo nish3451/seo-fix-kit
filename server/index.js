@@ -13,11 +13,14 @@ import {
   whiteLabelReportFilename
 } from "../shared/white-label-report.js";
 import {
+  aiAnswerReadinessHtml,
   demoHtml,
   llmsText,
   methodologyHtml,
   packagesHtml,
   privacyHtml,
+  renderedVsStaticAuditHtml,
+  smallBusinessSeoAuditHtml,
   supportHtml,
   termsHtml
 } from "../worker/routes/pages.js";
@@ -1833,6 +1836,21 @@ app.get("/methodology", (req, res) => {
 app.get("/packages", (req, res) => {
   const origin = `http://${req.get("host")}`;
   res.set("content-type", "text/html; charset=utf-8").send(packagesHtml(origin));
+});
+
+app.get("/small-business-seo-audit", (req, res) => {
+  const origin = `http://${req.get("host")}`;
+  res.set("content-type", "text/html; charset=utf-8").send(smallBusinessSeoAuditHtml(origin));
+});
+
+app.get("/rendered-vs-static-seo-audit", (req, res) => {
+  const origin = `http://${req.get("host")}`;
+  res.set("content-type", "text/html; charset=utf-8").send(renderedVsStaticAuditHtml(origin));
+});
+
+app.get("/ai-answer-readiness", (req, res) => {
+  const origin = `http://${req.get("host")}`;
+  res.set("content-type", "text/html; charset=utf-8").send(aiAnswerReadinessHtml(origin));
 });
 
 app.get("/privacy", (req, res) => {
