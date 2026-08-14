@@ -1,5 +1,6 @@
 import { isEmailConfigured } from "../shared/fulfillment.js";
 import { VERSION, rootSitemap } from "../shared/audit-engine.js";
+import { indexNowKeyFileBody, indexNowKeyFilePaths } from "../shared/index-now.js";
 import {
   createAdminBetaSession,
   createInvite,
@@ -610,6 +611,21 @@ export default {
         return new Response(`User-agent: *\nAllow: /\n\nSitemap: ${origin}/sitemap.xml\n`, {
           headers: secureHeaders({ "content-type": "text/plain; charset=utf-8" })
         });
+      }
+
+      // IndexNow key file: served at both the spec root and the .well-known
+      // alias so Bing/Naver/Seznam/Yandex can validate the submission key
+      // without any account credentials. Both paths are covered by
+      // run_worker_first so the SPA asset fallback never shadows them.
+      for (const keyPath of indexNowKeyFilePaths()) {
+        if (url.pathname === keyPath) {
+          return new Response(indexNowKeyFileBody(), {
+            headers: secureHeaders({
+              "content-type": "text/plain; charset=utf-8",
+              "x-robots-tag": "noindex, nofollow"
+            })
+          });
+        }
       }
 
       if (url.pathname === "/sitemap.xml") {

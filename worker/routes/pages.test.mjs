@@ -3,7 +3,7 @@ import http from "node:http";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { auditUrl } from "../../server/audit/engine.js";
-import { escapeHtml, rootSitemap } from "../../shared/audit-engine.js";
+import { ROOT_PUBLIC_LASTMODS, ROOT_PUBLIC_PATHS, escapeHtml, rootSitemap } from "../../shared/audit-engine.js";
 import { DEMO_PROOF, DEMO_FIXTURE_PATH, demoProofSnippet } from "./demo-proof.js";
 import { renderedFixture } from "./audits.js";
 import { checkHtml } from "./public-check.js";
@@ -66,19 +66,7 @@ test("the SVG share image exists and is a real 1200x630 SVG asset", () => {
   assert.match(svg, /^<svg /, "og-image.svg must be an SVG document");
   assert.match(svg, /viewBox="0 0 1200 630"/, "og-image.svg must use the 1200x630 share-image viewBox");
 });
-const expectedSitemapUrls = [
-  `${origin}/`,
-  `${origin}/demo`,
-  `${origin}/check`,
-  `${origin}/methodology`,
-  `${origin}/packages`,
-  `${origin}/small-business-seo-audit`,
-  `${origin}/rendered-vs-static-seo-audit`,
-  `${origin}/ai-answer-readiness`,
-  `${origin}/privacy`,
-  `${origin}/support`,
-  `${origin}/terms`
-];
+const expectedSitemapUrls = ROOT_PUBLIC_PATHS.map((path) => `${origin}${path}`);
 
 test("public proof pages expose methodology and package ladder without overclaims", () => {
   const methodology = methodologyHtml(origin);
@@ -203,6 +191,17 @@ test("machine-readable public surfaces list proof pages and limits", () => {
   assert.match(llms, new RegExp(`${origin}/llms\\.txt`));
   assert.match(llms, new RegExp(`${origin}/api/deep-health`));
   assert.doesNotMatch(sitemap, /\/llms\.txt/);
+
+  // Every sitemap URL must carry a truthful, parseable UTC W3C <lastmod>
+  // (the re-crawl freshness hint), matching the shared ROOT_PUBLIC_LASTMODS.
+  for (const path of ROOT_PUBLIC_PATHS) {
+    assert.match(
+      sitemap,
+      new RegExp(`<loc>${origin}${path}</loc><lastmod>${ROOT_PUBLIC_LASTMODS[path]}</lastmod>`),
+      `sitemap must carry the truthful lastmod for ${path}`
+    );
+    assert.match(ROOT_PUBLIC_LASTMODS[path], /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/, `${path} lastmod must be a UTC W3C datetime`);
+  }
   assert.match(llms, /Does not provide live AI-engine visibility tracking/);
   assert.match(llms, /Proof Monitoring checkout is config-gated/);
   assert.match(llms, /Does not claim paid Proof Monitoring is active/);
