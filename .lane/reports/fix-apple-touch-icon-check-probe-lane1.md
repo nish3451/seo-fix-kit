@@ -14,7 +14,9 @@ commit `b5957e8`).
 
 - Branch `fix/apple-touch-icon-check-probe-lane1` created from
   `origin/main`.
-- Commit `6100f3d` pushed to `origin/fix/apple-touch-icon-check-probe-lane1`.
+- Two commits pushed to `origin/fix/apple-touch-icon-check-probe-lane1`:
+  - `6100f3d` — engine + tests + demo-proof fixture
+  - `a5fb866` — lane-1 report file
 - A PR could not be opened from this worker — `gh` CLI is not installed
   on this host and no `GITHUB_TOKEN` is exported. The push URL printed by
   git is `https://github.com/nish3451/seo-fix-kit/pull/new/fix-apple-touch-icon-check-probe-lane1`,
