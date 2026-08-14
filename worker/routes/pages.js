@@ -162,12 +162,12 @@ function demoHtml(origin) {
 ${pageSocialHead({ origin, title: "Proof-Backed SEO Repair Demo - SEO Fix Kit", description: "A public sample showing how SEO Fix Kit refuses static crawler false positives and turns verified issues into repair briefs.", path: "/demo" })}
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
-      body { margin: 0; min-width: 320px; }
-      main { margin: 0 auto; max-width: 980px; padding: 36px 22px 60px; }
+      body { margin: 0; min-width: 0; }
+      main { margin: 0 auto; max-width: 980px; padding: 36px 22px 60px; min-width: 0; }
       a { color: #98f0cc; font-weight: 780; text-decoration: none; }
       header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 54px; }
-      h1 { font-size: clamp(44px, 9vw, 104px); letter-spacing: 0; line-height: .9; margin: 0 0 18px; max-width: 780px; }
-      h2 { font-size: clamp(24px, 3vw, 34px); margin: 0; }
+      h1 { font-size: clamp(44px, 9vw, 104px); letter-spacing: 0; line-height: .9; margin: 0 0 18px; max-width: 780px; overflow-wrap: break-word; }
+      h2 { font-size: clamp(24px, 3vw, 34px); margin: 0; overflow-wrap: break-word; }
       p, li { color: rgba(251,248,239,.75); font-size: 18px; line-height: 1.6; overflow-wrap: anywhere; word-break: break-word; }
       .kicker { color: #98f0cc; font-size: 13px; font-weight: 880; letter-spacing: .08em; text-transform: uppercase; }
       .grid { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 34px 0; }
@@ -599,14 +599,14 @@ ${extraLd.join("\n")}
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
       * { box-sizing: border-box; }
-      body { margin: 0; min-width: 320px; }
-      main { margin: 0 auto; max-width: 1120px; padding: 36px 22px 68px; }
+      body { margin: 0; min-width: 0; }
+      main { margin: 0 auto; max-width: 1120px; padding: 36px 22px 68px; min-width: 0; }
       a { color: #98f0cc; font-weight: 780; text-decoration: none; }
       header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 72px; }
       nav { display: flex; flex-wrap: wrap; gap: 16px; justify-content: flex-end; }
-      h1 { font-size: clamp(46px, 8vw, 108px); letter-spacing: 0; line-height: .88; margin: 0; max-width: 820px; }
-      h2 { font-size: clamp(24px, 3vw, 34px); line-height: 1.08; margin: 0 0 14px; }
-      p, li { color: rgba(251,248,239,.76); font-size: 17px; line-height: 1.62; }
+      h1 { font-size: clamp(46px, 8vw, 108px); letter-spacing: 0; line-height: .88; margin: 0; max-width: 820px; overflow-wrap: break-word; }
+      h2 { font-size: clamp(24px, 3vw, 34px); line-height: 1.08; margin: 0 0 14px; overflow-wrap: break-word; }
+      p, li { color: rgba(251,248,239,.76); font-size: 17px; line-height: 1.62; overflow-wrap: anywhere; }
       ul { margin: 0; padding-left: 22px; }
       .eyebrow { color: #98f0cc; font-size: 13px; font-weight: 880; letter-spacing: 0; margin: 0 0 18px; text-transform: uppercase; }
       .lead { font-size: clamp(19px, 2.4vw, 25px); max-width: 760px; }
@@ -615,7 +615,7 @@ ${extraLd.join("\n")}
       .grid, .package-grid { display: grid; gap: 14px; }
       .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .grid.two, .package-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .panel, .package-card { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; display: grid; gap: 10px; padding: 20px; }
+      .panel, .package-card { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; display: grid; gap: 10px; padding: 20px; min-width: 0; }
       .panel.proof, .package-card.live { border-color: rgba(152,240,204,.28); }
       .panel strong, .package-card span { color: #98f0cc; font-size: 12px; font-weight: 860; text-transform: uppercase; }
       .package-card h2 { margin: 0; }
@@ -623,9 +623,9 @@ ${extraLd.join("\n")}
       .package-price strong { color: #dcc062; font-size: 22px; }
       .package-card a { align-items: center; border: 1px solid rgba(152,240,204,.32); border-radius: 8px; display: inline-flex; justify-content: center; min-height: 44px; padding: 0 14px; width: fit-content; }
       .check-list { display: grid; gap: 12px; list-style: none; padding-left: 0; }
-      .check-list li { background: rgba(7,13,10,.58); border: 1px solid rgba(251,248,239,.1); border-radius: 8px; padding: 14px 16px; }
+      .check-list li { background: rgba(7,13,10,.58); border: 1px solid rgba(251,248,239,.1); border-radius: 8px; padding: 14px 16px; min-width: 0; }
       .faq-list { display: grid; gap: 14px; }
-      .faq-item { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; padding: 18px 20px; }
+      .faq-item { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; padding: 18px 20px; min-width: 0; }
       .cta { align-items: center; background: #98f0cc; border-radius: 8px; color: #06100c; display: inline-flex; font-weight: 880; min-height: 48px; padding: 0 18px; }
       .site-footer { align-items: center; border-top: 1px solid rgba(251,248,239,.14); display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; margin-top: 24px; padding-top: 26px; }
       .site-footer a { font-size: 14px; font-weight: 760; }
@@ -675,11 +675,11 @@ function privacyHtml(origin) {
 ${pageSocialHead({ origin, title: "Privacy - SEO Fix Kit", description: "SEO Fix Kit privacy note for access requests, private beta audits, payments, and fulfillment.", path: "/privacy" })}
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
-      body { margin: 0; min-width: 320px; }
-      main { margin: 0 auto; max-width: 760px; padding: 48px 22px; }
+      body { margin: 0; min-width: 0; }
+      main { margin: 0 auto; max-width: 760px; padding: 48px 22px; min-width: 0; }
       a { color: #98f0cc; font-weight: 760; text-decoration: none; }
-      h1 { font-size: clamp(42px, 8vw, 76px); letter-spacing: 0; line-height: .92; margin: 0 0 24px; }
-      p, li { color: rgba(251,248,239,.76); font-size: 18px; line-height: 1.62; }
+      h1 { font-size: clamp(42px, 8vw, 76px); letter-spacing: 0; line-height: .92; margin: 0 0 24px; overflow-wrap: break-word; }
+      p, li { color: rgba(251,248,239,.76); font-size: 18px; line-height: 1.62; overflow-wrap: anywhere; }
       ul { padding-left: 22px; }
     </style>
   </head>
@@ -802,12 +802,12 @@ function policyPageHtml({ origin, title, description, body, path = "/" }) {
 ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })}
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
-      body { margin: 0; min-width: 320px; }
-      main { margin: 0 auto; max-width: 760px; padding: 48px 22px; }
+      body { margin: 0; min-width: 0; }
+      main { margin: 0 auto; max-width: 760px; padding: 48px 22px; min-width: 0; }
       a { color: #98f0cc; font-weight: 760; text-decoration: none; }
-      h1 { font-size: clamp(42px, 8vw, 76px); letter-spacing: 0; line-height: .92; margin: 0 0 24px; }
-      h2 { font-size: clamp(22px, 3vw, 28px); margin: 32px 0 8px; }
-      p, li { color: rgba(251,248,239,.76); font-size: 18px; line-height: 1.62; }
+      h1 { font-size: clamp(42px, 8vw, 76px); letter-spacing: 0; line-height: .92; margin: 0 0 24px; overflow-wrap: break-word; }
+      h2 { font-size: clamp(22px, 3vw, 28px); margin: 32px 0 8px; overflow-wrap: break-word; }
+      p, li { color: rgba(251,248,239,.76); font-size: 18px; line-height: 1.62; overflow-wrap: anywhere; }
       ul { padding-left: 22px; }
     </style>
   </head>
