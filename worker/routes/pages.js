@@ -3,6 +3,12 @@ import { DEMO_PROOF, DEMO_FIXTURE_PATH, demoProofSnippet } from "./demo-proof.js
 
 const FIX_PACK_PUBLIC_PRICE = "$99.00 one-time";
 
+// The SVG share image every worker-rendered public page ships as
+// og:image/twitter:image. Single source of truth: public/og-image.svg is the
+// 1200x630 file copied into the Worker's asset bundle, and pages.test.mjs
+// pins both the tag and the shipped file so shares never point at a dead URL.
+const SOCIAL_IMAGE_PATH = "/og-image.svg";
+
 function llmsText(origin) {
   return `# SEO Fix Kit
 
@@ -119,7 +125,7 @@ function ldBlock(value) {
 
 function pageSocialHead({ origin, title, description, path = "/" }) {
   const url = `${origin}${path}`;
-  const image = `${origin}/og-image.svg`;
+  const image = `${origin}${SOCIAL_IMAGE_PATH}`;
   const jsonLd = JSON.stringify({
     "@context": "https://schema.org",
     "@type": "WebPage",
@@ -814,6 +820,7 @@ ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })
 }
 
 export {
+  SOCIAL_IMAGE_PATH,
   aiAnswerReadinessHtml,
   demoHtml,
   homeMarkdown,
