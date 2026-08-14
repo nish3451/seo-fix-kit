@@ -8,6 +8,7 @@ import { DEMO_PROOF, DEMO_FIXTURE_PATH, demoProofSnippet } from "./demo-proof.js
 import { renderedFixture } from "./audits.js";
 import { checkHtml } from "./public-check.js";
 import {
+  SOCIAL_IMAGE_PATH,
   aiAnswerReadinessHtml,
   demoHtml,
   homeMarkdown,
@@ -22,6 +23,49 @@ import {
 } from "./pages.js";
 
 const origin = "https://seofixkit.com";
+
+// Every worker-rendered public page must ship the SVG share image as
+// og:image/twitter:image (lane 1: "Every worker-rendered public page ships an
+// SVG as og:image/twitter:image"). The root page is the SPA app shell served
+// from index.html (not worker-rendered) and intentionally keeps its jpg
+// waitlist share image. The image URL is absolute and points at the shipped
+// public/og-image.svg asset, so a share of /demo, /packages, /check, or any
+// other public page never renders without a preview image.
+const allWorkerRenderedPublicPages = [
+  { name: "/demo", html: demoHtml(origin) },
+  { name: "/check", html: checkHtml(origin) },
+  { name: "/methodology", html: methodologyHtml(origin) },
+  { name: "/packages", html: packagesHtml(origin) },
+  { name: "/small-business-seo-audit", html: smallBusinessSeoAuditHtml(origin) },
+  { name: "/rendered-vs-static-seo-audit", html: renderedVsStaticAuditHtml(origin) },
+  { name: "/ai-answer-readiness", html: aiAnswerReadinessHtml(origin) },
+  { name: "/privacy", html: privacyHtml(origin) },
+  { name: "/support", html: supportHtml(origin) },
+  { name: "/terms", html: termsHtml(origin) }
+];
+
+test("every worker-rendered public page ships the SVG share image as og:image and twitter:image", () => {
+  const imageUrl = `${origin}${SOCIAL_IMAGE_PATH}`;
+  for (const { name, html } of allWorkerRenderedPublicPages) {
+    assert.match(
+      html,
+      new RegExp(`<meta property="og:image" content="${imageUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`),
+      `${name} must ship og:image pointing at the SVG share image`
+    );
+    assert.match(
+      html,
+      new RegExp(`<meta name="twitter:image" content="${imageUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`),
+      `${name} must ship twitter:image pointing at the SVG share image`
+    );
+    assert.match(html, /<meta name="twitter:card" content="summary_large_image" \/>/, `${name} must keep the large-image card so the SVG renders`);
+  }
+});
+
+test("the SVG share image exists and is a real 1200x630 SVG asset", () => {
+  const svg = readFileSync(new URL(`../../public${SOCIAL_IMAGE_PATH}`, import.meta.url), "utf8");
+  assert.match(svg, /^<svg /, "og-image.svg must be an SVG document");
+  assert.match(svg, /viewBox="0 0 1200 630"/, "og-image.svg must use the 1200x630 share-image viewBox");
+});
 const expectedSitemapUrls = [
   `${origin}/`,
   `${origin}/demo`,
