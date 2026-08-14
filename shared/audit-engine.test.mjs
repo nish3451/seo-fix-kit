@@ -796,6 +796,83 @@ test("same-origin 522/523/524 link failures never become critical broken-link fi
 });
 
 
+// Regression: the free /check engine was reporting "Canonical URL is not
+// reachable" when a same-origin canonical (e.g. self-referential, apex↔www,
+// or www→apex) hit the same transient Cloudflare origin error that already
+// guards same-origin internal links. Treating one transient origin hiccup as
+// both "broken internal links" and "broken canonical" duplicates the same
+// false positive at warning tier and turns the customer's own infrastructure
+// blip into a critical-and-warning storm on a clean page.
+test("same-origin 522/523/524 canonical failures never become 'Canonical URL is not reachable' findings", async () => {
+  for (const status of [522, 523, 524]) {
+    const engine = createAuditEngine({
+      launchBrowser: async () =>
+        fakeBrowser("https://public.example/", {
+          title: "Proof page with useful content",
+          canonical: "https://public.example/"
+        }),
+      fetchImpl: async (url) => {
+        if (url === "https://public.example/") {
+          return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" }
+          });
+        }
+        if (url === "https://public.example/canonical") {
+          return new Response("origin hiccup", { status, headers: { "content-type": "text/html" } });
+        }
+        return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+      },
+      pagespeedDisabled: true
+    });
+
+    const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+    const canonicalFindings = (report.findings || []).filter((finding) => /Canonical URL is not reachable/i.test(finding.title || ""));
+    assert.deepEqual(canonicalFindings, [], `same-origin canonical ${status} must not be reported as unreachable`);
+    const canonicalNotice = (report.findings || []).filter((finding) => /Canonical URL redirects/i.test(finding.title || ""));
+    assert.deepEqual(canonicalNotice, [], `same-origin canonical ${status} must not surface as a redirect notice either`);
+  }
+});
+
+
+// Regression: a cross-origin canonical (declared on the page but pointing to a
+// different host) must still surface 522/523/524 as a real reachability finding
+// at warning tier. The infra-failure guard only applies to same-origin
+// resources where the failure is the customer's own origin, not the third
+// party they pointed their canonical at.
+test("cross-origin canonical 522/523/524 is still reported as unreachable", async () => {
+  for (const status of [522, 523, 524]) {
+    const engine = createAuditEngine({
+      launchBrowser: async () =>
+        fakeBrowser("https://public.example/", {
+          title: "Proof page with useful content",
+          canonical: "https://other.example/canonical"
+        }),
+      fetchImpl: async (url) => {
+        if (url === "https://public.example/") {
+          return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" }
+          });
+        }
+        if (url === "https://other.example/canonical") {
+          return new Response("origin hiccup", { status, headers: { "content-type": "text/html" } });
+        }
+        return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+      },
+      pagespeedDisabled: true
+    });
+
+    const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+    const canonicalFindings = (report.findings || []).filter((finding) => /Canonical URL is not reachable/i.test(finding.title || ""));
+    assert.equal(canonicalFindings.length, 1, `cross-origin canonical ${status} stays a real observation`);
+    assert.match(canonicalFindings[0].evidence, new RegExp(`other\\.example/canonical returned ${status}`), `evidence must cite the cross-origin ${status}`);
+    const canonicalNotice = (report.findings || []).filter((finding) => /Canonical URL redirects/i.test(finding.title || ""));
+    assert.deepEqual(canonicalNotice, [], `a failed cross-origin canonical ${status} is not a redirect notice`);
+  }
+});
+
+
 // Regression: 0509.io serves HSTS on every route, but /search took 7.6s to
 // settle so no headers were captured, and the audit reported the header as
 // missing. Verified with curl that the header is present for both a browser
