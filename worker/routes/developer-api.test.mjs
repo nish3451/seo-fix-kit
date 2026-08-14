@@ -45,6 +45,22 @@ test("Developer API report response includes repair queue summary", async () => 
   assert.equal(body.report.findings[0].repair_queue.latest_action.execution_state, "not_started");
 });
 
+test("Developer API report response includes per-page scores", async () => {
+  const env = await fakeDeveloperApiEnv();
+  const request = apiRequest(`/v1/audits/${env.auditId}/report`, env.apiToken);
+
+  const response = await apiGetAuditReport(request, env);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+
+  assert.equal(Array.isArray(body.report.page_summaries), true);
+  assert.equal(body.report.page_summaries.length, 1);
+  assert.equal(body.report.page_summaries[0].url, "https://example.com/");
+  assert.equal(body.report.page_summaries[0].score, 75);
+  assert.equal(body.report.page_summaries[0].path, "/");
+  assert.equal(body.report.page_summaries[0].wordCount, 320);
+});
+
 test("Developer API exposes owner-only repair action workflow for API agents", async () => {
   const env = await fakeDeveloperApiEnv({ queueItems: [], actions: [] });
 
@@ -1323,6 +1339,24 @@ async function fakeDeveloperApiEnv(overrides = {}) {
       acceptance: "Rendered title exists.",
       confidence: "verified",
       source: "rendered"
+    }],
+    pageSummaries: [{
+      url: "https://example.com/",
+      path: "/",
+      status: 200,
+      score: 75,
+      critical: 1,
+      warnings: 0,
+      notices: 0,
+      guards: 1,
+      title: "Example",
+      h1: "Example",
+      wordCount: 320,
+      internalLinks: 2,
+      brokenLinks: 0,
+      brokenImages: 0,
+      loadDurationMs: 900,
+      schemaTypes: ["Organization"]
     }]
   };
 
