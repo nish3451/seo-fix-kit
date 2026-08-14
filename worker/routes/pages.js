@@ -340,6 +340,8 @@ function packagesHtml(origin) {
             <li>No ranking or traffic guarantee</li>
             <li>Refund guard if payment succeeds but the queue cannot start</li>
           </ul>
+          <a href="${origin}/check">Start from a report with real fixes</a>
+          <a href="${origin}/">Request private access</a>
           <a href="${origin}/support">Read support terms</a>
         </article>
         <article class="package-card">

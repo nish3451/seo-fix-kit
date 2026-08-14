@@ -97,6 +97,22 @@ test("public proof pages expose methodology and package ladder without overclaim
   assert.match(packages, /Config-gated subscription/);
   assert.match(packages, /Access activates after Dodo webhook entitlement/);
   assert.match(packages, /Roadmap/);
+  // The Fix Pack tile itself must not be a support-only dead end: extract the
+  // tile article and require at least one real checkout-path link in it.
+  {
+    const tile = (packages.match(/<article class="package-card live">[\s\S]*?<h2>SEO Fix Pack<\/h2>[\s\S]*?<\/article>/) || [])[0];
+    assert.ok(tile, "the Fix Pack tile article must exist");
+    assert.match(
+      tile,
+      new RegExp(`<a href="${origin}/check">Start from a report with real fixes</a>`),
+      "the Fix Pack tile must link the checkout path into the report funnel"
+    );
+    assert.match(
+      tile,
+      new RegExp(`<a href="${origin}/">Request private access</a>`),
+      "the Fix Pack tile must link the private access request"
+    );
+  }
   assert.doesNotMatch(combined, /completed 50K rendered validation/i);
   assert.doesNotMatch(combined, /guaranteed rankings/i);
 });
