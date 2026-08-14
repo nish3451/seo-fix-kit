@@ -212,24 +212,24 @@ export function checkHtml(origin) {
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
       * { box-sizing: border-box; }
-      body { margin: 0; min-width: 320px; }
+      body { margin: 0; }
       main { margin: 0 auto; max-width: 980px; padding: 36px 22px 68px; }
       a { color: #98f0cc; font-weight: 780; text-decoration: none; }
       header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 54px; }
       h1 { font-size: clamp(40px, 8vw, 88px); letter-spacing: 0; line-height: .92; margin: 0 0 18px; max-width: 820px; }
       h2 { font-size: clamp(22px, 3vw, 30px); margin: 0 0 12px; }
-      p, li { color: rgba(251,248,239,.75); font-size: 18px; line-height: 1.6; }
+      p, li { color: rgba(251,248,239,.75); font-size: 18px; line-height: 1.6; overflow-wrap: anywhere; word-break: break-word; }
       .kicker { color: #98f0cc; font-size: 13px; font-weight: 880; letter-spacing: .08em; text-transform: uppercase; }
       .lead { font-size: clamp(19px, 2.4vw, 24px); max-width: 760px; }
-      .check-form { background: rgba(251,248,239,.055); border: 1px solid rgba(152,240,204,.28); border-radius: 10px; display: flex; flex-direction: column; gap: 10px; margin: 30px 0 8px; padding: 18px; }
+      .check-form { background: rgba(251,248,239,.055); border: 1px solid rgba(152,240,204,.28); border-radius: 10px; display: flex; flex-direction: column; gap: 10px; margin: 30px 0 8px; min-width: 0; padding: 18px; }
       .check-form label { color: #fbf8ef; font-size: 14px; font-weight: 760; }
-      .check-form .row { display: flex; gap: 10px; }
-      .check-form input { background: #0c1210; border: 1px solid rgba(251,248,239,.22); border-radius: 8px; color: #fbf8ef; flex: 1; font-size: 16px; min-height: 48px; padding: 0 14px; }
+      .check-form .row { display: flex; gap: 10px; min-width: 0; }
+      .check-form input { background: #0c1210; border: 1px solid rgba(251,248,239,.22); border-radius: 8px; color: #fbf8ef; flex: 1; font-size: 16px; min-height: 48px; min-width: 0; padding: 0 14px; }
       .check-form button { background: #98f0cc; border: 0; border-radius: 8px; color: #06100c; cursor: pointer; font-weight: 880; min-height: 48px; padding: 0 20px; }
       .check-form button:disabled { cursor: wait; opacity: .6; }
       .form-note { color: rgba(251,248,239,.6); font-size: 14px; margin: 0; }
       .grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 30px 0; }
-      .panel { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; padding: 20px; }
+      .panel { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; min-width: 0; padding: 20px; }
       .panel strong { color: #98f0cc; display: block; font-size: 13px; font-weight: 860; margin-bottom: 8px; text-transform: uppercase; }
       .proof { border-color: rgba(152,240,204,.28); }
       .band { border-top: 1px solid rgba(251,248,239,.14); padding: 30px 0; }
@@ -237,10 +237,10 @@ export function checkHtml(origin) {
       .result.show { display: block; }
       .error-box { border: 1px solid rgba(255,150,140,.4); border-radius: 8px; color: #ffb4ad; padding: 14px 16px; }
       .measure-grid { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .measure { background: rgba(7,13,10,.58); border: 1px solid rgba(251,248,239,.1); border-radius: 8px; padding: 12px 14px; }
+      .measure { background: rgba(7,13,10,.58); border: 1px solid rgba(251,248,239,.1); border-radius: 8px; min-width: 0; padding: 12px 14px; }
       .measure .label { color: rgba(251,248,239,.6); font-size: 12px; text-transform: uppercase; }
       .measure .value { font-size: 16px; margin-top: 4px; overflow-wrap: anywhere; }
-      .finding { border-left: 3px solid #dcc062; margin: 12px 0; padding-left: 12px; }
+      .finding { border-left: 3px solid #dcc062; margin: 12px 0; min-width: 0; padding-left: 12px; }
       .finding.critical { border-left-color: #ff8f7d; }
       .finding.warning { border-left-color: #f4c95d; }
       .finding.notice { border-left-color: #8fd3ff; }

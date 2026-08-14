@@ -194,3 +194,73 @@ function visibleWordCount(html) {
     .split(/\s+/)
     .filter(Boolean).length;
 }
+
+test("public check page collapses to viewport below 320px without hiding overflow", async () => {
+  const { chromium } = await import("playwright");
+  const html = checkHtml(origin);
+
+  assert.doesNotMatch(
+    html,
+    /overflow-x\s*:\s*hidden/i,
+    "/check must wrap shell content instead of hiding document overflow"
+  );
+  assert.doesNotMatch(
+    html,
+    /min-width\s*:\s*320px/i,
+    "/check body must not pin the shell at 320px"
+  );
+
+  const widths = [240, 260, 280, 300, 320, 360, 390];
+  const browser = await chromium.launch({ headless: true });
+  try {
+    for (const width of widths) {
+      const page = await browser.newPage({ viewport: { width, height: 844 }, isMobile: true });
+      await page.setContent(html, { waitUntil: "domcontentloaded" });
+      const measured = await page.evaluate(() => {
+        const root = document.documentElement;
+        const main = document.querySelector("main");
+        const compact = (value) => String(value || "").replace(/\s+/g, " ").trim();
+        return {
+          scrollWidth: root.scrollWidth,
+          clientWidth: root.clientWidth,
+          htmlOverflowX: getComputedStyle(root).overflowX,
+          bodyOverflowX: getComputedStyle(document.body).overflowX,
+          mainRight: main ? main.getBoundingClientRect().right : null,
+          formRight: (() => {
+            const form = document.querySelector("form.check-form");
+            return form ? form.getBoundingClientRect().right : null;
+          })(),
+          text: compact(document.body.textContent)
+        };
+      });
+      await page.close();
+
+      assert.notEqual(
+        measured.htmlOverflowX,
+        "hidden",
+        `/check html overflow-x must stay visible at ${width}px`
+      );
+      assert.notEqual(
+        measured.bodyOverflowX,
+        "hidden",
+        `/check body overflow-x must stay visible at ${width}px`
+      );
+      assert.equal(
+        measured.scrollWidth,
+        measured.clientWidth,
+        `/check shell must collapse to viewport at ${width}px: scrollWidth=${measured.scrollWidth} clientWidth=${measured.clientWidth}`
+      );
+      assert.ok(
+        measured.mainRight === null || measured.mainRight <= width + 0.5,
+        `/check main right edge must stay inside viewport at ${width}px: mainRight=${measured.mainRight}`
+      );
+      assert.ok(
+        measured.formRight === null || measured.formRight <= width + 0.5,
+        `/check form right edge must stay inside viewport at ${width}px: formRight=${measured.formRight}`
+      );
+      assert.ok(measured.text.length > 100, `/check must keep its body copy at ${width}px`);
+    }
+  } finally {
+    await browser.close();
+  }
+});
