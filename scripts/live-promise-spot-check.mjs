@@ -231,6 +231,43 @@ export function publicPageSpotChecks(baseUrl) {
       ]
     },
     {
+      path: "/proof",
+      name: "real before/after repair receipt is published at /proof",
+      isPage: true,
+      acceptStatuses: [200],
+      expectations: [
+        { reason: "real before/after headline", match: "One real repair, with the same measurement path before and after." },
+        { reason: "before score 85", match: "Score <strong>85</strong>/100" },
+        { reason: "intermediate score 99", match: "Score <strong>99</strong>/100" },
+        { reason: "after score 100", match: "Score <strong>100</strong>/100" },
+        { reason: "source report id pinned", match: "tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b" },
+        { reason: "intermediate rerun id pinned", match: "tinystudio-in-75ffee26-02ae-41d3-b2ef-5beb40722e50" },
+        { reason: "final rerun id pinned", match: "tinystudio-in-0a45637f-1354-4d26-ace3-d3b594162961" },
+        { reason: "owner-approved PR #4 linked", match: "github.com/nish3451/tinystudio-in/pull/4" },
+        { reason: "owner-approved PR #5 linked", match: "github.com/nish3451/tinystudio-in/pull/5" },
+        { reason: "no-ranking boundary stated", match: "No ranking, traffic, indexing, citation, or revenue promise is made" },
+        { reason: "no CMS/GitHub-publishing boundary", match: "SEO Fix Kit did not publish CMS changes, open GitHub pull requests, merge code" },
+        { reason: "markdown receipt CTA", match: `href="${baseUrl}/proof.md"` },
+        { reason: "link to methodology limits", match: `href="${baseUrl}/methodology"` },
+        { reason: "link to package ladder", match: `href="${baseUrl}/packages"` }
+      ]
+    },
+    {
+      path: "/proof.md",
+      name: "markdown receipt is served for /proof.md",
+      isPage: true,
+      acceptStatuses: [200],
+      contentType: "text/markdown",
+      expectations: [
+        { reason: "markdown receipt headline", match: "SEO Fix Kit — Repair proof receipt" },
+        { reason: "before score 85", match: "85/100" },
+        { reason: "after score 100", match: "100/100" },
+        { reason: "owner-approved PR #4 referenced", match: "github.com/nish3451/tinystudio-in/pull/4" },
+        { reason: "owner-approved PR #5 referenced", match: "github.com/nish3451/tinystudio-in/pull/5" },
+        { reason: "no-ranking boundary stated", match: "No ranking, traffic, indexing, citation, or revenue promise is made" }
+      ]
+    },
+    {
       path: "/support",
       name: "support page keeps the no-ranking promise and refund guard",
       isPage: true,
@@ -290,6 +327,7 @@ export function publicSurfaceSpotChecks(baseUrl) {
       expectations: [
         { reason: "llms.txt lists the anonymous check", match: `${baseUrl}/check` },
         { reason: "llms.txt lists the proof-loop pages", match: `${baseUrl}/demo` },
+        { reason: "llms.txt lists the before/after receipt", match: `${baseUrl}/proof` },
         { reason: "llms.txt keeps the no-live-AI-tracking boundary", match: "Does not provide live AI-engine visibility tracking" }
       ]
     },
@@ -302,7 +340,8 @@ export function publicSurfaceSpotChecks(baseUrl) {
         { reason: "sitemap lists the one-page check", match: `<loc>${baseUrl}/check</loc>` },
         { reason: "sitemap lists the proof loop", match: `<loc>${baseUrl}/demo</loc>` },
         { reason: "sitemap lists the limits page", match: `<loc>${baseUrl}/methodology</loc>` },
-        { reason: "sitemap lists the package ladder", match: `<loc>${baseUrl}/packages</loc>` }
+        { reason: "sitemap lists the package ladder", match: `<loc>${baseUrl}/packages</loc>` },
+        { reason: "sitemap lists the before/after receipt", match: `<loc>${baseUrl}/proof</loc>` }
       ]
     },
     {

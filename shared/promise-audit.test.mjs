@@ -109,9 +109,9 @@ test("README weekly monitor promise matches the schedule interval", () => {
 });
 
 test("README public page promise matches Worker routing and copy", () => {
-  assert.match(liveSection, /Public `\/demo`, `\/methodology`, and `\/packages` pages showing the proof loop, limits, and package ladder before payment/i);
+  assert.match(liveSection, /Public `\/demo`, `\/methodology`, `\/packages`, and `\/proof` pages showing the proof loop, limits, package ladder, and a real before\/after repair receipt/i);
   assert.match(liveSection, /Intent-matching public landing pages at `\/small-business-seo-audit`, `\/rendered-vs-static-seo-audit`, and `\/ai-answer-readiness`/i);
-  for (const path of ["/demo", "/methodology", "/packages", "/check"]) {
+  for (const path of ["/demo", "/methodology", "/packages", "/check", "/proof"]) {
     assert.ok(workerIndex.includes(`url.pathname === "${path}"`), `Worker must route ${path}`);
   }
   for (const path of ["/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness"]) {
@@ -765,7 +765,7 @@ test("README deep-health claim stays runtime/config/schema scoped and public-saf
 });
 
 test("README packages page claim keeps the config-gated Proof Monitoring price and boundary", () => {
-  assert.match(liveSection, /Public `\/demo`, `\/methodology`, and `\/packages` pages showing the proof loop, limits, and package ladder before payment/i);
+  assert.match(liveSection, /Public `\/demo`, `\/methodology`, `\/packages`, and `\/proof` pages showing the proof loop, limits, package ladder, and a real before\/after repair receipt/i);
   assert.match(pagesSource, /\$49-\$99\/mo target/, "Proof Monitoring shows a target price, not a live price");
   assert.match(pagesSource, /Config-gated subscription/, "Proof Monitoring is labeled config-gated");
   assert.match(pagesSource, /No ranking or traffic guarantee/, "packages keeps the no-ranking promise");

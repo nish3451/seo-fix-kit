@@ -221,7 +221,45 @@ test("Worker dispatch serves apex-only canonicals, robots, sitemap, and llms.txt
   assert.doesNotMatch(methodologyBody, /www\.seofixkit\.com/);
 
   const llms = await worker.fetch(new Request("https://seofixkit.com/llms.txt"), env, fakeCtx());
-  assert.match(await llms.text(), /https:\/\/seofixkit\.com\/check/);
+  const llmsBody = await llms.text();
+  assert.match(llmsBody, /https:\/\/seofixkit\.com\/check/);
+  assert.match(llmsBody, /https:\/\/seofixkit\.com\/proof/);
+  assert.match(sitemapBody, /<loc>https:\/\/seofixkit\.com\/proof<\/loc>/);
+});
+
+test("Worker dispatch serves the real before/after repair proof receipt", async () => {
+  const env = await fakeWorkerEnv();
+
+  const proof = await worker.fetch(new Request("https://seofixkit.com/proof"), env, fakeCtx());
+  assert.equal(proof.status, 200);
+  assert.match(proof.headers.get("content-type"), /text\/html; charset=utf-8/);
+  const proofBody = await proof.text();
+  assert.match(proofBody, /One real repair, with the same measurement path before and after\./);
+  assert.match(proofBody, /Score <strong>85<\/strong>\/100 &middot; 7 findings/);
+  assert.match(proofBody, /Score <strong>99<\/strong>\/100 &middot; 2 findings/);
+  assert.match(proofBody, /Score <strong>100<\/strong>\/100 &middot; 0 findings/);
+  assert.match(proofBody, /tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b/);
+  assert.match(proofBody, /tinystudio-in-75ffee26-02ae-41d3-b2ef-5beb40722e50/);
+  assert.match(proofBody, /tinystudio-in-0a45637f-1354-4d26-ace3-d3b594162961/);
+  assert.match(proofBody, /rel="canonical" href="https:\/\/seofixkit\.com\/proof"/);
+  assert.doesNotMatch(proofBody, /www\.seofixkit\.com/);
+
+  const proofMarkdown = await worker.fetch(
+    new Request("https://seofixkit.com/proof", { headers: { accept: "text/markdown" } }),
+    env,
+    fakeCtx()
+  );
+  assert.equal(proofMarkdown.status, 200);
+  assert.match(proofMarkdown.headers.get("content-type"), /text\/markdown; charset=utf-8/);
+  const proofMarkdownBody = await proofMarkdown.text();
+  assert.match(proofMarkdownBody, /^# SEO Fix Kit .* Repair proof receipt/m);
+  assert.match(proofMarkdownBody, /85\/100 with 7 findings/);
+  assert.match(proofMarkdownBody, /100\/100 with 0 findings/);
+
+  const proofDotMd = await worker.fetch(new Request("https://seofixkit.com/proof.md"), env, fakeCtx());
+  assert.equal(proofDotMd.status, 200);
+  assert.match(proofDotMd.headers.get("content-type"), /text\/markdown; charset=utf-8/);
+  assert.match(await proofDotMd.text(), /^# SEO Fix Kit .* Repair proof receipt/m);
 });
 
 test("Worker dispatch exposes public-safe deep health readiness", async () => {
