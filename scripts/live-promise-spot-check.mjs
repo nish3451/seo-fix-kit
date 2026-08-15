@@ -197,7 +197,8 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "no-overclaim section", match: "What this page does not claim" },
         { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
         { reason: "link to the proof sample", match: `href="${baseUrl}/demo"` },
-        { reason: "link to methodology limits", match: `href="${baseUrl}/methodology"` }
+        { reason: "link to methodology limits", match: `href="${baseUrl}/methodology"` },
+        ...landingPageLdExpectations("/small-business-seo-audit", "Small Business SEO Audit")
       ]
     },
     {
@@ -210,7 +211,8 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "static scanner vs rendered proof panels", match: "Rendered proof" },
         { reason: "no-overclaim section", match: "What this page does not claim" },
         { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
-        { reason: "link to the proof sample", match: `href="${baseUrl}/demo"` }
+        { reason: "link to the proof sample", match: `href="${baseUrl}/demo"` },
+        ...landingPageLdExpectations("/rendered-vs-static-seo-audit", "Rendered vs Static SEO Audit")
       ]
     },
     {
@@ -224,7 +226,8 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "no AI citation monitoring", match: "No AI citation monitoring" },
         { reason: "llms.txt stays optional", match: "llms.txt stays optional" },
         { reason: "no-overclaim section", match: "What this page does not claim" },
-        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` }
+        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
+        ...landingPageLdExpectations("/ai-answer-readiness", "AI Answer Readiness Check")
       ]
     },
     {
@@ -353,6 +356,22 @@ export function publicSurfaceSpotChecks(baseUrl) {
         { reason: "route rejects unsupported schemes before any browser render", match: "Enter a valid public website URL." }
       ]
     }
+  ];
+}
+
+// Machine-readable proof on the intent-matching landing pages: each one must
+// carry WebPage + SoftwareApplication + FAQPage JSON-LD (the three blocks
+// `publicProductPageHtml` emits) whose `url`/`name` point at that page, with
+// the FAQ visible copy and the schema built from the same source array.
+// The full offline lock lives in worker/routes/pages.test.mjs; these
+// expectations prove the live deployed page still ships the schema.
+function landingPageLdExpectations(path, pageName) {
+  return [
+    { reason: "WebPage JSON-LD names the page", match: `"@type":"WebPage","name":"${pageName} - SEO Fix Kit"` },
+    { reason: "WebPage JSON-LD points at the page URL", match: `"@type":"WebPage","name":"${pageName} - SEO Fix Kit","description":` },
+    { reason: "SoftwareApplication JSON-LD describes the tool truthfully", match: '"@type":"SoftwareApplication","name":"SEO Fix Kit"' },
+    { reason: "FAQPage JSON-LD exists", match: '"@type":"FAQPage"' },
+    { reason: "visible FAQ matches the FAQPage JSON-LD source", match: "Frequently asked questions" }
   ];
 }
 
