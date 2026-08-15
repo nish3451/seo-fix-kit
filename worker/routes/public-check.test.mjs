@@ -239,9 +239,11 @@ test("public check page carries WebPage and truthful FAQ JSON-LD", () => {
   assert.match(noPromiseAnswer.acceptedAnswer.text, /does not guarantee rankings, traffic, indexing, revenue, AI citations/i);
   const storedAnswer = faq.mainEntity.find((question) => question.name === "Is anything about my check stored?");
   assert.match(storedAnswer.acceptedAnswer.text, /no report or URL from your check is stored/i);
+  assert.doesNotMatch(storedAnswer.acceptedAnswer.text, /nothing about your check is saved/i, "JSON-LD must not resurrect the pre-#88 overpromise");
 
   // Every schema answer is a claim a visitor can read in the rendered page.
   const html = checkHtml(origin);
+  assert.doesNotMatch(html, /nothing about your check is saved/i, "visible FAQ must not resurrect the pre-#88 overpromise");
   for (const question of faq.mainEntity) {
     assert.match(html, new RegExp(escapeRegex(question.name)), `visible page shows the question: ${question.name}`);
     assert.match(html, new RegExp(escapeRegex(question.acceptedAnswer.text.slice(0, 60))), `visible page backs the answer for: ${question.name}`);
