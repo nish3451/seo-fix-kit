@@ -769,6 +769,20 @@ test("README packages page claim keeps the config-gated Proof Monitoring price a
   assert.match(pagesSource, /\$49-\$99\/mo target/, "Proof Monitoring shows a target price, not a live price");
   assert.match(pagesSource, /Config-gated subscription/, "Proof Monitoring is labeled config-gated");
   assert.match(pagesSource, /No ranking or traffic guarantee/, "packages keeps the no-ranking promise");
+  // 2026-08-15 audit: the monitoring offer stays visible in private billing as
+  // a config-gated card (shared/offers.js catalog + src/App.jsx offer panel);
+  // only its checkout is gated. The public page must keep saying checkout is
+  // gated, never that the offer "only appears" when configured.
+  assert.match(
+    pagesSource,
+    /Checkout only opens when the Dodo subscription product and webhook entitlement sync are configured; until then it stays a config-gated offer in private billing/,
+    "packages must keep the config-gated checkout boundary"
+  );
+  assert.doesNotMatch(
+    pagesSource,
+    /Only appears in private billing when the Dodo subscription product and webhook entitlement sync are configured/,
+    "packages must not claim Proof Monitoring only appears in billing when configured"
+  );
 });
 
 test("README anonymous-check claim keeps the deployed copy locked to the live spot-check", () => {
@@ -777,9 +791,11 @@ test("README anonymous-check claim keeps the deployed copy locked to the live sp
     { path: "/check", copy: "Check One Page for SEO Proof" },
     { path: "/check", copy: "No account, no email, no stored report" },
     { path: "/demo", copy: "Do not fix what is not broken." },
+    { path: "/demo", copy: "an exact snippet when the engine can generate one" },
     { path: "/methodology", copy: "Limits we state up front" },
     { path: "/packages", copy: "Package ladder" },
-    { path: "/packages", copy: "$99.00 one-time" }
+    { path: "/packages", copy: "$99.00 one-time" },
+    { path: "/packages", copy: "Checkout only opens when the Dodo subscription product and webhook entitlement sync are configured" }
   ]) {
     assert.match(spotCheck, new RegExp(`path: "${surface.path}"`), `spot-check must still cover ${surface.path}`);
     assert.match(spotCheck, new RegExp(surface.copy.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `spot-check must still assert the ${surface.path} copy "${surface.copy}"`);
