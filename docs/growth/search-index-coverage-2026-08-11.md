@@ -25,7 +25,7 @@ that does not need credentials is now built and one command away.
 The 2026-08-14 packet (PR #139) never merged — it went CONFLICTING as main
 moved past it (25+ commits, including #141/#142/#143/#145/#146/#147/#150
 public-page copy/layout changes) and stayed open. This run rebuilt the same
-two legs on current `origin/main` (`dc2090e`, 2026-08-15) as PR #???:
+two legs on current `origin/main` (`dc2090e`, 2026-08-15) as PR #157:
 
 - Live re-verification 2026-08-15: `https://seofixkit.com/sitemap.xml` still
   loc-only 11 URLs, zero `<lastmod>`; `/indexnow` and
