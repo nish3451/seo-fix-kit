@@ -63,6 +63,20 @@ Worker, before sending invitation #1. The known-limitation item (false 522/523 c
 fabricated snippets) is closed since 2026-08-12 (PR #102 shipped); treat any reappearance as
 a fresh objection per the rules below.
 
+Re-verified 2026-08-15 (lane-1 run, evidence in `.lane/reports/lane1-icp-precondition-green-20260815.md`):
+**preconditions are GREEN again — the seven-day window may start.** The fleet release that
+swapped the live Worker to a current bundle landed 2026-08-15 07:40 UTC (`release-state-seo-fix-kit.json`:
+sha `ea6ef33`, marker `assets/index-9gz2OE-i.js`, deployment `fb50029a-26d5-4924-b378-d7598012bae4`),
+and `npm run audit:live-promise` is 20/20 green against the deployed site. Every surface that
+failed on 2026-08-14 now serves the current copy: `/check` carries the truthful no-storage
+disclosure again, `/demo` `/methodology` `/packages` have their footer terms/privacy links,
+`/methodology` has its clickable CTA into `/check`, `/support` `/terms` `/privacy` cross-link
+to `/check` again, `POST /api/public-check` returns 400 for a non-http scheme, and
+`www.seofixkit.com/favicon.svg` 301s onto the apex host; the live homepage serves
+`assets/index-9gz2OE-i.js` matching the recorded release marker. The 2026-08-14 root cause
+(stale Worker + assets bundle) is resolved. The founder starts the window by sending
+invitation #1 and filling `window_start` below — outreach remains founder-owned.
+
 ## Numeric gates (seven-day window)
 
 Window starts on the day the first invitation is sent. Record `window_start` and `window_end`
