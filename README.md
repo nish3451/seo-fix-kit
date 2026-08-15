@@ -10,7 +10,7 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 
 ## What is live in this repo
 
-- Rendered-page audit with Playwright.
+- Rendered-page audit powered by Cloudflare Browser Run in the deployed Worker and Playwright for local development.
 - Static HTML vs rendered DOM comparison.
 - Evidence-backed findings.
 - Self-serve crawl-depth tiers up to 1,000 pages per queued audit, with per-page scores and page proof.
