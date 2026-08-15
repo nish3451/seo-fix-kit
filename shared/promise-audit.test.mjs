@@ -343,9 +343,12 @@ test("README repair-proof-receipt claim keeps publishing and ranking disclaimers
 // pack, PSI, waterfall, imports, platform, briefs, queue/board/packs, feed,
 // proposals, D1 tables, and dashboard surfaces) to the code that backs them.
 
-test("README rendered-audit claims match Playwright, static-vs-rendered, and evidence-backed findings", () => {
-  assert.match(liveSection, /Rendered-page audit with Playwright/i);
-  assert.match(serverEngineSource, /launchAuditBrowser/, "server audit uses the Playwright browser launcher");
+test("README rendered-audit claims match the Worker browser runtime and local Playwright adapter", () => {
+  assert.match(liveSection, /Rendered-page audit powered by Cloudflare Browser Run in the deployed Worker and Playwright for local development/i);
+  assert.match(auditsSource, /import puppeteer from "@cloudflare\/puppeteer"/, "deployed Worker renders via the Browser Run puppeteer API");
+  assert.match(auditsSource, /puppeteer\.launch\(env\.BROWSER\)/, "deployed Worker launches Browser Run through the BROWSER binding");
+  assert.match(serverEngineSource, /launchAuditBrowser/, "server audit uses the Playwright browser launcher for local development");
+  assert.match(serverEngineSource, /playwright-browser\.js/, "local browser adapter is the Playwright wrapper");
   assert.match(liveSection, /Static HTML vs rendered DOM comparison/i);
   assert.match(auditEngineSource, /staticFacts\.h1s\.length === 0 && rendered\.h1s\.length > 0/, "engine compares static HTML with rendered DOM");
   assert.match(liveSection, /Evidence-backed findings/i);
