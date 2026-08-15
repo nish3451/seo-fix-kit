@@ -159,6 +159,32 @@ test("public proof pages expose methodology and package ladder without overclaim
   }
   assert.doesNotMatch(combined, /completed 50K rendered validation/i);
   assert.doesNotMatch(combined, /guaranteed rankings/i);
+  // Promise-audit 2026-08-15: the demo and packages pages must not drift back
+  // into overclaiming. The engine only emits an exact snippet when it can
+  // generate one (demo-proof.js repairPlan entries carry empty snippets), so
+  // "each with an exact snippet" would overclaim; and Proof Monitoring stays
+  // visible in private billing as a config-gated offer, only its checkout is
+  // gated, so "only appears when configured" would overclaim.
+  assert.doesNotMatch(
+    demoHtml(origin),
+    /each with an exact snippet/,
+    "the demo must not claim every surfaced issue carries an exact snippet"
+  );
+  assert.match(
+    demoHtml(origin),
+    /with a suggested fix and an exact snippet when the engine can generate one/,
+    "the demo must keep the engine-capable snippet qualifier"
+  );
+  assert.doesNotMatch(
+    packages,
+    /Only appears in private billing when the Dodo subscription product and webhook entitlement sync are configured/,
+    "packages must not claim Proof Monitoring only appears in billing when configured"
+  );
+  assert.match(
+    packages,
+    /Checkout only opens when the Dodo subscription product and webhook entitlement sync are configured; until then it stays a config-gated offer in private billing/,
+    "packages must keep the config-gated checkout boundary"
+  );
 });
 
 test("machine-readable public surfaces list proof pages and limits", () => {

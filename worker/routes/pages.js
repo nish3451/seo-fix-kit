@@ -203,7 +203,7 @@ ${pageSocialHead({ origin, title: "Proof-Backed SEO Repair Demo - SEO Fix Kit", 
         </article>
         <article class="panel">
           <strong>Repair brief</strong>
-          <p>No thin-content fix is queued: the engine guards the warning with rendered-word evidence. Issues that are real still surface — noindex, a canonical conflict, a missing share image, missing schema — each with an exact snippet.</p>
+          <p>No thin-content fix is queued: the engine guards the warning with rendered-word evidence. Issues that are real still surface — noindex, a canonical conflict, a missing share image, missing schema — with a suggested fix and an exact snippet when the engine can generate one.</p>
         </article>
       </section>
       <section class="panel proof">
@@ -353,7 +353,7 @@ function packagesHtml(origin) {
         <article class="package-card">
           <span>Config-gated subscription</span>
           <h2>Proof Monitoring</h2>
-          <p class="package-price"><strong>$49-$99/mo target</strong><br />Only appears in private billing when the Dodo subscription product and webhook entitlement sync are configured.</p>
+          <p class="package-price"><strong>$49-$99/mo target</strong><br />Checkout only opens when the Dodo subscription product and webhook entitlement sync are configured; until then it stays a config-gated offer in private billing.</p>
           <p>Weekly proof reruns, report deltas, and change alerts for verified sites. Monitoring does not include repair execution.</p>
           <ul>
             <li>Verified sites only</li>

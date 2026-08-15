@@ -131,6 +131,7 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "proof-loop headline", match: "Do not fix what is not broken." },
         { reason: "static-vs-rendered proof panels", match: "Rendered proof" },
         { reason: "no-overclaim section", match: "What this sample does not claim" },
+        { reason: "snippet qualifier stays engine-capable", match: "an exact snippet when the engine can generate one" },
         { reason: "link to methodology limits", match: `href="${baseUrl}/methodology"` },
         { reason: "link to package ladder", match: `href="${baseUrl}/packages"` },
         { reason: "link to terms", match: `href="${baseUrl}/terms"` },
@@ -179,6 +180,7 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "public fix pack price", match: "$99.00 one-time" },
         { reason: "Dodo is the final price source", match: "Dodo shows the final checkout price" },
         { reason: "Proof Monitoring is config-gated", match: "Config-gated subscription" },
+        { reason: "Proof Monitoring checkout gated, offer visible", match: "Checkout only opens when the Dodo subscription product and webhook entitlement sync are configured" },
         { reason: "roadmap packages marked", match: "Roadmap" },
         { reason: "link to terms", match: `href="${baseUrl}/terms"` },
         { reason: "link to privacy", match: `href="${baseUrl}/privacy"` }
