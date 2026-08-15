@@ -20,6 +20,30 @@ acceptance outcome ("all 7 pages on Google, seofixkit.com first on
 Bing/DDG") cannot be produced from a lane without credentials, but every lever
 that does not need credentials is now built and one command away.
 
+## Re-verified 2026-08-15 (~13:50 IST, lane-1 run) — re-landing on current main
+
+The 2026-08-14 packet (PR #139) never merged — it went CONFLICTING as main
+moved past it (25+ commits, including #141/#142/#143/#145/#146/#147/#150
+public-page copy/layout changes) and stayed open. This run rebuilt the same
+two legs on current `origin/main` (`dc2090e`, 2026-08-15) as PR #???:
+
+- Live re-verification 2026-08-15: `https://seofixkit.com/sitemap.xml` still
+  loc-only 11 URLs, zero `<lastmod>`; `/indexnow` and
+  `/.well-known/indexnow-key.txt` both HTTP 404 (no key file live); PR #139
+  still OPEN/CONFLICTING with green `check`.
+- Cherry-picked the 2026-08-14 feat onto fresh main (one conflict in
+  `worker/routes/pages.test.mjs` — main's share-image test block — resolved
+  by keeping both), then refreshed `ROOT_PUBLIC_LASTMODS` +
+  `public/sitemap.xml` to the truthful post-feat page-change times:
+  `/demo`, `/methodology`, `/packages`, and all three intent pages now
+  `2026-08-15T07:14:01Z` (#150 copy corrections); `/check`
+  `2026-08-15T04:27:51Z` (#146 floor removal); `/` unchanged
+  (`2026-08-13T03:48:58Z` — the only post-base `src/App.jsx` change, #145,
+  touches private-beta report UI only, invisible to public crawlers).
+- Same owner-only legs as the 2026-08-14 packet: Google Search Console
+  request-indexing and Bing Webmaster ownership remain manual (no
+  credentials on this box).
+
 ## Re-verified 2026-08-14 (~12:30 IST, lane-1 run) — current live state
 
 The 2026-08-11/12 packet legs (IndexNow path + lastmods) never landed on

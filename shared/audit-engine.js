@@ -3034,13 +3034,13 @@ export const ROOT_PUBLIC_PATHS = ["/", "/demo", "/check", "/methodology", "/pack
 // giving crawlers an accurate re-crawl freshness signal.
 export const ROOT_PUBLIC_LASTMODS = {
   "/": "2026-08-13T03:48:58Z",
-  "/demo": "2026-08-13T09:07:01Z",
-  "/check": "2026-08-12T19:43:36Z",
-  "/methodology": "2026-08-13T09:07:01Z",
-  "/packages": "2026-08-13T09:07:01Z",
-  "/small-business-seo-audit": "2026-08-14T11:07:01Z",
-  "/rendered-vs-static-seo-audit": "2026-08-14T11:07:01Z",
-  "/ai-answer-readiness": "2026-08-14T11:07:01Z",
+  "/demo": "2026-08-15T07:14:01Z",
+  "/check": "2026-08-15T04:27:51Z",
+  "/methodology": "2026-08-15T07:14:01Z",
+  "/packages": "2026-08-15T07:14:01Z",
+  "/small-business-seo-audit": "2026-08-15T07:14:01Z",
+  "/rendered-vs-static-seo-audit": "2026-08-15T07:14:01Z",
+  "/ai-answer-readiness": "2026-08-15T07:14:01Z",
   "/privacy": "2026-08-11T12:01:28Z",
   "/support": "2026-06-12T14:12:49Z",
   "/terms": "2026-06-12T14:12:49Z"
