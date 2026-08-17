@@ -77,6 +77,38 @@ to `/check` again, `POST /api/public-check` returns 400 for a non-http scheme, a
 (stale Worker + assets bundle) is resolved. The founder starts the window by sending
 invitation #1 and filling `window_start` below — outreach remains founder-owned.
 
+Re-verified 2026-08-17 (lane-1 run, evidence in `.lane/reports/lane1-icp-precondition-reverify-20260817.md`):
+**preconditions remain GREEN — the seven-day window is still open to start.** The fleet release
+recorded at 2026-08-17 06:40 UTC (`release-state-seo-fix-kit.json`: sha `36fc4e4`, marker
+`assets/index-9gz2OE-i.js`, deployment `26c18c1a-f589-4133-b993-46033fb28c3d`,
+version `99abe604-c484-41de-ba8f-3d60e6cfeb06`) is the same bundle marker that 2026-08-15
+declared current; the live homepage serves `assets/index-9gz2OE-i.js` matching the recorded
+release marker, so the no-bundle-drift invariant from 2026-08-14's root cause still holds.
+`npm run audit:live-promise` against `https://seofixkit.com` is **20/20 green** (16 public
+surfaces + 4 www→apex redirect surfaces); the offline spot-check lock (`npm run
+test:live-promise-spot-check`) is 18/18 green on current main. Direct curl confirmation of
+every surface that failed the 2026-08-14 check:
+
+| Surface (2026-08-14 failure) | 2026-08-17 live result |
+|---|---|
+| `/check` no-storage disclosure | "No report or URL is stored: only short-lived anonymous rate-limit counters …" present (3 occurrences) |
+| `/demo` footer terms/privacy | `https://seofixkit.com/terms` + `/privacy` links present (2) |
+| `/methodology` CTA into `/check` | `/check` link present (3) |
+| `/methodology` footer terms/privacy | present |
+| `/packages` footer terms/privacy | present (2) |
+| `/support` link to `/check` | present |
+| `/terms` link to `/check` | present |
+| `/privacy` links | present (6) |
+| `POST /api/public-check` ftp:// | returns HTTP 400 |
+| `www.seofixkit.com/favicon.svg` | 301 → `https://seofixkit.com/favicon.svg` |
+| Homepage bundle marker | `assets/index-9gz2OE-i.js` matches |
+
+Outreach remains founder-owned (per the experiment's acceptance criteria the founder sends
+invitations and records rows); no invitations were sent by this run. `window_start` stays
+unfilled in the experiment log until the founder sends invitation #1. The resume path from
+the 2026-08-15 GREEN entry still applies: send invitation #1, then fill `window_start` and
+prospect-log row 1.
+
 ## Numeric gates (seven-day window)
 
 Window starts on the day the first invitation is sent. Record `window_start` and `window_end`
