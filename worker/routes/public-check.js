@@ -244,7 +244,7 @@ export function checkJsonLd(origin) {
         "@id": `${url}#webpage`,
         name: "Check One Page for SEO Proof - SEO Fix Kit",
         description:
-          "Paste any public page URL and see what a browser-rendered, proof-backed audit finds: static-vs-rendered evidence, guarded false positives, and actionable findings when present. No account, no ranking promises.",
+          "Paste any public URL. A browser-rendered SEO audit proves measured evidence, guarded false positives, and actionable findings. No account, no ranking promises.",
         url,
         isPartOf: { "@type": "WebSite", name: "SEO Fix Kit", url: origin },
         publisher: { "@type": "Organization", name: "SEO Fix Kit", url: origin },
@@ -300,7 +300,7 @@ export function checkHtml(origin) {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Check One Page for SEO Proof - SEO Fix Kit</title>
-    <meta name="description" content="Paste any public page URL and see what a browser-rendered, proof-backed audit finds: static-vs-rendered evidence, guarded false positives, and actionable findings when present. No account, no ranking promises." />
+    <meta name="description" content="Paste any public URL. A browser-rendered SEO audit proves measured evidence, guarded false positives, and actionable findings. No account, no ranking promises." />
     <link rel="canonical" href="${origin}/check" />
     <link rel="apple-touch-icon" href="${origin}/apple-touch-icon.svg" />
     <meta property="og:type" content="website" />
