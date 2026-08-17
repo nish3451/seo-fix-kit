@@ -150,6 +150,36 @@ test("public check page is searchable and hands off into private access", () => 
   assert.doesNotMatch(html, /noindex/i, "the entry page must stay searchable");
 });
 
+// Dogfood 6344a32f91af: tighten the /check meta description into the
+// 70-165 char range so search snippets do not truncate the no-ranking
+// boundary. The WebPage JSON-LD description ships the same copy so the
+// structured-data surface stays aligned with the visible meta tag.
+test("public check meta description and WebPage JSON-LD stay within the 70-165 char range and share the no-ranking promise", () => {
+  const html = checkHtml(origin);
+  const metaMatch = html.match(/<meta name="description" content="([^"]*)" \/>/);
+  assert.ok(metaMatch, "the page must emit a <meta name=\"description\"> tag");
+  const description = metaMatch[1];
+  assert.ok(description.length >= 70, `meta description is too short (${description.length} chars); risk of thin-snippet penalty`);
+  assert.ok(description.length <= 165, `meta description is too long (${description.length} chars); search snippets will truncate`);
+  assert.match(description, /No account, no ranking promises\./, "the no-ranking boundary must survive the trim");
+  assert.match(description, /browser-rendered/, "the differentiator must survive the trim");
+  assert.match(description, /guarded false positives/, "the guarded false-positives promise must survive the trim");
+
+  const blocks = jsonLdBlocks(html);
+  const graph = blocks.flatMap((block) => (Array.isArray(block["@graph"]) ? block["@graph"] : [block]));
+  const webpage = graph.find((node) => node["@type"] === "WebPage");
+  assert.ok(webpage, "WebPage JSON-LD is present");
+  const jsonLdDescription = webpage.description;
+  assert.ok(jsonLdDescription.length >= 70, `JSON-LD description is too short (${jsonLdDescription.length} chars)`);
+  assert.ok(jsonLdDescription.length <= 220, `JSON-LD description is too long (${jsonLdDescription.length} chars)`);
+  assert.equal(
+    jsonLdDescription,
+    description,
+    "the WebPage JSON-LD description must match the meta description so the structured surface cannot drift from the visible snippet"
+  );
+  assert.match(jsonLdDescription, /No account, no ranking promises\./, "the JSON-LD description also keeps the no-ranking boundary");
+});
+
 // Regression: the /check page must not impose a 320px minimum width on the
 // document. The old body { min-width: 320px } floor made every viewport
 // narrower than 320px overflow horizontally by exactly the missing amount.
