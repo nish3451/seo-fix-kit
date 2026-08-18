@@ -3024,7 +3024,7 @@ function wait(ms) {
 // The canonical public route set for the apex host, shared by the sitemap,
 // IndexNow submissions, and any future search-submission surface. Keep in sync
 // with the public page routes in worker/index.js and worker/routes/pages.js.
-export const ROOT_PUBLIC_PATHS = ["/", "/demo", "/check", "/methodology", "/packages", "/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness", "/privacy", "/support", "/terms"];
+export const ROOT_PUBLIC_PATHS = ["/", "/demo", "/check", "/methodology", "/packages", "/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness", "/privacy", "/proof", "/support", "/terms"];
 
 // Truthful per-page last modification times (W3C datetime, UTC): the commit
 // timestamp of the last change to the code that renders each page — for "/"
@@ -3042,6 +3042,7 @@ export const ROOT_PUBLIC_LASTMODS = {
   "/rendered-vs-static-seo-audit": "2026-08-15T07:14:01Z",
   "/ai-answer-readiness": "2026-08-15T07:14:01Z",
   "/privacy": "2026-08-11T12:01:28Z",
+  "/proof": "2026-08-15T06:27:08Z",
   "/support": "2026-06-12T14:12:49Z",
   "/terms": "2026-06-12T14:12:49Z"
 };
