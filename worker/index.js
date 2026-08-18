@@ -29,6 +29,8 @@ import {
   methodologyHtml,
   packagesHtml,
   privacyHtml,
+  proofCaseHtml,
+  proofCaseMarkdown,
   renderedVsStaticAuditHtml,
   smallBusinessSeoAuditHtml,
   supportHtml,
@@ -698,6 +700,22 @@ export default {
         return new Response(aiAnswerReadinessHtml(origin), {
           headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
         });
+      }
+
+      if (url.pathname === "/proof" || url.pathname === "/proof.md") {
+        const acceptsMarkdown =
+          url.pathname === "/proof.md" ||
+          (request.headers.get("accept") || "").includes("text/markdown");
+        return new Response(
+          acceptsMarkdown ? proofCaseMarkdown(origin) : proofCaseHtml(origin),
+          {
+            headers: secureHeaders({
+              "content-type": acceptsMarkdown
+                ? "text/markdown; charset=utf-8"
+                : "text/html; charset=utf-8"
+            })
+          }
+        );
       }
 
       if (url.pathname === "/beta" || url.pathname.startsWith("/beta/")) {

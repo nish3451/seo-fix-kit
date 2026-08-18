@@ -4675,6 +4675,7 @@ function apiReportResponse(report = {}, options = {}) {
     repair_plan: report.repairPlan || [],
     repair_brief: report.repairBrief || "",
     pages: report.pages || [],
+    page_summaries: Array.isArray(report.pageSummaries) ? report.pageSummaries : null,
     report_path: report.reportPath || "",
     report_url: report.reportUrl || "",
     created_at: report.scannedAt || report.createdAt || "",

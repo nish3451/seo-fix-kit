@@ -8,6 +8,7 @@ import { DEMO_PROOF, DEMO_FIXTURE_PATH, demoProofSnippet } from "./demo-proof.js
 import { renderedFixture } from "./audits.js";
 import { checkHtml } from "./public-check.js";
 import {
+  SOCIAL_IMAGE_PATH,
   aiAnswerReadinessHtml,
   demoHtml,
   homeMarkdown,
@@ -15,6 +16,8 @@ import {
   methodologyHtml,
   packagesHtml,
   privacyHtml,
+  proofCaseHtml,
+  proofCaseMarkdown,
   renderedVsStaticAuditHtml,
   smallBusinessSeoAuditHtml,
   supportHtml,
@@ -23,6 +26,50 @@ import {
 
 const origin = "https://seofixkit.com";
 const expectedSitemapUrls = ROOT_PUBLIC_PATHS.map((path) => `${origin}${path}`);
+
+// Every worker-rendered public page must ship the SVG share image as
+// og:image/twitter:image (lane 1: "Every worker-rendered public page ships an
+// SVG as og:image/twitter:image"). The root page is the SPA app shell served
+// from index.html (not worker-rendered) and intentionally keeps its jpg
+// waitlist share image. The image URL is absolute and points at the shipped
+// public/og-image.svg asset, so a share of /demo, /packages, /check, or any
+// other public page never renders without a preview image.
+const allWorkerRenderedPublicPages = [
+  { name: "/demo", html: demoHtml(origin) },
+  { name: "/check", html: checkHtml(origin) },
+  { name: "/methodology", html: methodologyHtml(origin) },
+  { name: "/packages", html: packagesHtml(origin) },
+  { name: "/small-business-seo-audit", html: smallBusinessSeoAuditHtml(origin) },
+  { name: "/rendered-vs-static-seo-audit", html: renderedVsStaticAuditHtml(origin) },
+  { name: "/ai-answer-readiness", html: aiAnswerReadinessHtml(origin) },
+  { name: "/proof", html: proofCaseHtml(origin) },
+  { name: "/privacy", html: privacyHtml(origin) },
+  { name: "/support", html: supportHtml(origin) },
+  { name: "/terms", html: termsHtml(origin) }
+];
+
+test("every worker-rendered public page ships the SVG share image as og:image and twitter:image", () => {
+  const imageUrl = `${origin}${SOCIAL_IMAGE_PATH}`;
+  for (const { name, html } of allWorkerRenderedPublicPages) {
+    assert.match(
+      html,
+      new RegExp(`<meta property="og:image" content="${imageUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`),
+      `${name} must ship og:image pointing at the SVG share image`
+    );
+    assert.match(
+      html,
+      new RegExp(`<meta name="twitter:image" content="${imageUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`),
+      `${name} must ship twitter:image pointing at the SVG share image`
+    );
+    assert.match(html, /<meta name="twitter:card" content="summary_large_image" \/>/, `${name} must keep the large-image card so the SVG renders`);
+  }
+});
+
+test("the SVG share image exists and is a real 1200x630 SVG asset", () => {
+  const svg = readFileSync(new URL(`../../public${SOCIAL_IMAGE_PATH}`, import.meta.url), "utf8");
+  assert.match(svg, /^<svg /, "og-image.svg must be an SVG document");
+  assert.match(svg, /viewBox="0 0 1200 630"/, "og-image.svg must use the 1200x630 share-image viewBox");
+});
 
 test("public proof pages expose methodology and package ladder without overclaims", () => {
   const methodology = methodologyHtml(origin);
@@ -85,8 +132,50 @@ test("public proof pages expose methodology and package ladder without overclaim
   assert.match(packages, /Config-gated subscription/);
   assert.match(packages, /Access activates after Dodo webhook entitlement/);
   assert.match(packages, /Roadmap/);
+  // The Fix Pack tile itself must not be a support-only dead end: extract the
+  // tile article and require at least one real checkout-path link in it.
+  {
+    const tile = (packages.match(/<article class="package-card live">[\s\S]*?<h2>SEO Fix Pack<\/h2>[\s\S]*?<\/article>/) || [])[0];
+    assert.ok(tile, "the Fix Pack tile article must exist");
+    assert.match(
+      tile,
+      new RegExp(`<a href="${origin}/check">Start from a report with real fixes</a>`),
+      "the Fix Pack tile must link the checkout path into the report funnel"
+    );
+    assert.match(
+      tile,
+      new RegExp(`<a href="${origin}/">Request private access</a>`),
+      "the Fix Pack tile must link the private access request"
+    );
+  }
   assert.doesNotMatch(combined, /completed 50K rendered validation/i);
   assert.doesNotMatch(combined, /guaranteed rankings/i);
+  // Promise-audit 2026-08-15: the demo and packages pages must not drift back
+  // into overclaiming. The engine only emits an exact snippet when it can
+  // generate one (demo-proof.js repairPlan entries carry empty snippets), so
+  // "each with an exact snippet" would overclaim; and Proof Monitoring stays
+  // visible in private billing as a config-gated offer, only its checkout is
+  // gated, so "only appears when configured" would overclaim.
+  assert.doesNotMatch(
+    demoHtml(origin),
+    /each with an exact snippet/,
+    "the demo must not claim every surfaced issue carries an exact snippet"
+  );
+  assert.match(
+    demoHtml(origin),
+    /with a suggested fix and an exact snippet when the engine can generate one/,
+    "the demo must keep the engine-capable snippet qualifier"
+  );
+  assert.doesNotMatch(
+    packages,
+    /Only appears in private billing when the Dodo subscription product and webhook entitlement sync are configured/,
+    "packages must not claim Proof Monitoring only appears in billing when configured"
+  );
+  assert.match(
+    packages,
+    /Checkout only opens when the Dodo subscription product and webhook entitlement sync are configured; until then it stays a config-gated offer in private billing/,
+    "packages must keep the config-gated checkout boundary"
+  );
 });
 
 test("machine-readable public surfaces list proof pages and limits", () => {
@@ -399,12 +488,60 @@ test("demo proof list reflows at 320px and 390px without hiding evidence", async
   }
 });
 
+test("shared public-product shell reflows at narrow viewports without a 320px floor", async () => {
+  const { chromium } = await import("playwright");
+  const shellPages = [
+    { name: "/methodology", html: methodologyHtml(origin) },
+    { name: "/packages", html: packagesHtml(origin) },
+    { name: "/small-business-seo-audit", html: smallBusinessSeoAuditHtml(origin) },
+    { name: "/rendered-vs-static-seo-audit", html: renderedVsStaticAuditHtml(origin) },
+    { name: "/ai-answer-readiness", html: aiAnswerReadinessHtml(origin) }
+  ];
+  for (const { name, html } of shellPages) {
+    assert.doesNotMatch(html, /min-width:\s*320px/, `${name} must not ship the 320px floor`);
+    assert.doesNotMatch(html, /overflow-x\s*:\s*hidden/i, `${name} must wrap instead of hiding overflow`);
+  }
+
+  const browser = await chromium.launch({ headless: true });
+  try {
+    for (const { name, html } of shellPages) {
+      for (const width of [390, 320, 300, 280, 240]) {
+        const page = await browser.newPage({ viewport: { width, height: 844 }, isMobile: true });
+        await page.setContent(html, { waitUntil: "domcontentloaded" });
+        const measured = await page.evaluate(() => {
+          const root = document.documentElement;
+          return {
+            scrollWidth: root.scrollWidth,
+            clientWidth: root.clientWidth,
+            htmlOverflowX: getComputedStyle(root).overflowX,
+            bodyOverflowX: getComputedStyle(document.body).overflowX,
+            bodyMinWidth: getComputedStyle(document.body).minWidth,
+            wideCount: [...document.querySelectorAll("*")]
+              .filter((el) => el.getBoundingClientRect().right > root.clientWidth + 1).length
+          };
+        });
+        assert.notEqual(measured.htmlOverflowX, "hidden", `${name} html overflow-x must stay visible at ${width}px`);
+        assert.notEqual(measured.bodyOverflowX, "hidden", `${name} body overflow-x must stay visible at ${width}px`);
+        assert.equal(measured.bodyMinWidth, "0px", `${name} must not keep the 320px floor at ${width}px`);
+        assert.ok(
+          measured.scrollWidth <= measured.clientWidth,
+          `${name} overflow at ${width}px: scrollWidth=${measured.scrollWidth}/clientWidth=${measured.clientWidth}`
+        );
+        assert.equal(measured.wideCount, 0, `${name} has ${measured.wideCount} elements wider than the viewport at ${width}px`);
+        await page.close();
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+});
+
 test("static public skill and sitemap files keep buyer-facing boundaries", () => {
   const skill = readFileSync(new URL("../../public/.well-known/skill.md", import.meta.url), "utf8");
   const sitemap = readFileSync(new URL("../../public/sitemap.xml", import.meta.url), "utf8");
 
   assert.deepEqual(parseSitemapUrls(sitemap), expectedSitemapUrls);
-  for (const path of ["/demo", "/methodology", "/packages", "/check", "/support", "/terms", "/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness"]) {
+  for (const path of ["/demo", "/methodology", "/packages", "/check", "/proof", "/support", "/terms", "/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness"]) {
     assert.match(skill, new RegExp(`${origin}${path}`));
     assert.match(sitemap, new RegExp(`${origin}${path}`));
   }
@@ -455,10 +592,44 @@ test("Cloudflare asset routing sends public proof pages through the Worker", () 
   );
   if (Array.isArray(runWorkerFirst)) {
     const covered = new Set(runWorkerFirst);
-    for (const path of ["/demo", "/methodology", "/packages", "/check", "/support", "/terms", "/privacy"]) {
+    for (const path of ["/demo", "/methodology", "/packages", "/check", "/proof", "/support", "/terms", "/privacy"]) {
       assert.equal(covered.has(path), true, `${path} must be served by the Worker before SPA assets`);
     }
   }
+});
+
+test("real before/after proof receipt pins the same measurement path before and after", () => {
+  const html = proofCaseHtml(origin);
+  const markdown = proofCaseMarkdown(origin);
+
+  assert.match(html, /One real repair, with the same measurement path before and after\./);
+  assert.match(html, /Score <strong>85<\/strong>\/100 &middot; 7 findings/);
+  assert.match(html, /Score <strong>99<\/strong>\/100 &middot; 2 findings/);
+  assert.match(html, /Score <strong>100<\/strong>\/100 &middot; 0 findings/);
+  assert.match(html, /tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b/);
+  assert.match(html, /tinystudio-in-75ffee26-02ae-41d3-b2ef-5beb40722e50/);
+  assert.match(html, /tinystudio-in-0a45637f-1354-4d26-ace3-d3b594162961/);
+  assert.match(html, /github\.com\/nish3451\/tinystudio-in\/pull\/4/);
+  assert.match(html, /github\.com\/nish3451\/tinystudio-in\/pull\/5/);
+  assert.match(html, new RegExp(`<a class="cta" href="${origin}/proof\\.md">`));
+  assert.match(html, new RegExp(`href="${origin}/methodology"`));
+  assert.match(html, new RegExp(`href="${origin}/packages"`));
+  assert.match(html, /No ranking, traffic, indexing, citation, or revenue promise is made/);
+  assert.match(html, /SEO Fix Kit did not publish CMS changes, open GitHub pull requests, merge code/);
+  assert.match(html, /Founder-owned \(consented and redacted\)/);
+  assert.doesNotMatch(html, /guaranteed rankings|guarantees traffic|guarantees revenue/i);
+  assert.match(html, /<link rel="canonical" href="https:\/\/seofixkit\.com\/proof" \/>/);
+  assert.match(html, /"@type"\s*:\s*"SoftwareApplication"/, "the receipt must carry truthful machine-readable proof");
+  assert.doesNotMatch(html, /min-width:\s*320px/, "the receipt must not ship the 320px floor");
+
+  assert.match(markdown, /^# SEO Fix Kit .* Repair proof receipt/m);
+  assert.match(markdown, /85\/100 with 7 findings/);
+  assert.match(markdown, /100\/100 with 0 findings/);
+  assert.match(markdown, /github\.com\/nish3451\/tinystudio-in\/pull\/4/);
+  assert.match(markdown, /github\.com\/nish3451\/tinystudio-in\/pull\/5/);
+  assert.match(markdown, /No ranking, traffic, indexing, citation, or revenue promise is made/);
+  assert.match(markdown, new RegExp(`Anonymous one-page check: ${origin}/check`));
+  assert.doesNotMatch(markdown, /guaranteed rankings|guarantees traffic|guarantees revenue/i);
 });
 
 function visibleWordCount(html) {
