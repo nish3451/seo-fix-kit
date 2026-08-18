@@ -4,6 +4,8 @@ import {
   ACCESS_FORM_EXPECTATIONS,
   FUNNEL_STOPS,
   WALK_STATUS,
+  WALK_VIEWPORTS,
+  buildContextOptions,
   evaluateStopEvidence,
   funnelWalkSummary,
   samePathname
@@ -54,7 +56,7 @@ function passingStopEvidence(stop, viewport = "desktop") {
     copyChecks,
     expectedLinks,
     brokenLinks: { checked: [], broken: [] },
-    horizontalOverflow: { scrollWidth: viewport === "mobile" ? 390 : 1280, innerWidth: viewport === "mobile" ? 390 : 1280, overflow: false },
+    horizontalOverflow: { scrollWidth: viewport === "mobile" ? 390 : 1280, clientWidth: viewport === "mobile" ? 390 : 1280, innerWidth: viewport === "mobile" ? 390 : 1280, overflow: false },
     accessForm,
     walkerError: null,
     // anchors as collected from the DOM, absolute on Worker pages
@@ -68,6 +70,44 @@ test("anchor matching treats absolute same-origin hrefs as the expected path", (
   assert.equal(samePathname("https://seofixkit.com/check?utm=x", "/check", origin), true);
   assert.equal(samePathname("https://other.example.com/packages", "/packages", origin), false);
   assert.equal(samePathname(null, "/packages", origin), false);
+});
+
+test("context options builder maps the desktop descriptor into a valid Playwright context", () => {
+  const descriptor = WALK_VIEWPORTS.find((entry) => entry.name === "desktop");
+  const options = buildContextOptions(descriptor);
+  assert.deepEqual(options, {
+    viewport: { width: 1280, height: 900 },
+    isMobile: false,
+    hasTouch: false
+  });
+});
+
+test("context options builder maps the mobile descriptor to a true 390x844 mobile context", () => {
+  const descriptor = WALK_VIEWPORTS.find((entry) => entry.name === "mobile");
+  const options = buildContextOptions(descriptor);
+  assert.deepEqual(options.viewport, { width: 390, height: 844 });
+  assert.equal(options.isMobile, true);
+  assert.equal(options.hasTouch, true);
+  assert.equal(typeof options.userAgent, "string");
+  assert.ok(options.userAgent.includes("iPhone"), "mobile descriptor must carry a mobile user agent");
+});
+
+test("context options never leak descriptor label or bare size keys Playwright would silently ignore", () => {
+  // Regression lock: passing the descriptor straight to newContext() used to
+  // drop width/height (Playwright ignores unknown top-level keys) and run the
+  // "mobile" half at the 1280px desktop default. The options object must only
+  // carry keys Playwright understands, and the size must live under `viewport`.
+  for (const descriptor of WALK_VIEWPORTS) {
+    const options = buildContextOptions(descriptor);
+    assert.equal("name" in options, false, "descriptor label must not leak into context options");
+    assert.equal("width" in options, false, "bare width must not leak into context options");
+    assert.equal("height" in options, false, "bare height must not leak into context options");
+    for (const key of Object.keys(options)) {
+      assert.ok(["viewport", "isMobile", "hasTouch", "userAgent"].includes(key), `unexpected key ${key}`);
+    }
+    assert.equal(options.viewport.width, descriptor.width);
+    assert.equal(options.viewport.height, descriptor.height);
+  }
 });
 
 test("every funnel stop passes with the recorded evidence shape", () => {
@@ -110,6 +150,30 @@ test("walk fails when load-bearing funnel copy is missing", () => {
   assert.ok(failures.some((reason) => reason.includes("locked private-beta copy")), failures.join("; "));
 });
 
+test("home stop names the intended buyer in its first-viewport copy", () => {
+  const homeCopyChecks = FUNNEL_STOPS[0].copyChecks.map((check) => check.match);
+  assert.ok(
+    homeCopyChecks.includes("for site owners and founders"),
+    "home first-viewport copy must name the intended buyer: site owners and founders"
+  );
+  const audienceCheck = FUNNEL_STOPS[0].copyChecks.find((check) => check.match === "for site owners and founders");
+  assert.ok(
+    /intended buyer/.test(audienceCheck?.reason || ""),
+    `audience check reason must label the intent, got ${audienceCheck?.reason}`
+  );
+});
+
+test("walk fails when the intended-buyer copy is missing from home", () => {
+  const evidence = passingStopEvidence(FUNNEL_STOPS[0]);
+  const audienceCheck = FUNNEL_STOPS[0].copyChecks.find((check) => check.match === "for site owners and founders");
+  assert.ok(audienceCheck, "home stop must carry the intended-buyer copy check");
+  evidence.copyChecks = evidence.copyChecks
+    .filter((check) => check.match !== audienceCheck.match)
+    .map((check) => ({ ...check, present: true }));
+  const failures = evaluateStopEvidence(evidence);
+  assert.ok(failures.some((reason) => reason === audienceCheck.reason), failures.join("; "));
+});
+
 test("walk fails when an expected public proof link is missing", () => {
   const evidence = passingStopEvidence(FUNNEL_STOPS[0]);
   evidence.expectedLinks = evidence.expectedLinks.filter((link) => link.href !== "/demo");
@@ -129,7 +193,18 @@ test("walk fails when an internal link is broken", () => {
 
 test("walk fails on mobile when the page scrolls horizontally", () => {
   const evidence = passingStopEvidence(FUNNEL_STOPS[1], "mobile");
-  evidence.horizontalOverflow = { scrollWidth: 420, innerWidth: 390, overflow: true };
+  evidence.horizontalOverflow = { scrollWidth: 420, clientWidth: 390, innerWidth: 420, overflow: true };
+  const failures = evaluateStopEvidence(evidence);
+  assert.ok(failures.some((reason) => reason.includes("horizontal scroll")), failures.join("; "));
+});
+
+test("walk flags horizontal overflow even when innerWidth inflates to the overflowing width", () => {
+  // Regression lock for the funnel-walk false negative the scout caught on
+  // /demo: mobile browsers inflate window.innerWidth to the overflowing
+  // width (451 == scrollWidth), so the verdict must compare scrollWidth
+  // against the layout viewport clientWidth, never innerWidth.
+  const evidence = passingStopEvidence(FUNNEL_STOPS[1], "mobile");
+  evidence.horizontalOverflow = { scrollWidth: 451, clientWidth: 390, innerWidth: 451, overflow: true };
   const failures = evaluateStopEvidence(evidence);
   assert.ok(failures.some((reason) => reason.includes("horizontal scroll")), failures.join("; "));
 });

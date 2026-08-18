@@ -97,9 +97,9 @@ function WaitlistPage() {
         <h1 id="page-title">SEO Fix Kit</h1>
         <p className="coming-soon">Private beta access.</p>
         <p className="hero-text">
-          Evidence-backed SEO audits are opening by secure email link. Join the
-          private beta, run a proof audit, and only pay when the report finds
-          repairs worth doing.
+          Evidence-backed SEO audits for site owners and founders are opening by
+          secure email link. Join the private beta, run a proof audit, and only
+          pay when the report finds repairs worth doing.
         </p>
         <p className="hero-pricing">
           Audits are free in the beta. The paid SEO Fix Pack shows the Dodo checkout
@@ -4080,7 +4080,10 @@ function PageProof({ page }) {
         </div>
         <div>
           <dt>Rendered load</dt>
-          <dd>{formatLoadMs(facts.loadDurationMs)}</dd>
+          <dd>
+            {formatLoadMs(facts.loadDurationMs)}
+            {facts.loadSettled === false ? " · network idle not reached" : ""}
+          </dd>
         </div>
         <div>
           <dt>Schema</dt>
@@ -4115,7 +4118,10 @@ function PageSummaryTable({ pages }) {
             <span>{page.wordCount}</span>
             <span>{page.internalLinks}</span>
             <span>{(page.brokenLinks || 0) + (page.brokenImages || 0)}</span>
-            <span>{formatLoadMs(page.loadDurationMs)}</span>
+            <span>
+              {formatLoadMs(page.loadDurationMs)}
+              {page.loadSettled === false ? " · wait timed out" : ""}
+            </span>
             <span>{page.schemaTypes?.join(", ") || "none"}</span>
           </div>
         ))}
@@ -4150,7 +4156,10 @@ function PageSummaryTable({ pages }) {
               </div>
               <div>
                 <dt>Load</dt>
-                <dd>{formatLoadMs(page.loadDurationMs)}</dd>
+                <dd>
+                  {formatLoadMs(page.loadDurationMs)}
+                  {page.loadSettled === false ? " · wait timed out" : ""}
+                </dd>
               </div>
               <div>
                 <dt>Schema</dt>

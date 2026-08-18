@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import test from "node:test";
 import nodeVm from "node:vm";
+import { createAuditEngine } from "../../shared/audit-engine.js";
 import { auditUrl } from "../../server/audit/engine.js";
 import { renderedFixture } from "./audits.js";
 import {
@@ -53,46 +54,39 @@ test("public check URL validation rejects single-label hostnames before any rend
   assert.equal(validatePublicCheckUrl("https://8.8.8.8/").ok, true);
 });
 
-test("public check browser failures are mapped to friendly, actionable error copy", () => {
+test("engine failures map to visitor copy, never raw browser diagnostics", () => {
+  // Raw Playwright errors that used to reach the /check error box verbatim.
   assert.equal(
-    friendlyCheckError(new Error("net::ERR_NAME_NOT_RESOLVED at https://nonexistent-domain-xyzzy-12345.com/")),
-    "That domain could not be found. Check the spelling and try again."
+    friendlyCheckError("net::ERR_NAME_NOT_RESOLVED at https://not-a-url-at-all/"),
+    "That address does not resolve to a website. Check the spelling and try again."
   );
   assert.equal(
-    friendlyCheckError(new Error("net::ERR_CONNECTION_RESET at https://notaurl/")),
-    "The site reset the connection. It may be down or blocking automated browsers."
+    friendlyCheckError("net::ERR_CONNECTION_RESET at https://example.com/"),
+    "The site did not respond. It may be down, blocking checkers, or the address may be wrong. Try another public URL."
   );
   assert.equal(
-    friendlyCheckError(new Error("net::ERR_CONNECTION_REFUSED at https://down.site/")),
-    "The site refused the connection. It may be down or blocking automated browsers."
+    friendlyCheckError("net::ERR_CONNECTION_TIMED_OUT at https://slow.example.com/"),
+    "The site did not respond. It may be down, blocking checkers, or the address may be wrong. Try another public URL."
   );
   assert.equal(
-    friendlyCheckError(new Error("net::ERR_TIMED_OUT at https://slow.site/")),
-    "The connection timed out before the page could load. Try again later or check the address."
+    friendlyCheckError("net::ERR_CERT_AUTHORITY_INVALID at https://bad-cert.example.com/"),
+    "The site has a certificate problem, so the check browser could not open it securely. Try another public URL."
   );
   assert.equal(
-    friendlyCheckError(new Error("net::ERR_CONNECTION_TIMED_OUT at https://slow.site/")),
-    "The connection timed out before the page could load. Try again later or check the address."
+    friendlyCheckError("net::ERR_ABORTED at https://example.com/"),
+    "The page did not finish loading. Try again in a moment."
   );
+  // Any other net::ERR class still gets a human line instead of the protocol dump.
   assert.equal(
-    friendlyCheckError(new Error("net::ERR_SSL_PROTOCOL_ERROR at https://bad-tls.site/")),
-    "The site did not serve a valid secure connection. Check that the address is spelled correctly."
+    friendlyCheckError("net::ERR_TOO_MANY_REDIRECTS at https://loopy.example.com/"),
+    "The page could not be loaded from that address. Check the URL and try again."
   );
-  assert.equal(
-    friendlyCheckError(new Error("net::ERR_ABORTED")),
-    "The page load was aborted before it finished. Try again in a moment."
-  );
-  assert.equal(
-    friendlyCheckError(new Error("net::ERR_UNKNOWN_WEIRD at https://x.example/")),
-    "Could not open that page in a real browser. The site may be down, blocking automated browsers, or the address may be wrong."
-  );
-  assert.equal(
-    friendlyCheckError(new Error("page.goto: Timeout 25000ms exceeded.")),
-    "The page took too long to load. Try again later or check the address."
-  );
-  // Unknown failures keep the previous truncated-message behavior.
-  assert.equal(friendlyCheckError(new Error("some other engine failure")), "some other engine failure");
-  assert.equal(friendlyCheckError(new Error()), "The check failed. Try another public URL.");
+  // Unmatched engine wording is preserved so no failure mode is hidden.
+  const engineWording = "PageSpeed Insights returned HTTP 500.";
+  assert.equal(friendlyCheckError(engineWording), engineWording);
+  // Unknown input keeps the generic fallback and stays bounded.
+  const fallback = friendlyCheckError("");
+  assert.equal(fallback, "The check failed. Try another public URL.");
 });
 
 test("public check page validates the URL client-side before any network round trip", () => {
@@ -216,6 +210,80 @@ test("public check page is searchable and hands off into private access", () => 
   assert.doesNotMatch(html, /noindex/i, "the entry page must stay searchable");
 });
 
+// Dogfood 6344a32f91af: tighten the /check meta description into the
+// 70-165 char range so search snippets do not truncate the no-ranking
+// boundary. The WebPage JSON-LD description ships the same copy so the
+// structured-data surface stays aligned with the visible meta tag.
+test("public check meta description and WebPage JSON-LD stay within the 70-165 char range and share the no-ranking promise", () => {
+  const html = checkHtml(origin);
+  const metaMatch = html.match(/<meta name="description" content="([^"]*)" \/>/);
+  assert.ok(metaMatch, "the page must emit a <meta name=\"description\"> tag");
+  const description = metaMatch[1];
+  assert.ok(description.length >= 70, `meta description is too short (${description.length} chars); risk of thin-snippet penalty`);
+  assert.ok(description.length <= 165, `meta description is too long (${description.length} chars); search snippets will truncate`);
+  assert.match(description, /No account, no ranking promises\./, "the no-ranking boundary must survive the trim");
+  assert.match(description, /browser-rendered/, "the differentiator must survive the trim");
+  assert.match(description, /guarded false positives/, "the guarded false-positives promise must survive the trim");
+
+  const blocks = jsonLdBlocks(html);
+  const graph = blocks.flatMap((block) => (Array.isArray(block["@graph"]) ? block["@graph"] : [block]));
+  const webpage = graph.find((node) => node["@type"] === "WebPage");
+  assert.ok(webpage, "WebPage JSON-LD is present");
+  const jsonLdDescription = webpage.description;
+  assert.ok(jsonLdDescription.length >= 70, `JSON-LD description is too short (${jsonLdDescription.length} chars)`);
+  assert.ok(jsonLdDescription.length <= 220, `JSON-LD description is too long (${jsonLdDescription.length} chars)`);
+  assert.equal(
+    jsonLdDescription,
+    description,
+    "the WebPage JSON-LD description must match the meta description so the structured surface cannot drift from the visible snippet"
+  );
+  assert.match(jsonLdDescription, /No account, no ranking promises\./, "the JSON-LD description also keeps the no-ranking boundary");
+});
+
+// Regression: the /check page must not impose a 320px minimum width on the
+// document. The old body { min-width: 320px } floor made every viewport
+// narrower than 320px overflow horizontally by exactly the missing amount.
+test("public check page has no 320px floor and reflows below 320px", async () => {
+  const html = checkHtml(origin);
+  assert.doesNotMatch(html, /body\s*\{\s*margin:\s*0;\s*min-width:\s*320px\s*\}/, "body must not force a 320px floor");
+
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch({ headless: true });
+  try {
+    for (const width of [240, 200, 180]) {
+      const page = await browser.newPage({ viewport: { width, height: 844 }, isMobile: true });
+      await page.setContent(html, { waitUntil: "domcontentloaded" });
+      const measured = await page.evaluate(() => {
+        const root = document.documentElement;
+        return {
+          scrollWidth: root.scrollWidth,
+          clientWidth: root.clientWidth,
+          overflowingItems: [...document.querySelectorAll("*")]
+            .filter((el) => el.scrollWidth > el.clientWidth + 1)
+            .map((el) => ({
+              tag: el.tagName,
+              cls: String(el.className || "").slice(0, 60),
+              scrollWidth: el.scrollWidth,
+              clientWidth: el.clientWidth
+            }))
+        };
+      });
+      assert.ok(
+        measured.scrollWidth <= measured.clientWidth,
+        `document overflow at ${width}px: scrollWidth=${measured.scrollWidth}/clientWidth=${measured.clientWidth} overflowing=${JSON.stringify(measured.overflowingItems)}`
+      );
+      assert.equal(
+        measured.overflowingItems.length,
+        0,
+        `elements overflow the viewport at ${width}px: ${JSON.stringify(measured.overflowingItems)}`
+      );
+      await page.close();
+    }
+  } finally {
+    await browser.close();
+  }
+});
+
 test("public check page labels generated repair markup as a proposed change, never an exact snippet", () => {
   const html = checkHtml(origin);
   assert.doesNotMatch(html, /exact snippet/i, "the page must not call generated markup an exact snippet");
@@ -260,10 +328,12 @@ test("public check page carries WebPage and truthful FAQ JSON-LD", () => {
   const noPromiseAnswer = faq.mainEntity.find((question) => question.name === "Does this check promise rankings or traffic?");
   assert.match(noPromiseAnswer.acceptedAnswer.text, /does not guarantee rankings, traffic, indexing, revenue, AI citations/i);
   const storedAnswer = faq.mainEntity.find((question) => question.name === "Is anything about my check stored?");
-  assert.match(storedAnswer.acceptedAnswer.text, /nothing about your check is saved/i);
+  assert.match(storedAnswer.acceptedAnswer.text, /no report or URL from your check is stored/i);
+  assert.doesNotMatch(storedAnswer.acceptedAnswer.text, /nothing about your check is saved/i, "JSON-LD must not resurrect the pre-#88 overpromise");
 
   // Every schema answer is a claim a visitor can read in the rendered page.
   const html = checkHtml(origin);
+  assert.doesNotMatch(html, /nothing about your check is saved/i, "visible FAQ must not resurrect the pre-#88 overpromise");
   for (const question of faq.mainEntity) {
     assert.match(html, new RegExp(escapeRegex(question.name)), `visible page shows the question: ${question.name}`);
     assert.match(html, new RegExp(escapeRegex(question.acceptedAnswer.text.slice(0, 60))), `visible page backs the answer for: ${question.name}`);
@@ -334,6 +404,90 @@ test("public check output is verbatim engine output for the public test page", a
   }
 });
 
+// Regression: the public /check response is a direct mapping of the engine
+// report, so same-origin Cloudflare origin hiccups (522 connection timed out,
+// 523 origin unreachable, 524 origin did not answer in time) must never reach
+// the anonymous surface as critical "broken internal links" findings. The
+// report maps verbatim: if the engine emitted them, /check would show them —
+// this pins the surface, not just the classifier.
+test("public check never reports same-origin 522/523/524 link failures as critical broken links", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      miniFakeBrowser({
+        finalUrl: "https://public.example/",
+        title: "Proof page with useful content",
+        description: "A proof-backed page.",
+        canonical: "https://public.example/",
+        hreflangs: [],
+        h1s: ["Proof page"],
+        headings: [{ level: "h1", text: "Proof page" }],
+        links: [
+          { text: "About", href: "https://public.example/about", rawHref: "/about" },
+          { text: "Contact", href: "https://public.example/contact", rawHref: "/contact" },
+          { text: "Pricing", href: "https://public.example/pricing", rawHref: "/pricing" },
+          { text: "Reference", href: "https://other.example/ref", rawHref: "https://other.example/ref" }
+        ],
+        internalLinks: [
+          { text: "About", href: "https://public.example/about", rawHref: "/about" },
+          { text: "Contact", href: "https://public.example/contact", rawHref: "/contact" },
+          { text: "Pricing", href: "https://public.example/pricing", rawHref: "/pricing" }
+        ],
+        externalLinks: [
+          { text: "Reference", href: "https://other.example/ref", rawHref: "https://other.example/ref" }
+        ],
+        images: [],
+        imagesMissingAlt: [],
+        scripts: [],
+        stylesheets: [],
+        openGraph: {},
+        twitter: {},
+        schemaTypes: [],
+        schemaErrors: [],
+        navigationTiming: {},
+        resourceTimings: [],
+        resourceTimingsTotal: 0,
+        wordCount: 18,
+        bodyText: "Proof page with useful content.",
+        bodySample: "Proof page with useful content."
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      const originFailures = {
+        "https://public.example/about": 523,
+        "https://public.example/contact": 522,
+        "https://public.example/pricing": 524
+      };
+      if (originFailures[url]) {
+        return new Response("origin not reachable", { status: originFailures[url], headers: { "content-type": "text/html" } });
+      }
+      if (url === "https://other.example/ref") {
+        return new Response("origin unreachable", { status: 523, headers: { "content-type": "text/html" } });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const payload = buildPublicCheckResponse(report);
+
+  assert.equal(payload.issues.critical, 0, "a scan-time origin hiccup must not surface as a critical on /check");
+  assert.ok(
+    !payload.findings.some((finding) => /Broken internal links/.test(finding.title || "")),
+    "/check must not list a broken-internal-links finding for same-origin 522/523/524"
+  );
+
+  const external = payload.findings.find((finding) => /Broken external links/.test(finding.title || ""));
+  assert.ok(external, "an external origin failure is still a real observation on /check");
+  assert.equal(external.severity, "warning");
+  assert.match(external.evidence, /other\.example\/ref returned 523/, "external 523 stays evidenced");
+});
+
 // A minimal report in the exact shape the shared engine produces, used to
 // pin the response mapping without a browser.
 function makeEngineShapedReport() {
@@ -387,6 +541,26 @@ function makeEngineShapedReport() {
         snippet: "<title>Rendered SaaS page with real content</title>"
       }
     ]
+  };
+}
+
+// Minimal browser double for the shared engine: only the render contract the
+// engine needs (newPage -> goto -> evaluate -> close), returning the supplied
+// rendered facts. No interception hooks are installed when route/on are absent.
+function miniFakeBrowser(renderedFacts) {
+  return {
+    async newPage() {
+      return {
+        async goto() {
+          return { status: () => 200 };
+        },
+        async evaluate() {
+          return renderedFacts;
+        },
+        async close() {}
+      };
+    },
+    async close() {}
   };
 }
 

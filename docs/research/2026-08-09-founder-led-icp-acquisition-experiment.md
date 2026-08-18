@@ -44,6 +44,71 @@ Re-verified live 2026-08-12 (before this window starts): `npm run audit:live-pro
 `/methodology`, `/packages`, `/llms.txt`, `/sitemap.xml`, www→apex 301s); homepage bundle serves
 the `a.check-entry-cta` "Check one page now" link to `/check`. Both preconditions hold today.
 
+Re-verified 2026-08-14 (lane-1 run, evidence in `.lane/reports/lane1-icp-precondition-regression-20260814.md`):
+**preconditions are NOT green today — do not start the seven-day window yet.** `npm run
+audit:live-promise` fails on 9 of 16 surfaces against the deployed site: `/check` no longer
+carries the truthful no-storage disclosure ("No report or URL is stored; only short-lived
+anonymous rate-limit counters" is absent), `/demo` `/methodology` `/packages` lost their
+footer terms/privacy links, `/methodology` lost its clickable CTA into `/check`, `/support`
+`/terms` `/privacy` lost their cross-links to `/check`, `POST /api/public-check` returns HTTP
+422 instead of 400 for a non-http scheme, and `www.seofixkit.com/favicon.svg` serves 200
+instead of the promised 301 onto the apex host. Root cause is outside the repo: the fleet
+release deployed a stale Worker + assets bundle on 2026-08-13 22:40 (its own log says
+"No updated asset files to upload" while recording `assets/index-Dd3Lei8e.js` as the marker;
+the live site serves the older `assets/index-DX7O9nYF.js`). The repo source is correct —
+`npm run check` and the offline spot-check lock are green on main — so this is a deploy
+machinery regression, not a copy drift. The founder should re-verify (`npm run
+audit:live-promise`) after the next successful fleet release that actually swaps the live
+Worker, before sending invitation #1. The known-limitation item (false 522/523 criticals,
+fabricated snippets) is closed since 2026-08-12 (PR #102 shipped); treat any reappearance as
+a fresh objection per the rules below.
+
+Re-verified 2026-08-15 (lane-1 run, evidence in `.lane/reports/lane1-icp-precondition-green-20260815.md`):
+**preconditions are GREEN again — the seven-day window may start.** The fleet release that
+swapped the live Worker to a current bundle landed 2026-08-15 07:40 UTC (`release-state-seo-fix-kit.json`:
+sha `ea6ef33`, marker `assets/index-9gz2OE-i.js`, deployment `fb50029a-26d5-4924-b378-d7598012bae4`),
+and `npm run audit:live-promise` is 20/20 green against the deployed site. Every surface that
+failed on 2026-08-14 now serves the current copy: `/check` carries the truthful no-storage
+disclosure again, `/demo` `/methodology` `/packages` have their footer terms/privacy links,
+`/methodology` has its clickable CTA into `/check`, `/support` `/terms` `/privacy` cross-link
+to `/check` again, `POST /api/public-check` returns 400 for a non-http scheme, and
+`www.seofixkit.com/favicon.svg` 301s onto the apex host; the live homepage serves
+`assets/index-9gz2OE-i.js` matching the recorded release marker. The 2026-08-14 root cause
+(stale Worker + assets bundle) is resolved. The founder starts the window by sending
+invitation #1 and filling `window_start` below — outreach remains founder-owned.
+
+Re-verified 2026-08-17 (lane-1 run, evidence in `.lane/reports/lane1-icp-precondition-reverify-20260817.md`):
+**preconditions remain GREEN — the seven-day window is still open to start.** The fleet release
+recorded at 2026-08-17 06:40 UTC (`release-state-seo-fix-kit.json`: sha `36fc4e4`, marker
+`assets/index-9gz2OE-i.js`, deployment `26c18c1a-f589-4133-b993-46033fb28c3d`,
+version `99abe604-c484-41de-ba8f-3d60e6cfeb06`) is the same bundle marker that 2026-08-15
+declared current; the live homepage serves `assets/index-9gz2OE-i.js` matching the recorded
+release marker, so the no-bundle-drift invariant from 2026-08-14's root cause still holds.
+`npm run audit:live-promise` against `https://seofixkit.com` is **20/20 green** (16 public
+surfaces + 4 www→apex redirect surfaces); the offline spot-check lock (`npm run
+test:live-promise-spot-check`) is 18/18 green on current main. Direct curl confirmation of
+every surface that failed the 2026-08-14 check:
+
+| Surface (2026-08-14 failure) | 2026-08-17 live result |
+|---|---|
+| `/check` no-storage disclosure | "No report or URL is stored: only short-lived anonymous rate-limit counters …" present (3 occurrences) |
+| `/demo` footer terms/privacy | `https://seofixkit.com/terms` + `/privacy` links present (2) |
+| `/methodology` CTA into `/check` | `/check` link present (3) |
+| `/methodology` footer terms/privacy | present |
+| `/packages` footer terms/privacy | present (2) |
+| `/support` link to `/check` | present |
+| `/terms` link to `/check` | present |
+| `/privacy` links | present (6) |
+| `POST /api/public-check` ftp:// | returns HTTP 400 |
+| `www.seofixkit.com/favicon.svg` | 301 → `https://seofixkit.com/favicon.svg` |
+| Homepage bundle marker | `assets/index-9gz2OE-i.js` matches |
+
+Outreach remains founder-owned (per the experiment's acceptance criteria the founder sends
+invitations and records rows); no invitations were sent by this run. `window_start` stays
+unfilled in the experiment log until the founder sends invitation #1. The resume path from
+the 2026-08-15 GREEN entry still applies: send invitation #1, then fill `window_start` and
+prospect-log row 1.
+
 ## Numeric gates (seven-day window)
 
 Window starts on the day the first invitation is sent. Record `window_start` and `window_end`

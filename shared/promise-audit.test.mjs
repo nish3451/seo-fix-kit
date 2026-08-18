@@ -53,6 +53,7 @@ const reportsSource = readFileSync(new URL("../worker/routes/reports.js", import
 const reportDataSource = readFileSync(new URL("../worker/lib/report-data.js", import.meta.url), "utf8");
 const serverEngineSource = readFileSync(new URL("../server/audit/engine.js", import.meta.url), "utf8");
 const dbSource = readFileSync(new URL("../worker/lib/db.js", import.meta.url), "utf8");
+const healthSource = readFileSync(new URL("../worker/routes/health.js", import.meta.url), "utf8");
 const largeRenderedCrawlSource = readFileSync(new URL("./large-rendered-crawl.js", import.meta.url), "utf8");
 const migrationsDir = new URL("../migrations", import.meta.url);
 const allMigrations = readdirSync(migrationsDir)
@@ -108,8 +109,12 @@ test("README weekly monitor promise matches the schedule interval", () => {
 });
 
 test("README public page promise matches Worker routing and copy", () => {
-  assert.match(liveSection, /Public `\/demo`, `\/methodology`, and `\/packages` pages showing the proof loop, limits, and package ladder before payment/i);
-  for (const path of ["/demo", "/methodology", "/packages", "/check"]) {
+  assert.match(liveSection, /Public `\/demo`, `\/methodology`, `\/packages`, and `\/proof` pages showing the proof loop, limits, package ladder, and a real before\/after repair receipt/i);
+  assert.match(liveSection, /Intent-matching public landing pages at `\/small-business-seo-audit`, `\/rendered-vs-static-seo-audit`, and `\/ai-answer-readiness`/i);
+  for (const path of ["/demo", "/methodology", "/packages", "/check", "/proof"]) {
+    assert.ok(workerIndex.includes(`url.pathname === "${path}"`), `Worker must route ${path}`);
+  }
+  for (const path of ["/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness"]) {
     assert.ok(workerIndex.includes(`url.pathname === "${path}"`), `Worker must route ${path}`);
   }
   assert.match(pagesSource, /FIX_PACK_PUBLIC_PRICE/, "packages page price constant exists");
@@ -156,6 +161,9 @@ test("README Cloudflare path routes are actually registered in the Worker", () =
     "/demo",
     "/methodology",
     "/packages",
+    "/small-business-seo-audit",
+    "/rendered-vs-static-seo-audit",
+    "/ai-answer-readiness",
     "/check",
     "/api/public-check",
     "/beta"
@@ -177,6 +185,28 @@ test("README abuse-control claim matches D1 buckets for every listed surface", (
   }
 });
 
+test("quota target buckets never store a plaintext hostname, public or private", () => {
+  const publicCheckSource = readFileSync(new URL("../worker/routes/public-check.js", import.meta.url), "utf8");
+  // The anonymous /check target buckets hash the checked host (public surface).
+  assert.match(
+    publicCheckSource,
+    /sha256Hex\(String\(targetHost[\s\S]*\)\.slice\(0, 32\)/,
+    "the anonymous /check target bucket must store a host hash, never plaintext"
+  );
+  // The private audit target bucket hashes the audited host the same way, so
+  // the shared audit_usage table never holds a readable target hostname.
+  assert.match(
+    auditsSource,
+    /\(await sha256Hex\(targetHost\)\)\.slice\(0, 32\)/,
+    "the private audit target bucket must store a host hash, never plaintext"
+  );
+  assert.doesNotMatch(
+    auditsSource,
+    /targetKey = targetHost\.replace/,
+    "the private audit target bucket must not keep the plaintext hostname key"
+  );
+});
+
 test("README anonymous one-page check claim matches the Worker, page, and rate limits", () => {
   assert.match(liveSection, /Public anonymous one-page URL check at `\/check` and `POST \/api\/public-check`/i);
   assert.match(liveSection, /per-network and per-site rate limits with hashed, short-lived counters/i);
@@ -190,7 +220,7 @@ test("README anonymous one-page check claim matches the Worker, page, and rate l
   assert.match(publicCheckSource, /opens the page in a real browser|open the page in a real browser/i, "the public check copy states real browser rendering");
   assert.match(publicCheckSource, /check:target-day/, "the check is rate-limited per site");
   assert.match(publicCheckSource, /does not guarantee rankings, traffic, indexing, revenue, AI citations/i, "the public check keeps the no-ranking boundary");
-  assert.match(wranglerJsonc, /"\/check"/, "/check is served by the Worker before SPA assets");
+  assert.match(wranglerJsonc, /"run_worker_first":\s*true/, "/check (and every other path) is served by the Worker before SPA assets");
 });
 
 test("README homepage anonymous-check claim matches the CTA beside the email form", () => {
@@ -313,9 +343,12 @@ test("README repair-proof-receipt claim keeps publishing and ranking disclaimers
 // pack, PSI, waterfall, imports, platform, briefs, queue/board/packs, feed,
 // proposals, D1 tables, and dashboard surfaces) to the code that backs them.
 
-test("README rendered-audit claims match Playwright, static-vs-rendered, and evidence-backed findings", () => {
-  assert.match(liveSection, /Rendered-page audit with Playwright/i);
-  assert.match(serverEngineSource, /launchAuditBrowser/, "server audit uses the Playwright browser launcher");
+test("README rendered-audit claims match the Worker browser runtime and local Playwright adapter", () => {
+  assert.match(liveSection, /Rendered-page audit powered by Cloudflare Browser Run in the deployed Worker and Playwright for local development/i);
+  assert.match(auditsSource, /import puppeteer from "@cloudflare\/puppeteer"/, "deployed Worker renders via the Browser Run puppeteer API");
+  assert.match(auditsSource, /puppeteer\.launch\(env\.BROWSER\)/, "deployed Worker launches Browser Run through the BROWSER binding");
+  assert.match(serverEngineSource, /launchAuditBrowser/, "server audit uses the Playwright browser launcher for local development");
+  assert.match(serverEngineSource, /playwright-browser\.js/, "local browser adapter is the Playwright wrapper");
   assert.match(liveSection, /Static HTML vs rendered DOM comparison/i);
   assert.match(auditEngineSource, /staticFacts\.h1s\.length === 0 && rendered\.h1s\.length > 0/, "engine compares static HTML with rendered DOM");
   assert.match(liveSection, /Evidence-backed findings/i);
@@ -338,6 +371,7 @@ test("README crawl-intelligence claim matches every listed signal", () => {
   assert.match(liveSection, /near-duplicate content/i);
   assert.match(liveSection, /parameterized internal URLs/i);
   assert.match(liveSection, /keyword-cannibalization heuristics/i);
+  assert.match(crawlIntelligenceSource, /duplicateTitles/, "duplicate titles checked");
   assert.match(crawlIntelligenceSource, /duplicateDescriptions/, "duplicate descriptions checked");
   assert.match(crawlIntelligenceSource, /duplicateH1s/, "duplicate H1s checked");
   assert.match(crawlIntelligenceSource, /duplicateContentPairs/, "near-duplicate content checked");
@@ -719,4 +753,54 @@ test("README retention claim keeps cleanup for expired reports, sessions, and qu
   assert.match(dbSource, /SELECT id, report_json FROM audit_reports/, "expired report rows are selected for cleanup");
   assert.match(dbSource, /DELETE FROM beta_sessions/, "expired sessions are cleaned");
   assert.match(dbSource, /DELETE FROM audit_usage/, "quota buckets are cleaned");
+});
+
+// Lane-1 2026-08-15 promise-audit pass. The offline lock above and the live
+// spot-check in scripts/live-promise-spot-check.mjs were both green on this
+// date; these pins lock the remaining sub-claims that had no regression pin of
+// their own, so the README cannot silently drift into overclaiming them.
+
+test("README deep-health claim stays runtime/config/schema scoped and public-safe", () => {
+  assert.match(readme, /\/api\/deep-health/);
+  assert.match(readme, /public-safe readiness check/);
+  assert.match(healthSource, /scope: "runtime_config_and_schema_readiness"/, "deep-health reports the documented scope");
+  assert.doesNotMatch(healthSource, /SELECT \* FROM/, "deep-health must not expose table contents");
+});
+
+test("README packages page claim keeps the config-gated Proof Monitoring price and boundary", () => {
+  assert.match(liveSection, /Public `\/demo`, `\/methodology`, `\/packages`, and `\/proof` pages showing the proof loop, limits, package ladder, and a real before\/after repair receipt/i);
+  assert.match(pagesSource, /\$49-\$99\/mo target/, "Proof Monitoring shows a target price, not a live price");
+  assert.match(pagesSource, /Config-gated subscription/, "Proof Monitoring is labeled config-gated");
+  assert.match(pagesSource, /No ranking or traffic guarantee/, "packages keeps the no-ranking promise");
+  // 2026-08-15 audit: the monitoring offer stays visible in private billing as
+  // a config-gated card (shared/offers.js catalog + src/App.jsx offer panel);
+  // only its checkout is gated. The public page must keep saying checkout is
+  // gated, never that the offer "only appears" when configured.
+  assert.match(
+    pagesSource,
+    /Checkout only opens when the Dodo subscription product and webhook entitlement sync are configured; until then it stays a config-gated offer in private billing/,
+    "packages must keep the config-gated checkout boundary"
+  );
+  assert.doesNotMatch(
+    pagesSource,
+    /Only appears in private billing when the Dodo subscription product and webhook entitlement sync are configured/,
+    "packages must not claim Proof Monitoring only appears in billing when configured"
+  );
+});
+
+test("README anonymous-check claim keeps the deployed copy locked to the live spot-check", () => {
+  const spotCheck = readFileSync(new URL("../scripts/live-promise-spot-check.mjs", import.meta.url), "utf8");
+  for (const surface of [
+    { path: "/check", copy: "Check One Page for SEO Proof" },
+    { path: "/check", copy: "No account, no email, no stored report" },
+    { path: "/demo", copy: "Do not fix what is not broken." },
+    { path: "/demo", copy: "an exact snippet when the engine can generate one" },
+    { path: "/methodology", copy: "Limits we state up front" },
+    { path: "/packages", copy: "Package ladder" },
+    { path: "/packages", copy: "$99.00 one-time" },
+    { path: "/packages", copy: "Checkout only opens when the Dodo subscription product and webhook entitlement sync are configured" }
+  ]) {
+    assert.match(spotCheck, new RegExp(`path: "${surface.path}"`), `spot-check must still cover ${surface.path}`);
+    assert.match(spotCheck, new RegExp(surface.copy.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `spot-check must still assert the ${surface.path} copy "${surface.copy}"`);
+  }
 });
