@@ -1,0 +1,231 @@
+SEO Fix Kit — approved listing copy for high-intent software venues
+(exact, paste-ready text; every claim traces to https://seofixkit.com live
+homepage, /llms.txt, /packages, /demo, and /methodology, verified 2026-08-10.
+Do not add ranking, traffic, indexing, revenue, or AI-citation promises; do not
+claim anonymous multi-page audits, live answer-engine sampling, completed
+50,000-page rendered validation, auto-publishing, or replacement of Ahrefs /
+Semrush.)
+
+================================================================
+MASTER COPY (use for any venue)
+================================================================
+
+- Name: SEO Fix Kit
+- Website URL: https://seofixkit.com
+- Proof links to include (required by the backlog acceptance):
+    https://seofixkit.com/demo
+    https://seofixkit.com/methodology
+- Conversion links (include where the venue allows more than one link):
+    https://seofixkit.com/check
+    https://seofixkit.com/packages
+
+- One-line description:
+  SEO Fix Kit is a proof-backed SEO repair tool for sites that need clear
+  fixes, not generic audit homework.
+
+- Short description (<=25 words):
+  Paste a public URL and see rendered-vs-static proof, guarded false
+  positives, and actionable findings — plus a paid one-pass repair workflow.
+
+- Medium description (<=50 words):
+  SEO Fix Kit is a private-beta, self-serve SEO audit and paid Fix Pack
+  workflow. It opens a page in a real browser, compares the raw HTML with the
+  rendered page, and shows the evidence. Anyone can check one public page
+  anonymously; full reports and the repair queue require a secure access
+  link.
+
+- Long description (~100 words, paragraphs below are the canonical blocks):
+  SEO Fix Kit is a proof-backed SEO repair tool. It renders a page in a real
+  browser, compares the static HTML with the rendered DOM, and shows the
+  evidence for each finding — including a guarded false-positive section — so
+  a report explains what is wrong, why, and what to fix, instead of generic
+  audit homework.
+
+  The public proof loop is visible before any signup: anyone can check one
+  public page URL anonymously at /check, and the /demo and /methodology pages
+  show how proof is produced and where it stops. Verified beta sessions can
+  run rate-limited multi-page audits with crawl-depth tiers up to 1,000 pages,
+  sitemap inventory up to 50,000 discovered URLs, saved reports, and a
+  private repair queue with approval-first actions and fixed-rerun proof.
+
+  The live paid offer is intentionally narrow: one proof-backed repair pass
+  tied to one report, plus one rerun after fixes, at $99.00 one-time in beta;
+  Dodo checkout is the final price source at payment time. SEO Fix Kit makes
+  no ranking or traffic guarantee.
+
+- Features (pick truthful bullets; all trace to llms.txt):
+  - Anonymous one-page check: real-browser rendering, static-vs-rendered
+    proof, guarded false positives, no account, no stored report.
+  - Private rate-limited audits with self-serve crawl-depth tiers up to
+    1,000 pages per queued audit.
+  - Robots.txt and sitemap crawl inventory up to 50,000 discovered URLs.
+  - Rendered crawl intelligence: internal link depth, low-inbound pages,
+    sitemap-sample orphan candidates, duplicate titles/descriptions/H1s,
+    near-duplicate content, parameterized URLs, keyword-cannibalization
+    heuristics.
+  - Technical validation: broken links, redirecting internal links, broken
+    images, canonical reachability, hreflang mistakes, invalid JSON-LD,
+    HTTPS/HSTS, large assets, slow rendered loads.
+  - PageSpeed Insights / Lighthouse proof with mobile score and Core Web
+    Vitals lab metrics.
+  - Browser resource-waterfall proof with slow/heavy/render-blocking
+    evidence.
+  - Competitor homepage benchmarking, backlink import audit, local SEO
+    audit, keyword/rank import audit, WordPress/ecommerce platform audit
+    (proof from supplied or public data only).
+  - Proof-derived AI Answer Readiness / SEO-GEO readiness checks (site-proof
+    only; no live AI-engine sampling or citation monitoring).
+  - Private repair queue: proof, acceptance checks, approval-first draft
+    actions, owner-approved implementation packs, fixed-rerun proof
+    receipts.
+  - Draft-only growth briefs (no auto-publishing, no ranking promises).
+  - Developer API (/v1/audits) and audit/repair-action lifecycle webhooks.
+
+- Pricing (state accurately; Dodo checkout is authoritative):
+  Private beta: audits are free in beta; full audits and the repair queue
+  require a secure access link. Paid: SEO Fix Pack — one proof-backed repair
+  pass tied to one report, plus one rerun after fixes — $99.00 one-time
+  during beta; the visible checkout price is authoritative at payment time.
+  Proof Monitoring is a config-gated roadmap offer; do not present it as
+  available.
+
+- Category / tags (match each venue's vocabulary; see per-venue notes):
+  SEO audit, SEO tools, technical SEO, SEO repair, SEO site audit, website
+  audit, AI readiness, GEO, rendered audit, proof-backed SEO.
+
+- Cost / license (AlternativeTo style): Freemium; Proprietary. Platform: Web.
+
+- Honesty lines to keep visible (venue permitting):
+  - "No ranking or traffic guarantee."
+  - "Anonymous audits are one page only; full audits require private beta
+    access."
+  - "AI Answer Readiness is derived from your site's rendered content; SEO
+    Fix Kit does not monitor live AI-engine answers or citations."
+
+================================================================
+PER-VENUE FIELDS
+================================================================
+
+--- AlternativeTo ("Suggest new application") ---
+- Name: SEO Fix Kit
+- Website URL: https://seofixkit.com
+- Platforms: Web
+- Cost / License: Freemium, Proprietary
+- Description (full): use the Medium or Long description above verbatim.
+- Tags (existing AlternativeTo vocabulary, verify live before submitting):
+  SEO Tools, Website Audit, Technical SEO, Marketing
+  (check the venue's own tag set at submission time and use its spellings)
+- Links: https://seofixkit.com/demo, https://seofixkit.com/methodology
+- Submit at: https://alternativeto.net (sign up, verify email, User icon →
+  "Suggest new application"). Manual only; optional priority review is a
+  NEEDS-NISH payment, not required.
+
+--- SaaSHub (submit a product) ---
+- Name: SEO Fix Kit
+- Tagline: Proof-backed SEO repair for sites that need clear fixes.
+- Description: use the Medium or Long description above verbatim.
+- Website URL: https://seofixkit.com
+- Category: SEO Tools / SEO Auditing (use the venue's category list at
+  submission time; seo-auditing and seo-monitoring categories exist on
+  SaaSHub's own filters)
+- Pricing: Free beta; $99.00 one-time Fix Pack (state "one proof-backed
+  repair pass plus one rerun; checkout price is final")
+- Submit at: https://saashub.com/submit (manual)
+
+--- G2 / Capterra / GetApp (vendor profiles) ---
+- Company: SEO Fix Kit (nish3451 / sole founder; use the business name that
+  matches the Dodo checkout entity at submission time)
+- Website: https://seofixkit.com
+- Product name: SEO Fix Kit
+- Category: SEO Tools / SEO Audit Software (G2: "SEO Tools" category; use
+  each venue's category picker)
+- Description: use the Long description above.
+- Pricing: Free tier (beta) + $99.00 one-time Fix Pack; "pricing is
+  authoritative at checkout".
+- Claim route: https://www.g2.com/products/new → business-email/LinkedIn
+  validation → G2 Digital Markets account covers G2, Capterra, and GetApp
+  (https://app.g2digitalmarkets.com/login). Manual only.
+- Do NOT post reviews from the founder account; profiles only.
+
+--- SaaS Hive (founder launch) ---
+- Route: https://saashive.com/launch-product → https://saashive.com/join-as-founder
+- Name: SEO Fix Kit
+- Tagline: Proof-backed SEO repair tool — clear fixes, not audit homework.
+- Description: use the Long description above.
+- Links: https://seofixkit.com/demo, https://seofixkit.com/methodology
+- Category: SEO Tools (use their category list)
+- Note: permanent structured product pages; free and paid founder plans
+  exist. Manual founder signup only.
+
+--- GeoIndex by Geodes (add a vendor / request an edit) ---
+- Route: https://www.geodes.ai/geo-index-listing (contact form; email and
+  WhatsApp also listed on the page)
+- Name: SEO Fix Kit
+- Category: GEO/AEO Optimization Tools (directory filters include
+  "GEO/AEO Optimization Tools" and "AI Visibility Tracking & Monitoring";
+  SEO Fix Kit fits the optimization side — site-proof AI Answer Readiness,
+  NOT live citation monitoring)
+- One-line description: Proof-backed SEO repair: rendered vs static HTML
+  proof, guarded false positives, and actionable fixes — with site-proof AI
+  Answer Readiness checks (no live AI-engine sampling).
+- Description (full): use the Long description above verbatim.
+- Links: https://seofixkit.com/demo, https://seofixkit.com/methodology,
+  https://seofixkit.com/check
+- Honesty lines to keep visible: "AI Answer Readiness is derived from your
+  site's rendered content; SEO Fix Kit does not monitor live AI-engine
+  answers or citations."
+- Note: directory evaluated by the Geodes team (ToS §4); acceptance not
+  guaranteed. Manual submission only; no payment required to request a
+  listing.
+
+--- Directree (free "Add Listing"; added 2026-08-12) ---
+- Route: https://www.directree.io/submit (free account first, verified live
+  2026-08-12; ~30-second AI listing or full claim editor; "No pay-to-rank";
+  verified listings earn a do-follow backlink)
+- Name: SEO Fix Kit
+- Website URL: https://seofixkit.com
+- One-line description: Proof-backed SEO repair: rendered vs static HTML
+  proof, guarded false positives, and actionable fixes — clear fixes, not
+  generic audit homework.
+- Description (full): use the Long description above verbatim. Directree
+  labels facts Observed / AI-inferred / Founder-edited — keep founder-edited
+  statements to the canonical copy only, and let the venue crawl
+  https://seofixkit.com for observed facts.
+- Links: https://seofixkit.com/demo, https://seofixkit.com/methodology,
+  https://seofixkit.com/check
+- Category: SEO Tools / SEO Audit (use the venue's category list at
+  submission time)
+- Honesty lines to keep visible: "No ranking or traffic guarantee." and
+  "AI Answer Readiness is derived from your site's rendered content; SEO Fix
+  Kit does not monitor live AI-engine answers or citations."
+- Note: free account required; submission is manual-only (venue terms give no
+  unattended-automation permission; anti-scraping clause is not a permission).
+
+--- GitHub awesome lists (fork + PR, manual, only with track record) ---
+- Suganthan-Mohanadasan/awesome-seo-tools — section "Technical SEO and Site
+  Auditing". Proposed entry:
+    - [SEO Fix Kit](https://seofixkit.com/) - Proof-backed SEO audit and
+      repair: rendered vs static HTML proof, guarded false positives,
+      actionable fixes, and a paid one-pass repair workflow.
+- best-of-ai/awesome-ai-seo — only if the maintainer's criteria (proven track
+  record, real users, decent reviews) are met; otherwise wait.
+- Rule: fork + PR authored by the account owner; no unattended account, fork,
+  or PR activity. The list policy rejects self-promotional submissions
+  without genuine utility.
+
+--- Product Hunt (draft only for a founder-led launch day; manual) ---
+- Name: SEO Fix Kit
+- Tagline: Proof-backed SEO repair: see what is wrong, prove it, fix it.
+- Description: use the Long description above; first-time launch copy should
+  anchor on the anonymous /check entry and the $99.00 one-time Fix Pack.
+- Links: https://seofixkit.com/check, https://seofixkit.com/demo,
+  https://seofixkit.com/methodology
+- Rule: Product Hunt ToS bars crawling/scraping and any automated activity;
+  the launch is a founder-led manual decision (NEEDS-NISH if promoted),
+  never unattended.
+
+--- Optional low-fit venues (skip unless time allows) ---
+- Crunchbase: free organization profile (manual, account-gated).
+- StackShare: tool page (manual, account-gated; dev-stack audience).
+- Trustpilot: claim only when real customer reviews exist; never fabricate.
+- SourceForge: not applicable — proprietary SaaS, not open source.

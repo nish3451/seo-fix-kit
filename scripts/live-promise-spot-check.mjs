@@ -131,8 +131,11 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "proof-loop headline", match: "Do not fix what is not broken." },
         { reason: "static-vs-rendered proof panels", match: "Rendered proof" },
         { reason: "no-overclaim section", match: "What this sample does not claim" },
+        { reason: "snippet qualifier stays engine-capable", match: "an exact snippet when the engine can generate one" },
         { reason: "link to methodology limits", match: `href="${baseUrl}/methodology"` },
-        { reason: "link to package ladder", match: `href="${baseUrl}/packages"` }
+        { reason: "link to package ladder", match: `href="${baseUrl}/packages"` },
+        { reason: "link to terms", match: `href="${baseUrl}/terms"` },
+        { reason: "link to privacy", match: `href="${baseUrl}/privacy"` }
       ]
     },
     {
@@ -144,6 +147,7 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "one-page check headline", match: "Check One Page for SEO Proof" },
         { reason: "URL check form", match: 'id="check-form"' },
         { reason: "no-account proof promise", match: "No account, no email, no stored report" },
+        { reason: "no-storage disclosure", match: "short-lived anonymous rate-limit counters" },
         { reason: "guarded false positives promise", match: "Guarded false positives" },
         { reason: "no-overclaim section", match: "What this check does not claim" },
         { reason: "handoff into private access", match: "Request private access" }
@@ -159,7 +163,10 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "limits section", match: "Limits we state up front" },
         { reason: "AI visibility tracking is not live", match: "No AI visibility tracking" },
         { reason: "no hidden site writes", match: "No hidden site writes" },
-        { reason: "50K crawl staged, not complete", match: "No fake scale claim" }
+        { reason: "50K crawl staged, not complete", match: "No fake scale claim" },
+        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
+        { reason: "link to terms", match: `href="${baseUrl}/terms"` },
+        { reason: "link to privacy", match: `href="${baseUrl}/privacy"` }
       ]
     },
     {
@@ -173,7 +180,54 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "public fix pack price", match: "$99.00 one-time" },
         { reason: "Dodo is the final price source", match: "Dodo shows the final checkout price" },
         { reason: "Proof Monitoring is config-gated", match: "Config-gated subscription" },
-        { reason: "roadmap packages marked", match: "Roadmap" }
+        { reason: "Proof Monitoring checkout gated, offer visible", match: "Checkout only opens when the Dodo subscription product and webhook entitlement sync are configured" },
+        { reason: "roadmap packages marked", match: "Roadmap" },
+        { reason: "link to terms", match: `href="${baseUrl}/terms"` },
+        { reason: "link to privacy", match: `href="${baseUrl}/privacy"` }
+      ]
+    },
+    {
+      path: "/small-business-seo-audit",
+      name: "small-business landing page keeps the proof-first boundary",
+      isPage: true,
+      acceptStatuses: [200],
+      expectations: [
+        { reason: "proof-not-homework headline", match: "An SEO audit that shows proof, not homework." },
+        { reason: "free one-page check entry", match: "Free one-page check" },
+        { reason: "no-overclaim section", match: "What this page does not claim" },
+        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
+        { reason: "link to the proof sample", match: `href="${baseUrl}/demo"` },
+        { reason: "link to methodology limits", match: `href="${baseUrl}/methodology"` },
+        ...landingPageLdExpectations("/small-business-seo-audit", "Small Business SEO Audit")
+      ]
+    },
+    {
+      path: "/rendered-vs-static-seo-audit",
+      name: "rendered-vs-static landing page keeps the false-positive guard boundary",
+      isPage: true,
+      acceptStatuses: [200],
+      expectations: [
+        { reason: "static-vs-rendered headline", match: "Static crawlers invent work. Rendered proof does not." },
+        { reason: "static scanner vs rendered proof panels", match: "Rendered proof" },
+        { reason: "no-overclaim section", match: "What this page does not claim" },
+        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
+        { reason: "link to the proof sample", match: `href="${baseUrl}/demo"` },
+        ...landingPageLdExpectations("/rendered-vs-static-seo-audit", "Rendered vs Static SEO Audit")
+      ]
+    },
+    {
+      path: "/ai-answer-readiness",
+      name: "AI Answer Readiness landing page keeps the site-proof boundary",
+      isPage: true,
+      acceptStatuses: [200],
+      expectations: [
+        { reason: "site-proof headline", match: "A site-proof AI readiness check, not a citation tracker." },
+        { reason: "no live answer-engine sampling", match: "No live answer-engine sampling" },
+        { reason: "no AI citation monitoring", match: "No AI citation monitoring" },
+        { reason: "llms.txt stays optional", match: "llms.txt stays optional" },
+        { reason: "no-overclaim section", match: "What this page does not claim" },
+        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
+        ...landingPageLdExpectations("/ai-answer-readiness", "AI Answer Readiness Check")
       ]
     },
     {
@@ -185,7 +239,8 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "no-ranking promise", match: "No ranking, traffic, or revenue promise is made." },
         { reason: "one repair pass plus rerun", match: "one proof-backed repair pass for one report plus one rerun after fixes" },
         { reason: "refund guard when the queue cannot start", match: "If payment succeeds but the repair queue cannot start, you are entitled to a full refund" },
-        { reason: "link to privacy", match: `href="${baseUrl}/privacy"` }
+        { reason: "link to privacy", match: `href="${baseUrl}/privacy"` },
+        { reason: "link to the anonymous check", match: `href="${baseUrl}/check"` }
       ]
     },
     {
@@ -197,7 +252,9 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "no-ranking promise", match: "No ranking, indexing, traffic, revenue, or search-engine outcome is promised" },
         { reason: "Dodo is merchant of record", match: "processed by Dodo Payments as merchant of record" },
         { reason: "refund window", match: "full refund within 14 days of payment" },
-        { reason: "link to privacy", match: `href="${baseUrl}/privacy"` }
+        { reason: "link to privacy", match: `href="${baseUrl}/privacy"` },
+        { reason: "link to support", match: `href="${baseUrl}/support"` },
+        { reason: "link to the anonymous check", match: `href="${baseUrl}/check"` }
       ]
     },
     {
@@ -208,7 +265,10 @@ export function publicPageSpotChecks(baseUrl) {
       expectations: [
         { reason: "data controller statement", match: "We are the data controller for this information" },
         { reason: "30-day report retention", match: "reports expire after 30 days" },
-        { reason: "no advertising or tracking cookies", match: "No advertising, analytics, or cross-site tracking cookies are set." }
+        { reason: "no advertising or tracking cookies", match: "No advertising, analytics, or cross-site tracking cookies are set." },
+        { reason: "link to terms", match: `href="${baseUrl}/terms"` },
+        { reason: "link to support", match: `href="${baseUrl}/support"` },
+        { reason: "link to the anonymous check", match: `href="${baseUrl}/check"` }
       ]
     }
   ];
@@ -284,7 +344,34 @@ export function publicSurfaceSpotChecks(baseUrl) {
       expectations: [
         { reason: "route rejects invalid input with a JSON error", match: '"error"' }
       ]
+    },
+    {
+      path: "/api/public-check",
+      name: "anonymous one-page check route rejects non-http URL schemes instead of mangling them",
+      method: "POST",
+      body: JSON.stringify({ url: "ftp://example.com" }),
+      acceptStatuses: [400],
+      contentType: "application/json",
+      expectations: [
+        { reason: "route rejects unsupported schemes before any browser render", match: "Enter a valid public website URL." }
+      ]
     }
+  ];
+}
+
+// Machine-readable proof on the intent-matching landing pages: each one must
+// carry WebPage + SoftwareApplication + FAQPage JSON-LD (the three blocks
+// `publicProductPageHtml` emits) whose `url`/`name` point at that page, with
+// the FAQ visible copy and the schema built from the same source array.
+// The full offline lock lives in worker/routes/pages.test.mjs; these
+// expectations prove the live deployed page still ships the schema.
+function landingPageLdExpectations(path, pageName) {
+  return [
+    { reason: "WebPage JSON-LD names the page", match: `"@type":"WebPage","name":"${pageName} - SEO Fix Kit"` },
+    { reason: "WebPage JSON-LD points at the page URL", match: `"@type":"WebPage","name":"${pageName} - SEO Fix Kit","description":` },
+    { reason: "SoftwareApplication JSON-LD describes the tool truthfully", match: '"@type":"SoftwareApplication","name":"SEO Fix Kit"' },
+    { reason: "FAQPage JSON-LD exists", match: '"@type":"FAQPage"' },
+    { reason: "visible FAQ matches the FAQPage JSON-LD source", match: "Frequently asked questions" }
   ];
 }
 
@@ -318,6 +405,20 @@ export function canonicalHostSpotChecks(baseUrl) {
           name: "location",
           value: `${baseUrl}/check?utm_source=spot-check`,
           reason: "redirect preserves the path and query"
+        }
+      ]
+    },
+    {
+      path: "www.seofixkit.com/favicon.svg",
+      name: "www.seofixkit.com static assets redirect too (no asset-host leakage)",
+      url: `${wwwOrigin}/favicon.svg`,
+      redirectManual: true,
+      acceptStatuses: [301],
+      expectedHeaders: [
+        {
+          name: "location",
+          value: `${baseUrl}/favicon.svg`,
+          reason: "static asset path must 301 onto the apex host"
         }
       ]
     }
