@@ -3021,9 +3021,49 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// The canonical public route set for the apex host, shared by the sitemap,
+// IndexNow submissions, and any future search-submission surface. Keep in sync
+// with the public page routes in worker/index.js and worker/routes/pages.js.
+// Order matches the expected sitemap URL list (home, product pages, then the
+// policy/receipt tail).
+export const ROOT_PUBLIC_PATHS = [
+  "/",
+  "/demo",
+  "/check",
+  "/methodology",
+  "/packages",
+  "/small-business-seo-audit",
+  "/rendered-vs-static-seo-audit",
+  "/ai-answer-readiness",
+  "/privacy",
+  "/proof",
+  "/support",
+  "/terms"
+];
+
+// Truthful per-page last modification times (W3C datetime, UTC): the commit
+// timestamp of the last change to the code that renders each page — for "/"
+// the SPA source (src/App.jsx), for the worker-rendered pages the generator in
+// worker/routes/pages.js or worker/routes/public-check.js. Update a page's
+// entry whenever that page's visible content changes, so the sitemap keeps
+// giving crawlers an accurate re-crawl freshness signal.
+export const ROOT_PUBLIC_LASTMODS = {
+  "/": "2026-08-14T21:05:22Z", // src/App.jsx last change 2026-08-15T02:35:22+05:30
+  "/demo": "2026-08-13T23:38:54Z", // demo-proof.js last change 2026-08-14T05:08:54+05:30
+  "/check": "2026-08-17T10:54:10Z", // public-check.js checkHtml last change (#166) 2026-08-17T16:24:10+05:30
+  "/methodology": "2026-08-11T12:49:56Z", // methodologyHtml (#103) 2026-08-11T18:19:56+05:30
+  "/packages": "2026-08-15T01:44:01Z", // packagesHtml (#150) 2026-08-15T07:14:01+05:30
+  "/small-business-seo-audit": "2026-08-14T05:37:01Z", // intent pages (#137) 2026-08-14T11:07:01+05:30
+  "/rendered-vs-static-seo-audit": "2026-08-14T05:37:01Z",
+  "/ai-answer-readiness": "2026-08-14T05:37:01Z",
+  "/privacy": "2026-08-10T19:41:38Z", // policy pages (#85) 2026-08-11T01:11:38+05:30
+  "/proof": "2026-08-15T06:27:08Z", // proofCaseHtml 2026-08-15T11:57:08+05:30
+  "/support": "2026-08-10T19:41:38Z",
+  "/terms": "2026-08-10T19:41:38Z"
+};
+
 export function rootSitemap(origin) {
-  const urls = ["/", "/demo", "/check", "/methodology", "/packages", "/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness", "/privacy", "/proof", "/support", "/terms"];
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls
-    .map((path) => `<url><loc>${origin}${path}</loc></url>`)
-    .join("")}</urlset>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${ROOT_PUBLIC_PATHS.map(
+    (path) => `<url><loc>${origin}${path}</loc><lastmod>${ROOT_PUBLIC_LASTMODS[path]}</lastmod></url>`
+  ).join("")}</urlset>`;
 }

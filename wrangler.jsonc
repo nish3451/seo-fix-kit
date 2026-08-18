@@ -39,6 +39,9 @@
     // path list, asset requests bypass the Worker and www serves them 200, which
     // leaks a second host into canonicals/sitemap indexing. The Worker's final
     // ASSETS.fetch fallthrough keeps apex serving identical bytes for all paths.
+    // run_worker_first:true (supersedes the earlier path-list form) also routes
+    // the credential-free IndexNow key files (/{key}.txt and /.well-known/{key}.txt)
+    // through the Worker so the SPA fallback cannot shadow them.
     "run_worker_first": true
   },
   "r2_buckets": [
