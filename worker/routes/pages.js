@@ -51,7 +51,7 @@ Hosted-only differentiators vs free installable SEO agent skills:
 - Why not just use a free AI SEO agent skill? The plain answer is on ${origin}/methodology; the same boundaries apply to both, including no live AI-engine sampling, no AI citation monitoring, and no ranking guarantees.
 
 Agent-readable acquisition and action surfaces:
-- Public context for agents: ${origin}/llms.txt, ${origin}/.well-known/skill.md, ${origin}/demo, ${origin}/methodology, ${origin}/packages, ${origin}/support, and ${origin}/terms.
+- Public context for agents: ${origin}/llms.txt, ${origin}/.well-known/skill.md, ${origin}/demo, ${origin}/methodology, ${origin}/packages, ${origin}/proof, ${origin}/support, and ${origin}/terms.
 - Owner setup starts inside the private beta workspace; anonymous one-page checks are live at ${origin}/check, while full multi-page audits and unauthenticated repair actions are not live.
 - Self-serve API setup is owner-scoped at ${origin}/api/developer, with API keys from ${origin}/api/developer/tokens and lifecycle webhooks from ${origin}/api/developer/webhooks.
 - Bearer-token API actions agents can use today: POST /v1/audits, GET /v1/audits/{audit_id}, GET /v1/audits/{audit_id}/issues, GET /v1/audits/{audit_id}/report, GET/PATCH /v1/audits/{audit_id}/repair-queue, POST /v1/audits/{audit_id}/repair-actions, PATCH /v1/audits/{audit_id}/repair-actions/{action_id}, GET /v1/audits/{audit_id}/repair-actions/{action_id}/implementation.md, GET /v1/audits/{audit_id}/repair-actions/{action_id}/proof.md, GET /v1/projects, POST /v1/large-crawls, and GET /v1/large-crawls/{large_crawl_id}.
@@ -92,6 +92,7 @@ Useful routes:
 - ${origin}/demo
 - ${origin}/methodology
 - ${origin}/packages
+- ${origin}/proof
 - ${origin}/small-business-seo-audit
 - ${origin}/rendered-vs-static-seo-audit
 - ${origin}/ai-answer-readiness
@@ -664,6 +665,204 @@ ${extraLd.join("\n")}
 </html>`;
 }
 
+const PROOF_CASE = {
+  site: "tinystudio.in",
+  siteLabel: "Tiny Studio portfolio",
+  caseDate: "2026-06-20",
+  owner: "Founder-owned (consented and redacted)",
+  before: {
+    score: 85,
+    findings: 7,
+    reportUrl: "https://seofixkit.com/beta/reports/tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b"
+  },
+  intermediate: {
+    score: 99,
+    findings: 2,
+    reportUrl: "https://seofixkit.com/beta/reports/tinystudio-in-75ffee26-02ae-41d3-b2ef-5beb40722e50"
+  },
+  after: {
+    score: 100,
+    findings: 0,
+    reportUrl: "https://seofixkit.com/beta/reports/tinystudio-in-0a45637f-1354-4d26-ace3-d3b594162961"
+  },
+  changes: [
+    { label: "PR #4", ref: "https://github.com/nish3451/tinystudio-in/pull/4", summary: "Tracked static Pages bundle, removed Google Fonts from render path, non-blocking preload for styles, apple-touch-icon, /llms.txt, support ContactPage JSON-LD, /support heading hierarchy, mailto links in place of Cloudflare email-obfuscation, social preview images, expanded Promptly privacy copy." },
+    { label: "PR #5", ref: "https://github.com/nish3451/tinystudio-in/pull/5", summary: "Strict-Transport-Security header via public/_headers." }
+  ]
+};
+
+function proofCaseHtml(origin) {
+  const description = `Real before/after repair proof receipt: founder-owned Tiny Studio portfolio site went from ${PROOF_CASE.before.score}/100 with ${PROOF_CASE.before.findings} findings to ${PROOF_CASE.after.score}/100 with ${PROOF_CASE.after.findings} findings after owner-approved changes. Published with consent and redaction.`;
+  const title = "Before/After Repair Proof - SEO Fix Kit";
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(title)}</title>
+    <meta name="description" content="${escapeHtml(description)}" />
+${pageSocialHead({ origin, title, description, path: "/proof" })}
+${ldBlock({
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "SEO Fix Kit",
+    applicationCategory: "SEO software",
+    operatingSystem: "Web",
+    url: origin,
+    provider: { "@type": "Organization", name: "SEO Fix Kit", url: origin },
+    description: "Proof-backed SEO audits, repair queue, implementation packs, and fixed-rerun proof receipts; publishes no CMS changes and makes no ranking promise."
+  })}
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-width: 0; }
+      main { margin: 0 auto; max-width: 980px; padding: 36px 22px 60px; min-width: 0; }
+      a { color: #98f0cc; font-weight: 780; text-decoration: none; }
+      header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 54px; }
+      h1 { font-size: clamp(40px, 7vw, 84px); letter-spacing: 0; line-height: .92; margin: 0 0 16px; max-width: 820px; overflow-wrap: break-word; }
+      h2 { font-size: clamp(24px, 3vw, 32px); margin: 0 0 10px; overflow-wrap: break-word; }
+      p, li { color: rgba(251,248,239,.76); font-size: 17px; line-height: 1.62; overflow-wrap: anywhere; word-break: break-word; }
+      ul { padding-left: 22px; }
+      .kicker { color: #98f0cc; font-size: 13px; font-weight: 880; letter-spacing: .08em; text-transform: uppercase; }
+      .grid { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 28px 0; }
+      .panel { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; padding: 20px; min-width: 0; }
+      .panel strong { color: #dcc062; display: block; font-size: 14px; margin-bottom: 10px; text-transform: uppercase; }
+      .panel.score strong { font-size: 28px; color: #fbf8ef; }
+      .panel.before { border-color: rgba(220,192,98,.32); }
+      .panel.intermediate { border-color: rgba(251,248,239,.24); }
+      .panel.after { border-color: rgba(152,240,204,.32); }
+      .panel.after strong { color: #98f0cc; }
+      .receipt { background: rgba(7,13,10,.58); border: 1px solid rgba(152,240,204,.18); border-radius: 8px; padding: 18px 22px; margin: 20px 0; min-width: 0; }
+      .receipt h3 { color: #98f0cc; font-size: 14px; font-weight: 880; letter-spacing: .08em; margin: 0 0 10px; text-transform: uppercase; }
+      .receipt dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+      .receipt dt { color: rgba(251,248,239,.6); font-weight: 700; }
+      .receipt dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+      .cta { align-items: center; background: #98f0cc; border-radius: 8px; color: #06100c; display: inline-flex; font-weight: 880; min-height: 48px; padding: 0 18px; }
+      .boundary { background: rgba(220,192,98,.08); border: 1px solid rgba(220,192,98,.32); border-radius: 8px; padding: 16px 20px; margin: 26px 0; }
+      .site-footer { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-top: 30px; }
+      .site-footer a { font-size: 14px; font-weight: 760; }
+      @media (max-width: 760px) { header { align-items: flex-start; gap: 18px; flex-direction: column; } .grid { grid-template-columns: 1fr; } .receipt dl { grid-template-columns: 1fr; gap: 2px 0; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <a href="${origin}/">SEO Fix Kit</a>
+        <span class="kicker">Real before/after</span>
+      </header>
+      <section>
+        <p class="kicker">Repair proof receipt</p>
+        <h1>One real repair, with the same measurement path before and after.</h1>
+        <p>This page is a proof receipt for the first completed beta repair done with SEO Fix Kit: the founder-owned Tiny Studio portfolio site, audited with consent, repaired by the operator with the help of an SEO Fix Kit implementation pack, and rerun on the same host with the same measurement path. The receipt states the founder-owned scope, names the owner-approved change, links the same audit path before and after, and restates the no-ranking boundary.</p>
+        <p><a class="cta" href="${origin}/proof.md">Get the markdown receipt</a></p>
+      </section>
+      <section class="grid" aria-label="Audit scores before, intermediate, and after">
+        <article class="panel before score">
+          <strong>Before</strong>
+          <p>Score <strong>${PROOF_CASE.before.score}</strong>/100 &middot; ${PROOF_CASE.before.findings} findings</p>
+          <p><a href="${PROOF_CASE.before.reportUrl}">Source report</a></p>
+        </article>
+        <article class="panel intermediate score">
+          <strong>Intermediate rerun</strong>
+          <p>Score <strong>${PROOF_CASE.intermediate.score}</strong>/100 &middot; ${PROOF_CASE.intermediate.findings} findings</p>
+          <p><a href="${PROOF_CASE.intermediate.reportUrl}">Rerun report</a></p>
+        </article>
+        <article class="panel after score">
+          <strong>After</strong>
+          <p>Score <strong>${PROOF_CASE.after.score}</strong>/100 &middot; ${PROOF_CASE.after.findings} findings</p>
+          <p><a href="${PROOF_CASE.after.reportUrl}">Final rerun report</a></p>
+        </article>
+      </section>
+      <section class="receipt" aria-label="Receipt details">
+        <h3>Receipt</h3>
+        <dl>
+          <dt>Site</dt><dd>${escapeHtml(PROOF_CASE.siteLabel)} (${escapeHtml(PROOF_CASE.site)})</dd>
+          <dt>Owner</dt><dd>${escapeHtml(PROOF_CASE.owner)}</dd>
+          <dt>Case date</dt><dd>${PROOF_CASE.caseDate}</dd>
+          <dt>Source measurement</dt><dd>Production SEO Fix Kit audit against <code>https://${PROOF_CASE.site}/</code></dd>
+          <dt>Same-host reruns</dt><dd>Intermediate (${PROOF_CASE.intermediate.score}/${PROOF_CASE.intermediate.findings}) and final (${PROOF_CASE.after.score}/${PROOF_CASE.after.findings})</dd>
+          <dt>Approval</dt><dd>Owner-approved implementation pack; merged PRs ${PROOF_CASE.changes.map((change) => change.label).join(" and ")}</dd>
+          <dt>Outcome</dt><dd>Findings went from ${PROOF_CASE.before.findings} to ${PROOF_CASE.after.findings}; final score ${PROOF_CASE.before.score} &rarr; ${PROOF_CASE.after.score}/100</dd>
+        </dl>
+      </section>
+      <section>
+        <h2>Owner-approved changes</h2>
+        <ul>
+${PROOF_CASE.changes.map((change) => `          <li><strong>${escapeHtml(change.label)}</strong> &mdash; ${escapeHtml(change.summary)} (<a href="${escapeHtml(change.ref)}">${escapeHtml(change.ref)}</a>)</li>`).join("\n")}
+        </ul>
+      </section>
+      <section class="boundary">
+        <h2>What this receipt does not claim</h2>
+        <ul>
+          <li>No ranking, traffic, indexing, citation, or revenue promise is made for ${escapeHtml(PROOF_CASE.site)} or any other site.</li>
+          <li>SEO Fix Kit did not publish CMS changes, open GitHub pull requests, merge code, or call provider admin APIs. The merged PRs are owner-applied.</li>
+          <li>The receipt is published with founder consent and redaction of internal implementation detail; it is not a paid Fix Pack delivery certificate.</li>
+          <li>A different site, a different host, or a different starting audit will not produce the same numbers. The receipt is a real measurement path on this site only.</li>
+        </ul>
+      </section>
+      <section>
+        <h2>How to read this page</h2>
+        <p>The same audit path ran three times against the same host: once before the repair, once after the first merge, and once after the second. The proof receipt pins the report ids, scores, finding counts, and merged PR refs so anyone can rerun the same measurement path against <code>https://${PROOF_CASE.site}/</code> and compare. SEO Fix Kit does not claim this receipt represents the result you will see on your site; it is evidence that the same measurement path can connect a real issue to a real operator-applied fix and a real rerun.</p>
+        <p>For an anonymous one-page check on any public URL, see <a href="${origin}/check">${origin}/check</a>. For methodology and limits, see <a href="${origin}/methodology">${origin}/methodology</a>. For package ladder, see <a href="${origin}/packages">${origin}/packages</a>.</p>
+      </section>
+      <footer class="site-footer">
+        <a href="${origin}/">SEO Fix Kit</a>
+        <a href="${origin}/demo">Demo</a>
+        <a href="${origin}/methodology">Methodology</a>
+        <a href="${origin}/packages">Packages</a>
+        <a href="${origin}/support">Support</a>
+        <a href="${origin}/terms">Terms</a>
+        <a href="${origin}/privacy">Privacy</a>
+      </footer>
+    </main>
+  </body>
+</html>`;
+}
+
+function proofCaseMarkdown(origin) {
+  return `# SEO Fix Kit — Repair proof receipt (${PROOF_CASE.caseDate})
+
+Real before/after repair proof receipt: founder-owned ${PROOF_CASE.siteLabel} (${PROOF_CASE.site}) went from ${PROOF_CASE.before.score}/100 with ${PROOF_CASE.before.findings} findings to ${PROOF_CASE.after.score}/100 with ${PROOF_CASE.after.findings} findings after owner-approved changes. Published with consent and redaction.
+
+## Receipt
+
+- Site: ${PROOF_CASE.siteLabel} (${PROOF_CASE.site})
+- Owner: ${PROOF_CASE.owner}
+- Case date: ${PROOF_CASE.caseDate}
+- Source measurement: Production SEO Fix Kit audit against https://${PROOF_CASE.site}/
+- Same-host reruns: intermediate (${PROOF_CASE.intermediate.score}/${PROOF_CASE.intermediate.findings}) and final (${PROOF_CASE.after.score}/${PROOF_CASE.after.findings})
+- Approval: Owner-approved implementation pack; merged PRs ${PROOF_CASE.changes.map((change) => change.label).join(" and ")}
+- Outcome: Findings went from ${PROOF_CASE.before.findings} to ${PROOF_CASE.after.findings}; final score ${PROOF_CASE.before.score} -> ${PROOF_CASE.after.score}/100
+
+## Measurement path
+
+| Stage | Score | Findings | Report |
+| --- | --- | --- | --- |
+| Before | ${PROOF_CASE.before.score} | ${PROOF_CASE.before.findings} | ${PROOF_CASE.before.reportUrl} |
+| Intermediate rerun | ${PROOF_CASE.intermediate.score} | ${PROOF_CASE.intermediate.findings} | ${PROOF_CASE.intermediate.reportUrl} |
+| After | ${PROOF_CASE.after.score} | ${PROOF_CASE.after.findings} | ${PROOF_CASE.after.reportUrl} |
+
+## Owner-approved changes
+
+${PROOF_CASE.changes.map((change) => `- ${change.label}: ${change.summary} (${change.ref})`).join("\n")}
+
+## What this receipt does not claim
+
+- No ranking, traffic, indexing, citation, or revenue promise is made for ${PROOF_CASE.site} or any other site.
+- SEO Fix Kit did not publish CMS changes, open GitHub pull requests, merge code, or call provider admin APIs. The merged PRs are owner-applied.
+- The receipt is published with founder consent and redaction of internal implementation detail; it is not a paid Fix Pack delivery certificate.
+- A different site, a different host, or a different starting audit will not produce the same numbers. The receipt is a real measurement path on this site only.
+
+## How to read this page
+
+The same audit path ran three times against the same host: once before the repair, once after the first merge, and once after the second. The proof receipt pins the report ids, scores, finding counts, and merged PR refs so anyone can rerun the same measurement path against https://${PROOF_CASE.site}/ and compare. SEO Fix Kit does not claim this receipt represents the result you will see on your site; it is evidence that the same measurement path can connect a real issue to a real operator-applied fix and a real rerun.
+
+- Anonymous one-page check: ${origin}/check
+- Methodology and limits: ${origin}/methodology
+- Package ladder: ${origin}/packages
+`;
+}
+
 function privacyHtml(origin) {
   return `<!doctype html>
 <html lang="en">
@@ -831,6 +1030,8 @@ export {
   packagesHtml,
   policyPageHtml,
   privacyHtml,
+  proofCaseHtml,
+  proofCaseMarkdown,
   renderedVsStaticAuditHtml,
   smallBusinessSeoAuditHtml,
   supportHtml,
