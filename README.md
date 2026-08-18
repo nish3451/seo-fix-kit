@@ -10,7 +10,7 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 
 ## What is live in this repo
 
-- Rendered-page audit with Playwright.
+- Rendered-page audit powered by Cloudflare Browser Run in the deployed Worker and Playwright for local development.
 - Static HTML vs rendered DOM comparison.
 - Evidence-backed findings.
 - Self-serve crawl-depth tiers up to 1,000 pages per queued audit, with per-page scores and page proof.
@@ -43,6 +43,7 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Locked private-beta homepage with `/api/waitlist` and `/api/access/request` backed by D1.
 - Public anonymous one-page URL check at `/check` and `POST /api/public-check`: real browser rendering of one public page, static-vs-rendered proof, guarded false positives, actionable findings when present, per-network and per-site rate limits with hashed, short-lived counters, no stored report, and a handoff into private beta access with no ranking promise.
 - Public `/demo`, `/methodology`, `/packages`, and `/proof` pages showing the proof loop, limits, package ladder, and a real before/after repair receipt (founder-owned Tiny Studio portfolio: 85/7 → 99/2 → 100/0 across the same measurement path, with consent and redaction) before payment.
+- Intent-matching public landing pages at `/small-business-seo-audit`, `/rendered-vs-static-seo-audit`, and `/ai-answer-readiness`, each with unique title and meta, a visible FAQ rendered from the same source as FAQPage JSON-LD, truthful SoftwareApplication schema, and links into `/check` and `/demo`; none claim live AI-engine sampling or AI citation monitoring.
 - Hidden `/beta` private audit workbench protected by invite code login or a secure one-use email access link.
 - Expiring beta sessions backed by D1 `beta_sessions`.
 - Explicit session access modes for invite, self-serve, and founder override sessions.
@@ -124,7 +125,7 @@ invitation copy, both prepared 2026-08-12) lives at
 Cloudflare cannot run the local Express + Chromium server directly. The deployable path is:
 
 - React UI served by Workers Static Assets from `dist/`
-- Public `/check`, `/demo`, `/methodology`, `/packages`, `/proof`, `/privacy`, `/support`, `/terms`, `/sitemap.xml`, and `/llms.txt` stay served by the Worker/public asset path
+- Public `/check`, `/demo`, `/methodology`, `/packages`, `/proof`, `/small-business-seo-audit`, `/rendered-vs-static-seo-audit`, `/ai-answer-readiness`, `/privacy`, `/support`, `/terms`, `/sitemap.xml`, and `/llms.txt` stay served by the Worker/public asset path
 - `/api/health` is a shallow public runtime check; `/api/deep-health` is a public-safe readiness check for bindings, D1 schema, Dodo checkout/webhook config, and self-serve repair capabilities without exposing secrets, provider ids, checkout URLs, customer data, or table counts
 - `/api/public-check` runs the anonymous one-page URL check for any visitor: one public page rendered in a real browser, proof fields and guarded false positives from the shared audit engine, findings when present, per-network and per-site rate limits with hashed, short-lived counters, and no stored report; `/check` is the indexable public entry page
 - `/api/waitlist` handled by `worker/index.js` and stored in D1

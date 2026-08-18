@@ -56,7 +56,7 @@ function passingStopEvidence(stop, viewport = "desktop") {
     copyChecks,
     expectedLinks,
     brokenLinks: { checked: [], broken: [] },
-    horizontalOverflow: { scrollWidth: viewport === "mobile" ? 390 : 1280, innerWidth: viewport === "mobile" ? 390 : 1280, overflow: false },
+    horizontalOverflow: { scrollWidth: viewport === "mobile" ? 390 : 1280, clientWidth: viewport === "mobile" ? 390 : 1280, innerWidth: viewport === "mobile" ? 390 : 1280, overflow: false },
     accessForm,
     walkerError: null,
     // anchors as collected from the DOM, absolute on Worker pages
@@ -193,7 +193,18 @@ test("walk fails when an internal link is broken", () => {
 
 test("walk fails on mobile when the page scrolls horizontally", () => {
   const evidence = passingStopEvidence(FUNNEL_STOPS[1], "mobile");
-  evidence.horizontalOverflow = { scrollWidth: 420, innerWidth: 390, overflow: true };
+  evidence.horizontalOverflow = { scrollWidth: 420, clientWidth: 390, innerWidth: 420, overflow: true };
+  const failures = evaluateStopEvidence(evidence);
+  assert.ok(failures.some((reason) => reason.includes("horizontal scroll")), failures.join("; "));
+});
+
+test("walk flags horizontal overflow even when innerWidth inflates to the overflowing width", () => {
+  // Regression lock for the funnel-walk false negative the scout caught on
+  // /demo: mobile browsers inflate window.innerWidth to the overflowing
+  // width (451 == scrollWidth), so the verdict must compare scrollWidth
+  // against the layout viewport clientWidth, never innerWidth.
+  const evidence = passingStopEvidence(FUNNEL_STOPS[1], "mobile");
+  evidence.horizontalOverflow = { scrollWidth: 451, clientWidth: 390, innerWidth: 451, overflow: true };
   const failures = evaluateStopEvidence(evidence);
   assert.ok(failures.some((reason) => reason.includes("horizontal scroll")), failures.join("; "));
 });

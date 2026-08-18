@@ -131,6 +131,7 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "proof-loop headline", match: "Do not fix what is not broken." },
         { reason: "static-vs-rendered proof panels", match: "Rendered proof" },
         { reason: "no-overclaim section", match: "What this sample does not claim" },
+        { reason: "snippet qualifier stays engine-capable", match: "an exact snippet when the engine can generate one" },
         { reason: "link to methodology limits", match: `href="${baseUrl}/methodology"` },
         { reason: "link to package ladder", match: `href="${baseUrl}/packages"` },
         { reason: "link to terms", match: `href="${baseUrl}/terms"` },
@@ -179,9 +180,54 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "public fix pack price", match: "$99.00 one-time" },
         { reason: "Dodo is the final price source", match: "Dodo shows the final checkout price" },
         { reason: "Proof Monitoring is config-gated", match: "Config-gated subscription" },
+        { reason: "Proof Monitoring checkout gated, offer visible", match: "Checkout only opens when the Dodo subscription product and webhook entitlement sync are configured" },
         { reason: "roadmap packages marked", match: "Roadmap" },
         { reason: "link to terms", match: `href="${baseUrl}/terms"` },
         { reason: "link to privacy", match: `href="${baseUrl}/privacy"` }
+      ]
+    },
+    {
+      path: "/small-business-seo-audit",
+      name: "small-business landing page keeps the proof-first boundary",
+      isPage: true,
+      acceptStatuses: [200],
+      expectations: [
+        { reason: "proof-not-homework headline", match: "An SEO audit that shows proof, not homework." },
+        { reason: "free one-page check entry", match: "Free one-page check" },
+        { reason: "no-overclaim section", match: "What this page does not claim" },
+        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
+        { reason: "link to the proof sample", match: `href="${baseUrl}/demo"` },
+        { reason: "link to methodology limits", match: `href="${baseUrl}/methodology"` },
+        ...landingPageLdExpectations("/small-business-seo-audit", "Small Business SEO Audit")
+      ]
+    },
+    {
+      path: "/rendered-vs-static-seo-audit",
+      name: "rendered-vs-static landing page keeps the false-positive guard boundary",
+      isPage: true,
+      acceptStatuses: [200],
+      expectations: [
+        { reason: "static-vs-rendered headline", match: "Static crawlers invent work. Rendered proof does not." },
+        { reason: "static scanner vs rendered proof panels", match: "Rendered proof" },
+        { reason: "no-overclaim section", match: "What this page does not claim" },
+        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
+        { reason: "link to the proof sample", match: `href="${baseUrl}/demo"` },
+        ...landingPageLdExpectations("/rendered-vs-static-seo-audit", "Rendered vs Static SEO Audit")
+      ]
+    },
+    {
+      path: "/ai-answer-readiness",
+      name: "AI Answer Readiness landing page keeps the site-proof boundary",
+      isPage: true,
+      acceptStatuses: [200],
+      expectations: [
+        { reason: "site-proof headline", match: "A site-proof AI readiness check, not a citation tracker." },
+        { reason: "no live answer-engine sampling", match: "No live answer-engine sampling" },
+        { reason: "no AI citation monitoring", match: "No AI citation monitoring" },
+        { reason: "llms.txt stays optional", match: "llms.txt stays optional" },
+        { reason: "no-overclaim section", match: "What this page does not claim" },
+        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
+        ...landingPageLdExpectations("/ai-answer-readiness", "AI Answer Readiness Check")
       ]
     },
     {
@@ -349,6 +395,22 @@ export function publicSurfaceSpotChecks(baseUrl) {
         { reason: "route rejects unsupported schemes before any browser render", match: "Enter a valid public website URL." }
       ]
     }
+  ];
+}
+
+// Machine-readable proof on the intent-matching landing pages: each one must
+// carry WebPage + SoftwareApplication + FAQPage JSON-LD (the three blocks
+// `publicProductPageHtml` emits) whose `url`/`name` point at that page, with
+// the FAQ visible copy and the schema built from the same source array.
+// The full offline lock lives in worker/routes/pages.test.mjs; these
+// expectations prove the live deployed page still ships the schema.
+function landingPageLdExpectations(path, pageName) {
+  return [
+    { reason: "WebPage JSON-LD names the page", match: `"@type":"WebPage","name":"${pageName} - SEO Fix Kit"` },
+    { reason: "WebPage JSON-LD points at the page URL", match: `"@type":"WebPage","name":"${pageName} - SEO Fix Kit","description":` },
+    { reason: "SoftwareApplication JSON-LD describes the tool truthfully", match: '"@type":"SoftwareApplication","name":"SEO Fix Kit"' },
+    { reason: "FAQPage JSON-LD exists", match: '"@type":"FAQPage"' },
+    { reason: "visible FAQ matches the FAQPage JSON-LD source", match: "Frequently asked questions" }
   ];
 }
 

@@ -498,11 +498,18 @@ export function createAuditEngine({
         kind: "image"
       }));
 
+    const canonicalOrigin = rendered.canonical
+      ? safeOrigin(rendered.canonical)
+      : "";
+    const canonicalKind = canonicalOrigin && canonicalOrigin === pageOrigin
+      ? "internal"
+      : "canonical";
+
     const [linkChecks, imageChecks, canonicalCheck] = await Promise.all([
       Promise.all(links.map(checkResource)),
       Promise.all(images.map(checkResource)),
       rendered.canonical
-        ? checkResource({ url: rendered.canonical, label: "canonical", kind: "canonical" })
+        ? checkResource({ url: rendered.canonical, label: "canonical", kind: canonicalKind })
         : Promise.resolve(null)
     ]);
 
@@ -801,6 +808,13 @@ async function extractRenderedFacts(browser, url, options = {}) {
     const navigationTimeoutMs = Number(options.navigationTimeoutMs) > 0
       ? Number(options.navigationTimeoutMs)
       : 25_000;
+    // Whether the page actually settled (network idle reached). When the idle
+    // wait times out and we fall back, loadDurationMs is dominated by our own
+    // navigation timeout — reporting that number as the page's load time, or as
+    // proof the page "reached network idle", would sell our measurement policy
+    // as the customer's defect (same family as the throttled-link and
+    // empty-header bugs).
+    let loadSettled = true;
     let response;
     try {
       response = await page.goto(url, {
@@ -809,6 +823,7 @@ async function extractRenderedFacts(browser, url, options = {}) {
       });
     } catch (navigationError) {
       if (!/timeout/i.test(String(navigationError?.message || ""))) throw navigationError;
+      loadSettled = false;
       response = await page.goto(url, {
         waitUntil: "domcontentloaded",
         timeout: navigationTimeoutMs
@@ -995,6 +1010,7 @@ async function extractRenderedFacts(browser, url, options = {}) {
     return {
       ...facts,
       status: response?.status() || null,
+      loadSettled,
       loadDurationMs: Date.now() - started
     };
   } finally {
@@ -1368,7 +1384,12 @@ function buildFindings({ pages, startUrl, robots, sitemap, performance, socialIm
       });
     }
 
-    if (rendered.loadDurationMs > RESOURCE_LIMITS.slowRenderMs) {
+    // Only claim a slow load when the page actually reached network idle. When
+    // the idle wait times out (analytics beacons, polling, websockets), the
+    // elapsed time is dominated by our own navigation timeout and says nothing
+    // about the customer's page speed; the fallback snapshot stays in the
+    // report as proof context instead of becoming repair work.
+    if (rendered.loadSettled !== false && rendered.loadDurationMs > RESOURCE_LIMITS.slowRenderMs) {
       add({
         type: "issue",
         severity: "warning",
@@ -1947,7 +1968,9 @@ function buildRepairBrief({ startUrl, score, summary, pages, findings, repairPla
     lines.push(`- Rendered internal links: ${facts.internalLinks?.length ?? 0}`);
     lines.push(`- Broken rendered links: ${pages[0].linkChecks?.filter(isBrokenResource).length ?? 0}`);
     lines.push(`- Broken rendered images: ${pages[0].imageChecks?.filter(isBrokenResource).length ?? 0}`);
-    lines.push(`- Rendered load time: ${facts.loadDurationMs ?? "unknown"}ms`);
+    lines.push(
+      `- Rendered load time: ${facts.loadDurationMs ?? "unknown"}ms${facts.loadSettled === false ? " (network idle never reached; snapshot taken after the audit's fallback wait)" : ""}`
+    );
     lines.push(`- Rendered schema types: ${facts.schemaTypes?.join(", ") || "none"}`);
     lines.push("");
   }
@@ -2408,6 +2431,14 @@ function isHttpResourceUrl(value = "") {
   }
 }
 
+function safeOrigin(value = "") {
+  try {
+    return new URL(value).origin || "";
+  } catch {
+    return "";
+  }
+}
+
 function emptyResourceChecks() {
   return { links: [], images: [], canonical: null };
 }
@@ -2673,6 +2704,7 @@ function buildPageSummaries(pages, findings, startUrl) {
       brokenLinks: page.linkChecks?.filter(isBrokenResource).length || 0,
       brokenImages: page.imageChecks?.filter(isBrokenResource).length || 0,
       loadDurationMs: facts.loadDurationMs || 0,
+      loadSettled: facts.loadSettled === true,
       schemaTypes: facts.schemaTypes || [],
       staticWordCount: staticFacts.wordCount || 0,
       staticH1: staticFacts.h1s?.[0] || "",
@@ -2990,7 +3022,7 @@ function wait(ms) {
 }
 
 export function rootSitemap(origin) {
-  const urls = ["/", "/demo", "/check", "/methodology", "/packages", "/privacy", "/proof", "/support", "/terms"];
+  const urls = ["/", "/demo", "/check", "/methodology", "/packages", "/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness", "/privacy", "/proof", "/support", "/terms"];
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls
     .map((path) => `<url><loc>${origin}${path}</loc></url>`)
     .join("")}</urlset>`;

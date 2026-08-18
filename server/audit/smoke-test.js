@@ -597,6 +597,17 @@ if (guarded.length < 2) {
   throw new Error("False-positive guard findings were not created for rendered fixture.");
 }
 
+const guardTitles = guarded.map((finding) => finding.title);
+// The rendered fixture ships markup only inside a <script> string, so a script-less
+// crawler sees no H1, no internal links, and thin text. Each of those must become a
+// guard finding; otherwise the static-vs-rendered proof loop the product claims is
+// silently missing for JS-rendered pages.
+for (const expected of ["H1 exists after render", "internal links exist after render"]) {
+  if (!guardTitles.some((title) => title.includes(expected))) {
+    throw new Error(`False-positive guard missing for rendered fixture: ${expected}`);
+  }
+}
+
 if (!fixtureReport.repairBrief.includes("Do not fix these false positives")) {
   throw new Error("False-positive protections were not carried into the repair brief.");
 }

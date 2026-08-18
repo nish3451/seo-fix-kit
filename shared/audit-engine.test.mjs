@@ -602,6 +602,20 @@ function fakeBrowser(finalUrl, overrides = {}, hooks = {}) {
         },
         async goto(url) {
           hooks.gotoUrls?.push(url);
+          const gotoCall = (hooks.gotoCalls || 0) + 1;
+          hooks.gotoCalls = gotoCall;
+          // hooks.gotoTimeoutMs: the first navigation burns the timeout budget
+          // (simulating a page that never reaches network idle), then throws a
+          // timeout so the engine falls back to domcontentloaded.
+          if (hooks.gotoTimeoutMs && gotoCall === 1) {
+            await new Promise((resolve) => setTimeout(resolve, hooks.gotoTimeoutMs));
+            throw new Error(`Navigation timeout of ${hooks.gotoTimeoutMs} ms exceeded`);
+          }
+          // hooks.gotoSettleMs: the first navigation takes that long but DOES
+          // settle (network idle reached), for the slow-but-settled control.
+          if (hooks.gotoSettleMs && gotoCall === 1) {
+            await new Promise((resolve) => setTimeout(resolve, hooks.gotoSettleMs));
+          }
           if (routeHandler) {
             for (const requestUrl of hooks.requestUrls || []) {
               await routeHandler({
@@ -793,6 +807,83 @@ test("same-origin 522/523/524 link failures never become critical broken-link fi
   const brokenExternal = (report.findings || []).filter((finding) => /Broken external links/.test(finding.title || ""));
   assert.equal(brokenExternal.length, 1, "an external origin failure is still a real observation");
   assert.match(brokenExternal[0].evidence, /other\.example\/ref returned 523/, "external 523 stays evidenced");
+});
+
+
+// Regression: the free /check engine was reporting "Canonical URL is not
+// reachable" when a same-origin canonical (e.g. self-referential, apex↔www,
+// or www→apex) hit the same transient Cloudflare origin error that already
+// guards same-origin internal links. Treating one transient origin hiccup as
+// both "broken internal links" and "broken canonical" duplicates the same
+// false positive at warning tier and turns the customer's own infrastructure
+// blip into a critical-and-warning storm on a clean page.
+test("same-origin 522/523/524 canonical failures never become 'Canonical URL is not reachable' findings", async () => {
+  for (const status of [522, 523, 524]) {
+    const engine = createAuditEngine({
+      launchBrowser: async () =>
+        fakeBrowser("https://public.example/", {
+          title: "Proof page with useful content",
+          canonical: "https://public.example/"
+        }),
+      fetchImpl: async (url) => {
+        if (url === "https://public.example/") {
+          return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" }
+          });
+        }
+        if (url === "https://public.example/canonical") {
+          return new Response("origin hiccup", { status, headers: { "content-type": "text/html" } });
+        }
+        return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+      },
+      pagespeedDisabled: true
+    });
+
+    const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+    const canonicalFindings = (report.findings || []).filter((finding) => /Canonical URL is not reachable/i.test(finding.title || ""));
+    assert.deepEqual(canonicalFindings, [], `same-origin canonical ${status} must not be reported as unreachable`);
+    const canonicalNotice = (report.findings || []).filter((finding) => /Canonical URL redirects/i.test(finding.title || ""));
+    assert.deepEqual(canonicalNotice, [], `same-origin canonical ${status} must not surface as a redirect notice either`);
+  }
+});
+
+
+// Regression: a cross-origin canonical (declared on the page but pointing to a
+// different host) must still surface 522/523/524 as a real reachability finding
+// at warning tier. The infra-failure guard only applies to same-origin
+// resources where the failure is the customer's own origin, not the third
+// party they pointed their canonical at.
+test("cross-origin canonical 522/523/524 is still reported as unreachable", async () => {
+  for (const status of [522, 523, 524]) {
+    const engine = createAuditEngine({
+      launchBrowser: async () =>
+        fakeBrowser("https://public.example/", {
+          title: "Proof page with useful content",
+          canonical: "https://other.example/canonical"
+        }),
+      fetchImpl: async (url) => {
+        if (url === "https://public.example/") {
+          return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" }
+          });
+        }
+        if (url === "https://other.example/canonical") {
+          return new Response("origin hiccup", { status, headers: { "content-type": "text/html" } });
+        }
+        return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+      },
+      pagespeedDisabled: true
+    });
+
+    const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+    const canonicalFindings = (report.findings || []).filter((finding) => /Canonical URL is not reachable/i.test(finding.title || ""));
+    assert.equal(canonicalFindings.length, 1, `cross-origin canonical ${status} stays a real observation`);
+    assert.match(canonicalFindings[0].evidence, new RegExp(`other\\.example/canonical returned ${status}`), `evidence must cite the cross-origin ${status}`);
+    const canonicalNotice = (report.findings || []).filter((finding) => /Canonical URL redirects/i.test(finding.title || ""));
+    assert.deepEqual(canonicalNotice, [], `a failed cross-origin canonical ${status} is not a redirect notice`);
+  }
 });
 
 
@@ -1000,4 +1091,61 @@ test("normalizeUrl rejects non-http schemes and embedded credentials instead of 
   assert.throws(() => normalizeUrl("mailto:hello@example.com"), /embedded credentials/i);
   assert.throws(() => normalizeUrl("https://user:pass@example.com/"), /embedded credentials/i);
   assert.throws(() => normalizeUrl("https://user@example.com/"), /embedded credentials/i);
+});
+
+// Regression: aiconverter.app never reaches network idle (analytics beacons,
+// polling), so the audit falls back to domcontentloaded. The elapsed time is
+// then dominated by OUR navigation timeout — reporting "reached network idle in
+// 26.9s" as a Slow rendered load finding sells our measurement policy as the
+// customer's defect (same family as the throttled-link and empty-header bugs).
+test("never-idle fallback does not become a slow-load repair finding", async () => {
+  const hooks = { gotoTimeoutMs: 2600 };
+  const engine = createAuditEngine({
+    launchBrowser: async () => fakeBrowser("https://public.example/", {}, hooks),
+    fetchImpl: async () =>
+      new Response(
+        "<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof</h1><p>Useful content here.</p></body></html>",
+        { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
+      ),
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const rendered = report.pages?.[0]?.rendered || {};
+
+  // The fallback measurement is genuinely long (over the slow-render
+  // threshold), so this test would fail before the fix: the finding fired
+  // purely from our own timeout budget.
+  assert.equal(rendered.loadSettled, false, "fallback render must record that idle was never reached");
+  assert.ok(rendered.loadDurationMs > 4000, "test setup must exceed the slow-render threshold");
+
+  const slowLoad = (report.findings || []).filter((f) => /Slow rendered load/i.test(f.title || ""));
+  assert.deepEqual(slowLoad, [], "a page that never settled must not become slow-load repair work");
+  assert.ok(
+    !(report.repairBrief || "").includes("reached network idle"),
+    "the brief must not claim network idle was reached"
+  );
+  assert.match(report.repairBrief || "", /network idle never reached/);
+});
+
+test("settled slow pages still get a slow-load finding with truthful evidence", async () => {
+  const hooks = { gotoSettleMs: 4200 };
+  const engine = createAuditEngine({
+    launchBrowser: async () => fakeBrowser("https://public.example/", {}, hooks),
+    fetchImpl: async () =>
+      new Response(
+        "<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof</h1><p>Useful content here.</p></body></html>",
+        { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
+      ),
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const rendered = report.pages?.[0]?.rendered || {};
+
+  assert.equal(rendered.loadSettled, true, "a settling navigation must record idle as reached");
+  const slowLoad = (report.findings || []).filter((f) => /Slow rendered load/i.test(f.title || ""));
+  assert.equal(slowLoad.length, 1, "a genuinely slow page that settled must still be flagged");
+  assert.match(slowLoad[0].evidence, /reached network idle/);
+  assert.ok(!(report.repairBrief || "").includes("network idle never reached"));
 });
