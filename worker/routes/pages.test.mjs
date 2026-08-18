@@ -1,27 +1,85 @@
 import assert from "node:assert/strict";
+import http from "node:http";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { rootSitemap } from "../../shared/audit-engine.js";
+import { auditUrl } from "../../server/audit/engine.js";
+import { escapeHtml, rootSitemap } from "../../shared/audit-engine.js";
+import { DEMO_PROOF, DEMO_FIXTURE_PATH, demoProofSnippet } from "./demo-proof.js";
+import { renderedFixture } from "./audits.js";
 import { checkHtml } from "./public-check.js";
 import {
+  SOCIAL_IMAGE_PATH,
+  aiAnswerReadinessHtml,
   demoHtml,
   homeMarkdown,
   llmsText,
   methodologyHtml,
   packagesHtml,
   privacyHtml,
+  proofCaseHtml,
+  proofCaseMarkdown,
+  renderedVsStaticAuditHtml,
+  smallBusinessSeoAuditHtml,
   supportHtml,
   termsHtml
 } from "./pages.js";
 
 const origin = "https://seofixkit.com";
+
+// Every worker-rendered public page must ship the SVG share image as
+// og:image/twitter:image (lane 1: "Every worker-rendered public page ships an
+// SVG as og:image/twitter:image"). The root page is the SPA app shell served
+// from index.html (not worker-rendered) and intentionally keeps its jpg
+// waitlist share image. The image URL is absolute and points at the shipped
+// public/og-image.svg asset, so a share of /demo, /packages, /check, or any
+// other public page never renders without a preview image.
+const allWorkerRenderedPublicPages = [
+  { name: "/demo", html: demoHtml(origin) },
+  { name: "/check", html: checkHtml(origin) },
+  { name: "/methodology", html: methodologyHtml(origin) },
+  { name: "/packages", html: packagesHtml(origin) },
+  { name: "/small-business-seo-audit", html: smallBusinessSeoAuditHtml(origin) },
+  { name: "/rendered-vs-static-seo-audit", html: renderedVsStaticAuditHtml(origin) },
+  { name: "/ai-answer-readiness", html: aiAnswerReadinessHtml(origin) },
+  { name: "/proof", html: proofCaseHtml(origin) },
+  { name: "/privacy", html: privacyHtml(origin) },
+  { name: "/support", html: supportHtml(origin) },
+  { name: "/terms", html: termsHtml(origin) }
+];
+
+test("every worker-rendered public page ships the SVG share image as og:image and twitter:image", () => {
+  const imageUrl = `${origin}${SOCIAL_IMAGE_PATH}`;
+  for (const { name, html } of allWorkerRenderedPublicPages) {
+    assert.match(
+      html,
+      new RegExp(`<meta property="og:image" content="${imageUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`),
+      `${name} must ship og:image pointing at the SVG share image`
+    );
+    assert.match(
+      html,
+      new RegExp(`<meta name="twitter:image" content="${imageUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`),
+      `${name} must ship twitter:image pointing at the SVG share image`
+    );
+    assert.match(html, /<meta name="twitter:card" content="summary_large_image" \/>/, `${name} must keep the large-image card so the SVG renders`);
+  }
+});
+
+test("the SVG share image exists and is a real 1200x630 SVG asset", () => {
+  const svg = readFileSync(new URL(`../../public${SOCIAL_IMAGE_PATH}`, import.meta.url), "utf8");
+  assert.match(svg, /^<svg /, "og-image.svg must be an SVG document");
+  assert.match(svg, /viewBox="0 0 1200 630"/, "og-image.svg must use the 1200x630 share-image viewBox");
+});
 const expectedSitemapUrls = [
   `${origin}/`,
   `${origin}/demo`,
   `${origin}/check`,
   `${origin}/methodology`,
   `${origin}/packages`,
+  `${origin}/small-business-seo-audit`,
+  `${origin}/rendered-vs-static-seo-audit`,
+  `${origin}/ai-answer-readiness`,
   `${origin}/privacy`,
+  `${origin}/proof`,
   `${origin}/support`,
   `${origin}/terms`
 ];
@@ -46,6 +104,21 @@ test("public proof pages expose methodology and package ladder without overclaim
     new RegExp(`<a class="cta" href="${origin}/check">Check one page now</a>`),
     "methodology must carry a clickable CTA into the anonymous one-page check"
   );
+  // Scout regression guard: every mention of the anonymous check URL on the
+  // methodology page must be clickable (a link href or a link's anchor text),
+  // never printed as plain text.
+  {
+    const checkUrl = `${origin}/check`;
+    const totalMentions = methodology.split(checkUrl).length - 1;
+    const hrefMentions = methodology.split(`href="${checkUrl}"`).length - 1;
+    const linkTextMentions = methodology.split(`>${checkUrl}<`).length - 1;
+    assert.ok(totalMentions > 0, "methodology must mention the anonymous one-page check");
+    assert.equal(
+      totalMentions,
+      hrefMentions + linkTextMentions,
+      `every /check mention on the methodology page must be a clickable link (${totalMentions} mentions, ${hrefMentions} link hrefs, ${linkTextMentions} link texts)`
+    );
+  }
   assert.match(methodology, /Why not just use a free AI SEO agent skill\?/);
   assert.match(methodology, /Open-source SEO tooling is good at that/, "the free-skill answer must not disparage open source");
   assert.match(methodology, /no live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/i);
@@ -72,8 +145,50 @@ test("public proof pages expose methodology and package ladder without overclaim
   assert.match(packages, /Config-gated subscription/);
   assert.match(packages, /Access activates after Dodo webhook entitlement/);
   assert.match(packages, /Roadmap/);
+  // The Fix Pack tile itself must not be a support-only dead end: extract the
+  // tile article and require at least one real checkout-path link in it.
+  {
+    const tile = (packages.match(/<article class="package-card live">[\s\S]*?<h2>SEO Fix Pack<\/h2>[\s\S]*?<\/article>/) || [])[0];
+    assert.ok(tile, "the Fix Pack tile article must exist");
+    assert.match(
+      tile,
+      new RegExp(`<a href="${origin}/check">Start from a report with real fixes</a>`),
+      "the Fix Pack tile must link the checkout path into the report funnel"
+    );
+    assert.match(
+      tile,
+      new RegExp(`<a href="${origin}/">Request private access</a>`),
+      "the Fix Pack tile must link the private access request"
+    );
+  }
   assert.doesNotMatch(combined, /completed 50K rendered validation/i);
   assert.doesNotMatch(combined, /guaranteed rankings/i);
+  // Promise-audit 2026-08-15: the demo and packages pages must not drift back
+  // into overclaiming. The engine only emits an exact snippet when it can
+  // generate one (demo-proof.js repairPlan entries carry empty snippets), so
+  // "each with an exact snippet" would overclaim; and Proof Monitoring stays
+  // visible in private billing as a config-gated offer, only its checkout is
+  // gated, so "only appears when configured" would overclaim.
+  assert.doesNotMatch(
+    demoHtml(origin),
+    /each with an exact snippet/,
+    "the demo must not claim every surfaced issue carries an exact snippet"
+  );
+  assert.match(
+    demoHtml(origin),
+    /with a suggested fix and an exact snippet when the engine can generate one/,
+    "the demo must keep the engine-capable snippet qualifier"
+  );
+  assert.doesNotMatch(
+    packages,
+    /Only appears in private billing when the Dodo subscription product and webhook entitlement sync are configured/,
+    "packages must not claim Proof Monitoring only appears in billing when configured"
+  );
+  assert.match(
+    packages,
+    /Checkout only opens when the Dodo subscription product and webhook entitlement sync are configured; until then it stays a config-gated offer in private billing/,
+    "packages must keep the config-gated checkout boundary"
+  );
 });
 
 test("machine-readable public surfaces list proof pages and limits", () => {
@@ -82,7 +197,7 @@ test("machine-readable public surfaces list proof pages and limits", () => {
   const sitemap = rootSitemap(origin);
 
   assert.deepEqual(parseSitemapUrls(sitemap), expectedSitemapUrls);
-  for (const path of ["/demo", "/methodology", "/packages", "/check"]) {
+  for (const path of ["/demo", "/methodology", "/packages", "/check", "/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness"]) {
     assert.match(llms, new RegExp(`${origin}${path}`));
     assert.match(markdown, new RegExp(`${origin}${path}`));
     assert.match(sitemap, new RegExp(`${origin}${path}`));
@@ -115,6 +230,48 @@ test("machine-readable public surfaces list proof pages and limits", () => {
   assert.match(llms, new RegExp(`The plain answer is on ${origin}/methodology`));
   assert.match(llms, /no live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/);
   assert.match(markdown, new RegExp(`Anonymous one-page check: ${origin}/check`));
+});
+
+test("intent-matching landing pages carry unique, truthful, machine-readable proof", () => {
+  const pages = [
+    { name: "small-business", path: "/small-business-seo-audit", html: smallBusinessSeoAuditHtml(origin) },
+    { name: "rendered-vs-static", path: "/rendered-vs-static-seo-audit", html: renderedVsStaticAuditHtml(origin) },
+    { name: "ai-answer-readiness", path: "/ai-answer-readiness", html: aiAnswerReadinessHtml(origin) }
+  ];
+
+  for (const { name, path, html } of pages) {
+    // Unique per-page title, meta description, and canonical.
+    assert.match(html, new RegExp(`<title>[^<]+ - SEO Fix Kit</title>`), `${name} must carry a page title`);
+    assert.match(html, /<meta name="description" content="[^"]+" \/>/, `${name} must carry a meta description`);
+    assert.match(html, new RegExp(`rel="canonical" href="${origin}${path}"`), `${name} must carry its own canonical`);
+    // Machine-readable proof: WebPage + SoftwareApplication + FAQPage JSON-LD.
+    const ldBlocks = html.match(/<script type="application\/ld\+json">/g) || [];
+    assert.equal(ldBlocks.length, 3, `${name} must emit WebPage, SoftwareApplication, and FAQPage JSON-LD`);
+    assert.match(html, /"@type"\s*:\s*"SoftwareApplication"/, `${name} must describe the tool truthfully as software`);
+    assert.match(html, /"@type"\s*:\s*"FAQPage"/, `${name} must emit FAQPage JSON-LD`);
+    // Visible FAQ must render from the same source as the JSON-LD FAQ.
+    assert.match(html, /Frequently asked questions/, `${name} must render the FAQ section visibly`);
+    assert.match(html, /class="faq-item"/, `${name} must render visible FAQ items`);
+    // Landing pages stay boundary-honest.
+    assert.match(html, /What this page does not claim/, `${name} must carry an explicit no-overclaim section`);
+    assert.match(html, new RegExp(`href="${origin}/check"`), `${name} must link the anonymous one-page check`);
+    assert.match(html, new RegExp(`href="${origin}/demo"`), `${name} must link the proof sample`);
+    assert.match(html, /does not guarantee rankings|never guarantees rankings/, `${name} must keep the no-ranking promise`);
+    assert.ok(visibleWordCount(html) >= 250, `${name} must not look thin to rendered audits`);
+  }
+
+  // Each landing page must be intent-specific, not a duplicate shell.
+  const titles = pages.map(({ html }) => (html.match(/<title>([^<]+) - SEO Fix Kit<\/title>/) || [])[1]);
+  assert.equal(new Set(titles).size, 3, "each landing page must have a unique title");
+  assert.match(pages[0].html, /Small Business SEO Audit/);
+  assert.match(pages[1].html, /Rendered vs Static SEO Audit/);
+  assert.match(pages[2].html, /AI Answer Readiness Check/);
+  // AI readiness boundary: no live answer-engine sampling, llms.txt optional.
+  assert.match(pages[2].html, /No live answer-engine sampling/);
+  assert.match(pages[2].html, /No AI citation monitoring/);
+  assert.match(pages[2].html, /llms\.txt stays optional/);
+  assert.match(pages[2].html, /does not sample live answer engines or monitor citations/);
+  assert.doesNotMatch(pages[2].html, /live AI citation monitoring is live/i);
 });
 
 test("public proof pages carry a site footer with terms and privacy links", () => {
@@ -201,12 +358,192 @@ test("public one-page check page is a truthful, searchable entry path", () => {
   assert.doesNotMatch(check, /noindex/i, "the entry page must stay searchable");
 });
 
+test("demo brief is verbatim real engine output for the public test page", async () => {
+  const server = http.createServer((req, res) => {
+    const fixtureOrigin = `http://${req.headers.host}`;
+    if (req.url.startsWith(DEMO_FIXTURE_PATH)) {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "x-robots-tag": "noindex, nofollow" });
+      res.end(renderedFixture(fixtureOrigin));
+      return;
+    }
+    if (req.url === "/llms.txt") {
+      res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+      res.end(`# SEO Fix Kit\n\nPublic proof pages:\n- ${fixtureOrigin}/demo\n- ${fixtureOrigin}/methodology\n- ${fixtureOrigin}/packages\n`);
+      return;
+    }
+    res.writeHead(404, { "content-type": "text/plain" });
+    res.end("not found");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const fixtureOrigin = `http://127.0.0.1:${server.address().port}`;
+    // Same options the Worker's private demo audit uses: appOrigin synthesis
+    // for robots/sitemap, one page, no PageSpeed pass.
+    const report = await auditUrl(`${fixtureOrigin}${DEMO_FIXTURE_PATH}`, {
+      maxPages: 1,
+      pageSpeed: false,
+      appOrigin: fixtureOrigin
+    });
+
+    assert.ok(report.findings.length >= DEMO_PROOF.guards.length + 1, "the engine must emit guarded findings plus real issues for the test page");
+    for (const guard of DEMO_PROOF.guards) {
+      const live = report.findings.find((finding) => finding.type === "guard" && finding.title === guard.title);
+      assert.ok(live, `guarded finding missing from live engine output: ${guard.title}`);
+      assert.equal(live.severity, guard.severity, `severity drifted for: ${guard.title}`);
+      assert.equal(live.why, guard.why, `why drifted for: ${guard.title}`);
+      assert.equal(live.evidence, guard.evidence, `evidence drifted for: ${guard.title}`);
+      assert.equal(live.fix, guard.fix, `fix drifted for: ${guard.title}`);
+    }
+
+    const rendered = report.pages[0].rendered;
+    const staticFacts = report.pages[0].static;
+    assert.equal(staticFacts.wordCount, DEMO_PROOF.measured.staticWordCount);
+    assert.equal(rendered.wordCount, DEMO_PROOF.measured.renderedWordCount);
+    assert.equal(rendered.h1s[0], DEMO_PROOF.measured.renderedH1);
+    assert.equal(rendered.internalLinks.length, DEMO_PROOF.measured.renderedInternalLinkCount);
+    assert.equal(rendered.title, DEMO_PROOF.measured.renderedTitle);
+
+    assert.ok(report.repairPlan.length >= DEMO_PROOF.repairPlan.length);
+    for (const entry of DEMO_PROOF.repairPlan) {
+      const live = report.repairPlan.find((item) => item.title === entry.title);
+      assert.ok(live, `repair plan entry missing from live engine output: ${entry.title}`);
+      assert.equal(live.fix, entry.fix, `fix drifted for: ${entry.title}`);
+      assert.equal(live.snippet || "", entry.snippet.replaceAll("{ORIGIN}", fixtureOrigin), `snippet drifted for: ${entry.title}`);
+    }
+
+    const demo = demoHtml(origin);
+    assert.match(demo, /Real engine output for the public test page/);
+    assert.match(demo, /verbatim output from the SEO Fix Kit audit engine/i);
+    assert.match(demo, new RegExp(`${origin}${DEMO_FIXTURE_PATH}`));
+    for (const guard of DEMO_PROOF.guards) {
+      const renderedEvidence = escapeHtml(guard.evidence)
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      assert.match(demo, new RegExp(renderedEvidence), `demo must render live evidence: ${guard.title}`);
+    }
+    assert.doesNotMatch(demo, /Sample developer brief/, "the demo must not show the hand-written brief anymore");
+    assert.doesNotMatch(demo, /Rendered H1 is visible in the final DOM/, "the fabricated H1 evidence must be gone");
+    assert.match(demo, /Check one page now/, "the demo must keep the low-friction entry into the live anonymous check");
+  } finally {
+    server.close();
+  }
+});
+
+test("demo proof list reflows at 320px and 390px without hiding evidence", async () => {
+  const { chromium } = await import("playwright");
+  const html = demoHtml(origin);
+  const expectedProofStrings = [
+    ...DEMO_PROOF.guards.flatMap((guard) => [guard.title, guard.evidence, guard.why, guard.fix]),
+    ...DEMO_PROOF.repairPlan.flatMap((item) => [
+      item.title,
+      item.fix,
+      demoProofSnippet(item.snippet, origin)
+    ].filter(Boolean))
+  ].map((value) => String(value).replace(/\s+/g, " ").trim());
+
+  assert.doesNotMatch(html, /overflow-x\s*:\s*hidden/i, "must wrap proof tokens instead of hiding document overflow");
+
+  const browser = await chromium.launch({ headless: true });
+  try {
+    for (const width of [320, 390]) {
+      const page = await browser.newPage({ viewport: { width, height: 844 }, isMobile: true });
+      await page.setContent(html, { waitUntil: "domcontentloaded" });
+      const measured = await page.evaluate(() => {
+        const root = document.documentElement;
+        const compact = (value) => String(value || "").replace(/\s+/g, " ").trim();
+        return {
+          scrollWidth: root.scrollWidth,
+          clientWidth: root.clientWidth,
+          htmlOverflowX: getComputedStyle(root).overflowX,
+          bodyOverflowX: getComputedStyle(document.body).overflowX,
+          overflowingItems: [...document.querySelectorAll("li")]
+            .filter((el) => el.scrollWidth > el.clientWidth + 1)
+            .map((el) => ({
+              text: compact(el.innerText).slice(0, 220),
+              scrollWidth: el.scrollWidth,
+              clientWidth: el.clientWidth
+            })),
+          text: compact(document.body.textContent)
+        };
+      });
+
+      assert.notEqual(measured.htmlOverflowX, "hidden", `html overflow-x must stay visible at ${width}px`);
+      assert.notEqual(measured.bodyOverflowX, "hidden", `body overflow-x must stay visible at ${width}px`);
+      assert.ok(
+        measured.scrollWidth <= measured.clientWidth,
+        `document overflow at ${width}px: scrollWidth=${measured.scrollWidth}/clientWidth=${measured.clientWidth} overflowing=${JSON.stringify(measured.overflowingItems)}`
+      );
+      assert.equal(
+        measured.overflowingItems.length,
+        0,
+        `proof list items overflow at ${width}px: ${JSON.stringify(measured.overflowingItems)}`
+      );
+      for (const proof of expectedProofStrings) {
+        assert.ok(
+          measured.text.includes(proof),
+          `proof string missing at ${width}px: ${proof.slice(0, 160)}`
+        );
+      }
+      await page.close();
+    }
+  } finally {
+    await browser.close();
+  }
+});
+
+test("shared public-product shell reflows at narrow viewports without a 320px floor", async () => {
+  const { chromium } = await import("playwright");
+  const shellPages = [
+    { name: "/methodology", html: methodologyHtml(origin) },
+    { name: "/packages", html: packagesHtml(origin) },
+    { name: "/small-business-seo-audit", html: smallBusinessSeoAuditHtml(origin) },
+    { name: "/rendered-vs-static-seo-audit", html: renderedVsStaticAuditHtml(origin) },
+    { name: "/ai-answer-readiness", html: aiAnswerReadinessHtml(origin) }
+  ];
+  for (const { name, html } of shellPages) {
+    assert.doesNotMatch(html, /min-width:\s*320px/, `${name} must not ship the 320px floor`);
+    assert.doesNotMatch(html, /overflow-x\s*:\s*hidden/i, `${name} must wrap instead of hiding overflow`);
+  }
+
+  const browser = await chromium.launch({ headless: true });
+  try {
+    for (const { name, html } of shellPages) {
+      for (const width of [390, 320, 300, 280, 240]) {
+        const page = await browser.newPage({ viewport: { width, height: 844 }, isMobile: true });
+        await page.setContent(html, { waitUntil: "domcontentloaded" });
+        const measured = await page.evaluate(() => {
+          const root = document.documentElement;
+          return {
+            scrollWidth: root.scrollWidth,
+            clientWidth: root.clientWidth,
+            htmlOverflowX: getComputedStyle(root).overflowX,
+            bodyOverflowX: getComputedStyle(document.body).overflowX,
+            bodyMinWidth: getComputedStyle(document.body).minWidth,
+            wideCount: [...document.querySelectorAll("*")]
+              .filter((el) => el.getBoundingClientRect().right > root.clientWidth + 1).length
+          };
+        });
+        assert.notEqual(measured.htmlOverflowX, "hidden", `${name} html overflow-x must stay visible at ${width}px`);
+        assert.notEqual(measured.bodyOverflowX, "hidden", `${name} body overflow-x must stay visible at ${width}px`);
+        assert.equal(measured.bodyMinWidth, "0px", `${name} must not keep the 320px floor at ${width}px`);
+        assert.ok(
+          measured.scrollWidth <= measured.clientWidth,
+          `${name} overflow at ${width}px: scrollWidth=${measured.scrollWidth}/clientWidth=${measured.clientWidth}`
+        );
+        assert.equal(measured.wideCount, 0, `${name} has ${measured.wideCount} elements wider than the viewport at ${width}px`);
+        await page.close();
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+});
+
 test("static public skill and sitemap files keep buyer-facing boundaries", () => {
   const skill = readFileSync(new URL("../../public/.well-known/skill.md", import.meta.url), "utf8");
   const sitemap = readFileSync(new URL("../../public/sitemap.xml", import.meta.url), "utf8");
 
   assert.deepEqual(parseSitemapUrls(sitemap), expectedSitemapUrls);
-  for (const path of ["/demo", "/methodology", "/packages", "/check", "/support", "/terms"]) {
+  for (const path of ["/demo", "/methodology", "/packages", "/check", "/proof", "/support", "/terms", "/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness"]) {
     assert.match(skill, new RegExp(`${origin}${path}`));
     assert.match(sitemap, new RegExp(`${origin}${path}`));
   }
@@ -242,12 +579,59 @@ test("static public skill and sitemap files keep buyer-facing boundaries", () =>
 });
 
 test("Cloudflare asset routing sends public proof pages through the Worker", () => {
-  const wrangler = JSON.parse(readFileSync(new URL("../../wrangler.jsonc", import.meta.url), "utf8"));
-  const runWorkerFirst = new Set(wrangler.assets?.run_worker_first || []);
+  const jsonc = readFileSync(new URL("../../wrangler.jsonc", import.meta.url), "utf8");
+  const wrangler = JSON.parse(jsonc.replace(/^\s*\/\/.*$/gm, ""));
+  const runWorkerFirst = wrangler.assets?.run_worker_first;
 
-  for (const path of ["/demo", "/methodology", "/packages", "/check", "/support", "/terms", "/privacy"]) {
-    assert.equal(runWorkerFirst.has(path), true, `${path} must be served by the Worker before SPA assets`);
+  // Boolean true runs the Worker before asset serving for every request, which
+  // is what keeps www.seofixkit.com asset paths 301-ing onto the apex host. An
+  // array must at least cover every public proof page; a missing or false
+  // value would let assets bypass the Worker and be served from the www host.
+  assert.equal(
+    runWorkerFirst === true || Array.isArray(runWorkerFirst),
+    true,
+    "run_worker_first must be true or cover the public proof pages"
+  );
+  if (Array.isArray(runWorkerFirst)) {
+    const covered = new Set(runWorkerFirst);
+    for (const path of ["/demo", "/methodology", "/packages", "/check", "/proof", "/support", "/terms", "/privacy"]) {
+      assert.equal(covered.has(path), true, `${path} must be served by the Worker before SPA assets`);
+    }
   }
+});
+
+test("real before/after proof receipt pins the same measurement path before and after", () => {
+  const html = proofCaseHtml(origin);
+  const markdown = proofCaseMarkdown(origin);
+
+  assert.match(html, /One real repair, with the same measurement path before and after\./);
+  assert.match(html, /Score <strong>85<\/strong>\/100 &middot; 7 findings/);
+  assert.match(html, /Score <strong>99<\/strong>\/100 &middot; 2 findings/);
+  assert.match(html, /Score <strong>100<\/strong>\/100 &middot; 0 findings/);
+  assert.match(html, /tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b/);
+  assert.match(html, /tinystudio-in-75ffee26-02ae-41d3-b2ef-5beb40722e50/);
+  assert.match(html, /tinystudio-in-0a45637f-1354-4d26-ace3-d3b594162961/);
+  assert.match(html, /github\.com\/nish3451\/tinystudio-in\/pull\/4/);
+  assert.match(html, /github\.com\/nish3451\/tinystudio-in\/pull\/5/);
+  assert.match(html, new RegExp(`<a class="cta" href="${origin}/proof\\.md">`));
+  assert.match(html, new RegExp(`href="${origin}/methodology"`));
+  assert.match(html, new RegExp(`href="${origin}/packages"`));
+  assert.match(html, /No ranking, traffic, indexing, citation, or revenue promise is made/);
+  assert.match(html, /SEO Fix Kit did not publish CMS changes, open GitHub pull requests, merge code/);
+  assert.match(html, /Founder-owned \(consented and redacted\)/);
+  assert.doesNotMatch(html, /guaranteed rankings|guarantees traffic|guarantees revenue/i);
+  assert.match(html, /<link rel="canonical" href="https:\/\/seofixkit\.com\/proof" \/>/);
+  assert.match(html, /"@type"\s*:\s*"SoftwareApplication"/, "the receipt must carry truthful machine-readable proof");
+  assert.doesNotMatch(html, /min-width:\s*320px/, "the receipt must not ship the 320px floor");
+
+  assert.match(markdown, /^# SEO Fix Kit .* Repair proof receipt/m);
+  assert.match(markdown, /85\/100 with 7 findings/);
+  assert.match(markdown, /100\/100 with 0 findings/);
+  assert.match(markdown, /github\.com\/nish3451\/tinystudio-in\/pull\/4/);
+  assert.match(markdown, /github\.com\/nish3451\/tinystudio-in\/pull\/5/);
+  assert.match(markdown, /No ranking, traffic, indexing, citation, or revenue promise is made/);
+  assert.match(markdown, new RegExp(`Anonymous one-page check: ${origin}/check`));
+  assert.doesNotMatch(markdown, /guaranteed rankings|guarantees traffic|guarantees revenue/i);
 });
 
 function visibleWordCount(html) {

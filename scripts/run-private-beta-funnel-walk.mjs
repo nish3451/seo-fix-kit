@@ -12,7 +12,10 @@ import { pathToFileURL } from "node:url";
 //
 //   1. Walks the funnel stops in order on a desktop viewport and again on an
 //      iPhone-13 mobile viewport: home (where the private-beta access request
-//      form lives), /demo, and /packages.
+//      form lives), /demo, and /packages. The mobile context is created
+//      through buildContextOptions() and verified after launch (the applied
+//      viewport size is recorded per stop), so a "mobile" pass can never
+//      silently be a desktop pass again.
 //   2. Per stop records HTTP status, final URL, document title, canonical,
 //      load-bearing funnel copy, console errors, page errors, broken internal
 //      links, and (mobile) horizontal overflow.
@@ -40,6 +43,39 @@ export const WALK_STATUS = {
   FAIL: "fail"
 };
 
+// The viewport descriptors the walk runs in, desktop then mobile. The mobile
+// descriptor must stay 390x844 so the walk keeps measuring the iPhone-13
+// breakpoint it promises; buildContextOptions() is the single translation
+// point into Playwright context options, and the offline lock pins it.
+export const WALK_VIEWPORTS = [
+  { name: "desktop", width: 1280, height: 900 },
+  {
+    name: "mobile",
+    width: 390,
+    height: 844,
+    isMobile: true,
+    hasTouch: true,
+    userAgent: mobileUserAgent()
+  }
+];
+
+// Translates a WALK_VIEWPORTS descriptor into valid Playwright
+// BrowserContextOptions. Playwright silently IGNORES unknown top-level keys:
+// a descriptor passed straight to newContext() as `{ name, width, height,
+// isMobile, ... }` drops width/height and runs at the 1280px desktop default
+// while still reporting the stop as the "mobile" viewport. The size must be
+// nested under `viewport`, and this builder plus the runtime applied-size
+// guard keep the walk honest.
+export function buildContextOptions({ name, width, height, isMobile = false, hasTouch = false, userAgent = "" } = {}) {
+  const options = {
+    viewport: { width, height },
+    isMobile,
+    hasTouch
+  };
+  if (userAgent) options.userAgent = userAgent;
+  return options;
+}
+
 // Exit codes: 0 pass, 1 walk failed (any stop's assertions broke), 2
 // unexpected error (browser launch, unreachable site, walker bug).
 export const WALK_EXIT_CODES = { pass: 0, fail: 1, error: 2 };
@@ -56,7 +92,8 @@ export const FUNNEL_STOPS = [
     titlePattern: /SEO Fix Kit - Proof-Backed SEO Repair Beta/,
     copyChecks: [
       { match: "Private beta access.", reason: "home keeps the locked private-beta copy" },
-      { match: "Email access link", reason: "home keeps the one-use email link CTA" }
+      { match: "Email access link", reason: "home keeps the one-use email link CTA" },
+      { match: "for site owners and founders", reason: "home names the intended buyer in the first viewport" }
     ],
     expectedLinks: ["/demo", "/methodology", "/packages", "/check"],
     accessForm: true
@@ -140,12 +177,21 @@ export async function runPrivateBetaFunnelWalk({
   let accessRequest = null;
 
   try {
-    for (const [viewportIndex, viewport] of [
-      { name: "desktop", width: 1280, height: 900 },
-      { name: "mobile", width: 390, height: 844, isMobile: true, hasTouch: true, userAgent: mobileUserAgent() }
-    ].entries()) {
-      const context = await launched.newContext(viewport);
+    for (const [viewportIndex, viewport] of WALK_VIEWPORTS.entries()) {
+      const context = await launched.newContext(buildContextOptions(viewport));
       const page = await context.newPage();
+      // Fail loud if the requested size did not apply: Playwright silently
+      // ignores unknown context-option keys, and a walk that never resized
+      // would journal a fake "mobile" pass. The applied size is also recorded
+      // per stop so journal evidence is self-verifying.
+      const appliedViewport = page.viewportSize();
+      if (!appliedViewport || appliedViewport.width !== viewport.width || appliedViewport.height !== viewport.height) {
+        failures.push(
+          `${viewport.name} viewport did not apply: context reports ${JSON.stringify(appliedViewport)} instead of ${viewport.width}x${viewport.height}; this walk is not measuring the viewport it claims`
+        );
+        await context.close();
+        continue;
+      }
       const scopedConsoleErrors = [];
       const scopedRequestFailures = [];
       page.on("console", (message) => {
@@ -165,7 +211,8 @@ export async function runPrivateBetaFunnelWalk({
           stop,
           page,
           timeoutMs,
-          viewport: viewport.name
+          viewport: viewport.name,
+          appliedViewport: { width: viewport.width, height: viewport.height }
         });
         stops.push(evidence);
         const stopFailures = evaluateStopEvidence(evidence);
@@ -227,7 +274,7 @@ function mobileUserAgent() {
 
 // Walks one stop in one viewport and records raw evidence. Never submits the
 // access form; the access request check is inspect-only.
-async function walkStop({ baseUrl, stop, page, timeoutMs, viewport }) {
+async function walkStop({ baseUrl, stop, page, timeoutMs, viewport, appliedViewport = null }) {
   const path = stop.path;
   const response = await page.goto(`${baseUrl}${path}`, {
     waitUntil: "networkidle",
@@ -246,7 +293,12 @@ async function walkStop({ baseUrl, stop, page, timeoutMs, viewport }) {
       const anchors = Array.from(document.querySelectorAll("a[href]"))
         .map((anchor) => anchor.getAttribute("href"))
         .filter((href) => href && !href.startsWith("#") && !/^(mailto:|tel:|javascript:)/i.test(href));
+      // Compare against the layout viewport, not window.innerWidth: on a
+      // page whose content overflows horizontally, mobile browsers inflate
+      // innerWidth to the overflowing width, which would hide the very
+      // regression this walk exists to catch.
       const scrollWidth = document.documentElement.scrollWidth;
+      const clientWidth = document.documentElement.clientWidth;
       const innerWidth = window.innerWidth;
       const emailInput = document.querySelector("#email");
       const companyInput = document.querySelector("#company");
@@ -259,6 +311,7 @@ async function walkStop({ baseUrl, stop, page, timeoutMs, viewport }) {
         bodyText,
         anchors: [...new Set(anchors)],
         scrollWidth,
+        clientWidth,
         innerWidth,
         accessForm: {
           emailPresent: Boolean(emailInput),
@@ -278,13 +331,17 @@ async function walkStop({ baseUrl, stop, page, timeoutMs, viewport }) {
       bodyText: "",
       anchors: [],
       scrollWidth: 0,
+      clientWidth: 0,
       innerWidth: 0,
       accessForm: null,
       walkerError: String(error?.message || error)
     }));
 
   const brokenLinks = await checkLinksLive({ baseUrl, anchors: pageState.anchors, timeoutMs });
-  const horizontalOverflow = pageState.scrollWidth > pageState.innerWidth + 1;
+  // clientWidth is the layout viewport width; innerWidth can inflate to the
+  // overflowing width on mobile, so it stays recorded only as diagnostic
+  // context alongside the verdict-bearing comparison.
+  const horizontalOverflow = pageState.scrollWidth > pageState.clientWidth + 1;
 
   const copyChecks = stop.copyChecks.map((check) => ({
     match: check.match,
@@ -314,6 +371,7 @@ async function walkStop({ baseUrl, stop, page, timeoutMs, viewport }) {
     path,
     name: stop.name,
     viewport,
+    appliedViewport,
     httpStatus,
     finalUrl,
     title: pageState.title,
@@ -321,7 +379,7 @@ async function walkStop({ baseUrl, stop, page, timeoutMs, viewport }) {
     copyChecks,
     expectedLinks,
     brokenLinks,
-    horizontalOverflow: { scrollWidth: pageState.scrollWidth, innerWidth: pageState.innerWidth, overflow: horizontalOverflow },
+    horizontalOverflow: { scrollWidth: pageState.scrollWidth, clientWidth: pageState.clientWidth, innerWidth: pageState.innerWidth, overflow: horizontalOverflow },
     accessForm,
     walkerError: pageState.walkerError || (response.error ? response.error : null)
   };
@@ -405,7 +463,7 @@ export function evaluateStopEvidence(evidence) {
   }
   if (evidence.horizontalOverflow?.overflow === true) {
     failures.push(
-      `horizontal scroll on ${evidence.viewport}: scrollWidth ${evidence.horizontalOverflow.scrollWidth} > innerWidth ${evidence.horizontalOverflow.innerWidth}`
+      `horizontal scroll on ${evidence.viewport}: scrollWidth ${evidence.horizontalOverflow.scrollWidth} > clientWidth ${evidence.horizontalOverflow.clientWidth}`
     );
   }
   if (stop.accessForm) {
