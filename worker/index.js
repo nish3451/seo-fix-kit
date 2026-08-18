@@ -22,12 +22,17 @@ import { isSafeUuid } from "./lib/text.js";
 import { createAdminSession, revokeAdminSession } from "./lib/auth.js";
 import { cleanupExpiredRows } from "./lib/db.js";
 import {
+  aiAnswerReadinessHtml,
   demoHtml,
   homeMarkdown,
   llmsText,
   methodologyHtml,
   packagesHtml,
   privacyHtml,
+  proofCaseHtml,
+  proofCaseMarkdown,
+  renderedVsStaticAuditHtml,
+  smallBusinessSeoAuditHtml,
   supportHtml,
   termsHtml
 } from "./routes/pages.js";
@@ -677,6 +682,40 @@ export default {
         return new Response(packagesHtml(origin), {
           headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
         });
+      }
+
+      if (url.pathname === "/small-business-seo-audit") {
+        return new Response(smallBusinessSeoAuditHtml(origin), {
+          headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
+        });
+      }
+
+      if (url.pathname === "/rendered-vs-static-seo-audit") {
+        return new Response(renderedVsStaticAuditHtml(origin), {
+          headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
+        });
+      }
+
+      if (url.pathname === "/ai-answer-readiness") {
+        return new Response(aiAnswerReadinessHtml(origin), {
+          headers: secureHeaders({ "content-type": "text/html; charset=utf-8" })
+        });
+      }
+
+      if (url.pathname === "/proof" || url.pathname === "/proof.md") {
+        const acceptsMarkdown =
+          url.pathname === "/proof.md" ||
+          (request.headers.get("accept") || "").includes("text/markdown");
+        return new Response(
+          acceptsMarkdown ? proofCaseMarkdown(origin) : proofCaseHtml(origin),
+          {
+            headers: secureHeaders({
+              "content-type": acceptsMarkdown
+                ? "text/markdown; charset=utf-8"
+                : "text/html; charset=utf-8"
+            })
+          }
+        );
       }
 
       if (url.pathname === "/beta" || url.pathname.startsWith("/beta/")) {

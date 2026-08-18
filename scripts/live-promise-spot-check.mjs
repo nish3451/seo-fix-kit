@@ -131,6 +131,7 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "proof-loop headline", match: "Do not fix what is not broken." },
         { reason: "static-vs-rendered proof panels", match: "Rendered proof" },
         { reason: "no-overclaim section", match: "What this sample does not claim" },
+        { reason: "snippet qualifier stays engine-capable", match: "an exact snippet when the engine can generate one" },
         { reason: "link to methodology limits", match: `href="${baseUrl}/methodology"` },
         { reason: "link to package ladder", match: `href="${baseUrl}/packages"` },
         { reason: "link to terms", match: `href="${baseUrl}/terms"` },
@@ -179,9 +180,91 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "public fix pack price", match: "$99.00 one-time" },
         { reason: "Dodo is the final price source", match: "Dodo shows the final checkout price" },
         { reason: "Proof Monitoring is config-gated", match: "Config-gated subscription" },
+        { reason: "Proof Monitoring checkout gated, offer visible", match: "Checkout only opens when the Dodo subscription product and webhook entitlement sync are configured" },
         { reason: "roadmap packages marked", match: "Roadmap" },
         { reason: "link to terms", match: `href="${baseUrl}/terms"` },
         { reason: "link to privacy", match: `href="${baseUrl}/privacy"` }
+      ]
+    },
+    {
+      path: "/small-business-seo-audit",
+      name: "small-business landing page keeps the proof-first boundary",
+      isPage: true,
+      acceptStatuses: [200],
+      expectations: [
+        { reason: "proof-not-homework headline", match: "An SEO audit that shows proof, not homework." },
+        { reason: "free one-page check entry", match: "Free one-page check" },
+        { reason: "no-overclaim section", match: "What this page does not claim" },
+        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
+        { reason: "link to the proof sample", match: `href="${baseUrl}/demo"` },
+        { reason: "link to methodology limits", match: `href="${baseUrl}/methodology"` },
+        ...landingPageLdExpectations("/small-business-seo-audit", "Small Business SEO Audit")
+      ]
+    },
+    {
+      path: "/rendered-vs-static-seo-audit",
+      name: "rendered-vs-static landing page keeps the false-positive guard boundary",
+      isPage: true,
+      acceptStatuses: [200],
+      expectations: [
+        { reason: "static-vs-rendered headline", match: "Static crawlers invent work. Rendered proof does not." },
+        { reason: "static scanner vs rendered proof panels", match: "Rendered proof" },
+        { reason: "no-overclaim section", match: "What this page does not claim" },
+        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
+        { reason: "link to the proof sample", match: `href="${baseUrl}/demo"` },
+        ...landingPageLdExpectations("/rendered-vs-static-seo-audit", "Rendered vs Static SEO Audit")
+      ]
+    },
+    {
+      path: "/ai-answer-readiness",
+      name: "AI Answer Readiness landing page keeps the site-proof boundary",
+      isPage: true,
+      acceptStatuses: [200],
+      expectations: [
+        { reason: "site-proof headline", match: "A site-proof AI readiness check, not a citation tracker." },
+        { reason: "no live answer-engine sampling", match: "No live answer-engine sampling" },
+        { reason: "no AI citation monitoring", match: "No AI citation monitoring" },
+        { reason: "llms.txt stays optional", match: "llms.txt stays optional" },
+        { reason: "no-overclaim section", match: "What this page does not claim" },
+        { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
+        ...landingPageLdExpectations("/ai-answer-readiness", "AI Answer Readiness Check")
+      ]
+    },
+    {
+      path: "/proof",
+      name: "real before/after repair receipt is published at /proof",
+      isPage: true,
+      acceptStatuses: [200],
+      expectations: [
+        { reason: "real before/after headline", match: "One real repair, with the same measurement path before and after." },
+        { reason: "before score 85", match: "Score <strong>85</strong>/100" },
+        { reason: "intermediate score 99", match: "Score <strong>99</strong>/100" },
+        { reason: "after score 100", match: "Score <strong>100</strong>/100" },
+        { reason: "source report id pinned", match: "tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b" },
+        { reason: "intermediate rerun id pinned", match: "tinystudio-in-75ffee26-02ae-41d3-b2ef-5beb40722e50" },
+        { reason: "final rerun id pinned", match: "tinystudio-in-0a45637f-1354-4d26-ace3-d3b594162961" },
+        { reason: "owner-approved PR #4 linked", match: "github.com/nish3451/tinystudio-in/pull/4" },
+        { reason: "owner-approved PR #5 linked", match: "github.com/nish3451/tinystudio-in/pull/5" },
+        { reason: "no-ranking boundary stated", match: "No ranking, traffic, indexing, citation, or revenue promise is made" },
+        { reason: "no CMS/GitHub-publishing boundary", match: "SEO Fix Kit did not publish CMS changes, open GitHub pull requests, merge code" },
+        { reason: "markdown receipt CTA", match: `href="${baseUrl}/proof.md"` },
+        { reason: "link to methodology limits", match: `href="${baseUrl}/methodology"` },
+        { reason: "link to package ladder", match: `href="${baseUrl}/packages"` }
+      ]
+    },
+    {
+      path: "/proof.md",
+      name: "markdown receipt is served for /proof.md",
+      isPage: true,
+      acceptStatuses: [200],
+      contentType: "text/markdown",
+      expectations: [
+        { reason: "markdown receipt headline", match: "SEO Fix Kit — Repair proof receipt" },
+        { reason: "before score 85", match: "85/100" },
+        { reason: "after score 100", match: "100/100" },
+        { reason: "owner-approved PR #4 referenced", match: "github.com/nish3451/tinystudio-in/pull/4" },
+        { reason: "owner-approved PR #5 referenced", match: "github.com/nish3451/tinystudio-in/pull/5" },
+        { reason: "no-ranking boundary stated", match: "No ranking, traffic, indexing, citation, or revenue promise is made" }
       ]
     },
     {
@@ -244,6 +327,7 @@ export function publicSurfaceSpotChecks(baseUrl) {
       expectations: [
         { reason: "llms.txt lists the anonymous check", match: `${baseUrl}/check` },
         { reason: "llms.txt lists the proof-loop pages", match: `${baseUrl}/demo` },
+        { reason: "llms.txt lists the before/after receipt", match: `${baseUrl}/proof` },
         { reason: "llms.txt keeps the no-live-AI-tracking boundary", match: "Does not provide live AI-engine visibility tracking" }
       ]
     },
@@ -256,7 +340,8 @@ export function publicSurfaceSpotChecks(baseUrl) {
         { reason: "sitemap lists the one-page check", match: `<loc>${baseUrl}/check</loc>` },
         { reason: "sitemap lists the proof loop", match: `<loc>${baseUrl}/demo</loc>` },
         { reason: "sitemap lists the limits page", match: `<loc>${baseUrl}/methodology</loc>` },
-        { reason: "sitemap lists the package ladder", match: `<loc>${baseUrl}/packages</loc>` }
+        { reason: "sitemap lists the package ladder", match: `<loc>${baseUrl}/packages</loc>` },
+        { reason: "sitemap lists the before/after receipt", match: `<loc>${baseUrl}/proof</loc>` }
       ]
     },
     {
@@ -313,6 +398,22 @@ export function publicSurfaceSpotChecks(baseUrl) {
   ];
 }
 
+// Machine-readable proof on the intent-matching landing pages: each one must
+// carry WebPage + SoftwareApplication + FAQPage JSON-LD (the three blocks
+// `publicProductPageHtml` emits) whose `url`/`name` point at that page, with
+// the FAQ visible copy and the schema built from the same source array.
+// The full offline lock lives in worker/routes/pages.test.mjs; these
+// expectations prove the live deployed page still ships the schema.
+function landingPageLdExpectations(path, pageName) {
+  return [
+    { reason: "WebPage JSON-LD names the page", match: `"@type":"WebPage","name":"${pageName} - SEO Fix Kit"` },
+    { reason: "WebPage JSON-LD points at the page URL", match: `"@type":"WebPage","name":"${pageName} - SEO Fix Kit","description":` },
+    { reason: "SoftwareApplication JSON-LD describes the tool truthfully", match: '"@type":"SoftwareApplication","name":"SEO Fix Kit"' },
+    { reason: "FAQPage JSON-LD exists", match: '"@type":"FAQPage"' },
+    { reason: "visible FAQ matches the FAQPage JSON-LD source", match: "Frequently asked questions" }
+  ];
+}
+
 // Canonical-host promise: the README "Custom domain" section claims every
 // www.seofixkit.com request 301-redirects onto the apex host with its path and
 // query intact, so canonicals, robots.txt, and sitemap.xml stay apex-only.
@@ -343,6 +444,20 @@ export function canonicalHostSpotChecks(baseUrl) {
           name: "location",
           value: `${baseUrl}/check?utm_source=spot-check`,
           reason: "redirect preserves the path and query"
+        }
+      ]
+    },
+    {
+      path: "www.seofixkit.com/favicon.svg",
+      name: "www.seofixkit.com static assets redirect too (no asset-host leakage)",
+      url: `${wwwOrigin}/favicon.svg`,
+      redirectManual: true,
+      acceptStatuses: [301],
+      expectedHeaders: [
+        {
+          name: "location",
+          value: `${baseUrl}/favicon.svg`,
+          reason: "static asset path must 301 onto the apex host"
         }
       ]
     }

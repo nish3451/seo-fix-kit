@@ -1,6 +1,13 @@
 import { escapeHtml } from "../../shared/audit-engine.js";
+import { DEMO_PROOF, DEMO_FIXTURE_PATH, demoProofSnippet } from "./demo-proof.js";
 
 const FIX_PACK_PUBLIC_PRICE = "$99.00 one-time";
+
+// The SVG share image every worker-rendered public page ships as
+// og:image/twitter:image. Single source of truth: public/og-image.svg is the
+// 1200x630 file copied into the Worker's asset bundle, and pages.test.mjs
+// pins both the tag and the shipped file so shares never point at a dead URL.
+const SOCIAL_IMAGE_PATH = "/og-image.svg";
 
 function llmsText(origin) {
   return `# SEO Fix Kit
@@ -22,6 +29,7 @@ Live product claims:
 - Verified sessions can import Search Console or rank-tracker keyword rows for low-CTR, page-two, decline, cannibalization, intent-match, uncrawled landing-page repair actions, and rank observation history.
 - Reports include rendered WordPress and ecommerce platform proof for Product schema, breadcrumbs, faceted links, archives, and plugin resource impact.
 - Reports include proof-derived AI Answer Readiness checks for rendered content depth, helpful schema, canonical/internal-link clarity, question-led structure, sitemap context, and optional llms.txt reachability.
+- Intent-matching landing pages at ${origin}/small-business-seo-audit, ${origin}/rendered-vs-static-seo-audit, and ${origin}/ai-answer-readiness describe the proof-backed small-business audit, rendered-vs-static proof loop, and site-proof AI Answer Readiness boundary; none claim live answer-engine sampling or AI citation monitoring.
 - Reports include draft-only growth briefs from verified keyword, competitor, AI-readiness, and crawl gaps.
 - Reports include a private repair queue with proof, acceptance checks, status, safe draft action records, approval state, owner-approved implementation packs, and proof receipts after fixed rerun proof.
 - The account dashboard includes a repair-agent feed that ranks open repairs, drafted actions, applied items needing rerun proof, and monitor regressions.
@@ -34,8 +42,16 @@ Live product claims:
 - Repair Sprint eligibility can be shown from approved proposal state, but distinct Repair Sprint checkout is not live yet.
 - Agency Workspace features run under beta limits; paid Agency Workspace checkout is not live yet.
 
+Hosted-only differentiators vs free installable SEO agent skills:
+- Free installable SEO agent skills are useful for quick, single-page checks and remain a good complement; SEO Fix Kit's hosted surfaces add the parts that need infrastructure and persistence.
+- Hosted rendered crawl scope: self-serve audits up to 1,000 pages per queued audit, robots.txt and sitemap crawl inventory up to 50,000 discovered URLs, and staged large rendered crawl jobs for 50,000-page targets (early access; batches render gradually, never sold as completed 50K rendered validation).
+- Persistent repair queue: proven issues stay tracked across saved reports with approval state, acceptance checks, status, and fixed-rerun proof receipts.
+- Owner-approved implementation packs: private handoff documents with source proof and approval state for approved repair actions.
+- Paid Fix Pack fulfillment: one proof-backed repair pass per report plus one rerun after fixes, with Dodo as the checkout and visible-price source of truth.
+- Why not just use a free AI SEO agent skill? The plain answer is on ${origin}/methodology; the same boundaries apply to both, including no live AI-engine sampling, no AI citation monitoring, and no ranking guarantees.
+
 Agent-readable acquisition and action surfaces:
-- Public context for agents: ${origin}/llms.txt, ${origin}/.well-known/skill.md, ${origin}/demo, ${origin}/methodology, ${origin}/packages, ${origin}/support, and ${origin}/terms.
+- Public context for agents: ${origin}/llms.txt, ${origin}/.well-known/skill.md, ${origin}/demo, ${origin}/methodology, ${origin}/packages, ${origin}/proof, ${origin}/support, and ${origin}/terms.
 - Owner setup starts inside the private beta workspace; anonymous one-page checks are live at ${origin}/check, while full multi-page audits and unauthenticated repair actions are not live.
 - Self-serve API setup is owner-scoped at ${origin}/api/developer, with API keys from ${origin}/api/developer/tokens and lifecycle webhooks from ${origin}/api/developer/webhooks.
 - Bearer-token API actions agents can use today: POST /v1/audits, GET /v1/audits/{audit_id}, GET /v1/audits/{audit_id}/issues, GET /v1/audits/{audit_id}/report, GET/PATCH /v1/audits/{audit_id}/repair-queue, POST /v1/audits/{audit_id}/repair-actions, PATCH /v1/audits/{audit_id}/repair-actions/{action_id}, GET /v1/audits/{audit_id}/repair-actions/{action_id}/implementation.md, GET /v1/audits/{audit_id}/repair-actions/{action_id}/proof.md, GET /v1/projects, POST /v1/large-crawls, and GET /v1/large-crawls/{large_crawl_id}.
@@ -76,6 +92,10 @@ Useful routes:
 - ${origin}/demo
 - ${origin}/methodology
 - ${origin}/packages
+- ${origin}/proof
+- ${origin}/small-business-seo-audit
+- ${origin}/rendered-vs-static-seo-audit
+- ${origin}/ai-answer-readiness
 `;
 }
 
@@ -91,14 +111,22 @@ Public proof before payment:
 - Sample proof report: ${origin}/demo
 - Methodology and limits: ${origin}/methodology
 - Package ladder: ${origin}/packages
+- Small-business SEO audit: ${origin}/small-business-seo-audit
+- Rendered vs static audit: ${origin}/rendered-vs-static-seo-audit
+- AI Answer Readiness check: ${origin}/ai-answer-readiness
 
 Start at ${origin}/.
 `;
 }
 
+// Serialize a JSON-LD block safely inside a <script> tag.
+function ldBlock(value) {
+  return `<script type="application/ld+json">${JSON.stringify(value).replace(/</g, "\\u003c")}</script>`;
+}
+
 function pageSocialHead({ origin, title, description, path = "/" }) {
   const url = `${origin}${path}`;
-  const image = `${origin}/og-image.svg`;
+  const image = `${origin}${SOCIAL_IMAGE_PATH}`;
   const jsonLd = JSON.stringify({
     "@context": "https://schema.org",
     "@type": "WebPage",
@@ -135,21 +163,21 @@ function demoHtml(origin) {
 ${pageSocialHead({ origin, title: "Proof-Backed SEO Repair Demo - SEO Fix Kit", description: "A public sample showing how SEO Fix Kit refuses static crawler false positives and turns verified issues into repair briefs.", path: "/demo" })}
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
-      body { margin: 0; min-width: 320px; }
-      main { margin: 0 auto; max-width: 980px; padding: 36px 22px 60px; }
+      body { margin: 0; min-width: 0; }
+      main { margin: 0 auto; max-width: 980px; padding: 36px 22px 60px; min-width: 0; }
       a { color: #98f0cc; font-weight: 780; text-decoration: none; }
       header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 54px; }
-      h1 { font-size: clamp(44px, 9vw, 104px); letter-spacing: 0; line-height: .9; margin: 0 0 18px; max-width: 780px; }
-      h2 { font-size: clamp(24px, 3vw, 34px); margin: 0; }
-      p, li { color: rgba(251,248,239,.75); font-size: 18px; line-height: 1.6; }
+      h1 { font-size: clamp(44px, 9vw, 104px); letter-spacing: 0; line-height: .9; margin: 0 0 18px; max-width: 780px; overflow-wrap: break-word; }
+      h2 { font-size: clamp(24px, 3vw, 34px); margin: 0; overflow-wrap: break-word; }
+      p, li { color: rgba(251,248,239,.75); font-size: 18px; line-height: 1.6; overflow-wrap: anywhere; word-break: break-word; }
       .kicker { color: #98f0cc; font-size: 13px; font-weight: 880; letter-spacing: .08em; text-transform: uppercase; }
       .grid { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 34px 0; }
-      .panel { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; padding: 20px; }
+      .panel { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; padding: 20px; min-width: 0; }
       .panel strong { color: #dcc062; display: block; font-size: 14px; margin-bottom: 10px; text-transform: uppercase; }
       .proof { border-color: rgba(152,240,204,.28); }
       .proof strong { color: #98f0cc; }
       .cta { align-items: center; background: #98f0cc; border-radius: 8px; color: #06100c; display: inline-flex; font-weight: 880; min-height: 48px; padding: 0 18px; }
-      code { color: #fbf8ef; white-space: pre-wrap; }
+      code { color: #fbf8ef; display: block; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
       .site-footer { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-top: 30px; }
       @media (max-width: 760px) { header { align-items: flex-start; gap: 18px; flex-direction: column; } .grid { grid-template-columns: 1fr; } }
     </style>
@@ -168,38 +196,47 @@ ${pageSocialHead({ origin, title: "Proof-Backed SEO Repair Demo - SEO Fix Kit", 
       <section class="grid" aria-label="Sample audit outcome">
         <article class="panel">
           <strong>Static scanner</strong>
-          <p>No H1. No internal links. Thin content. Needs cleanup.</p>
+          <p>The raw HTML response holds ${DEMO_PROOF.measured.staticWordCount} visible words and no heading or link a user can follow. A static-only scan reads that as a thin, broken page.</p>
         </article>
         <article class="panel proof">
           <strong>Rendered proof</strong>
-          <p>Browser render shows a real H1, normal internal links, and substantial page content.</p>
+          <p>The browser render shows one real H1, three internal links, and ${DEMO_PROOF.measured.renderedWordCount} words of content. The thin page exists only in the raw response.</p>
         </article>
         <article class="panel">
           <strong>Repair brief</strong>
-          <p>No duplicate H1. No fake internal links. No busywork. Keep monitoring and rerun after real content changes.</p>
+          <p>No thin-content fix is queued: the engine guards the warning with rendered-word evidence. Issues that are real still surface — noindex, a canonical conflict, a missing share image, missing schema — with a suggested fix and an exact snippet when the engine can generate one.</p>
         </article>
       </section>
       <section class="panel proof">
-        <h2>Sample developer brief</h2>
-        <p>The paid beta turns verified findings into a repair queue with acceptance checks and one rerun after fixes.</p>
-        <code>- Finding: False positive guarded. H1 exists after render.
-- Evidence: Rendered H1 is visible in the final DOM.
-- Action: Do not add another H1.
-- Acceptance: Re-run audit; finding stays guarded, not queued as a fix.</code>
+        <h2>Real engine output for the public test page</h2>
+        <p>The proof below is verbatim output from the SEO Fix Kit audit engine run against SEO Fix Kit's own <a href="${origin}${DEMO_FIXTURE_PATH}">public test page</a> — the same engine, the same page, and the same proof fields used for private reports. Every finding below is engine-generated, not hand-written demo copy.</p>
+        <p><strong>Measured on the test page:</strong> ${DEMO_PROOF.measured.staticWordCount} visible words in the raw HTML response vs ${DEMO_PROOF.measured.renderedWordCount} words, one H1, and ${DEMO_PROOF.measured.renderedInternalLinkCount} internal links after browser render.</p>
+        <p><strong>Guarded false positives:</strong></p>
+        <ul>
+${DEMO_PROOF.guards.map((guard) => `          <li><strong>${escapeHtml(guard.title)}</strong>\n            <code>- Evidence: ${escapeHtml(guard.evidence)}
+- Why: ${escapeHtml(guard.why)}
+- Fix: ${escapeHtml(guard.fix)}</code></li>`).join("\n")}
+        </ul>
+        <p><strong>What the engine actually queues for the test page</strong> (severity · finding · suggested fix · exact snippet when the engine can generate one):</p>
+        <ul>
+${DEMO_PROOF.repairPlan.map((item) => `          <li><strong>${escapeHtml(item.severity)}</strong> ${escapeHtml(item.title)} — ${escapeHtml(item.fix)}${item.snippet ? `\n            <code>${escapeHtml(demoProofSnippet(item.snippet, origin))}</code>` : ""}</li>`).join("\n")}
+        </ul>
+        <p>This excerpt was generated with engine v${escapeHtml(DEMO_PROOF.engineVersion)}. Performance/PageSpeed checks are not part of this public excerpt. The test page is intentionally a noindex fixture, and the report says so instead of hiding it. After a change ships, rerun the same page: each finding shows fixed, still-open, new, or regressed.</p>
       </section>
       <section>
         <h2>What this sample proves</h2>
         <p>A useful SEO repair report has to separate a crawler limitation from a real customer problem. The sample shows that SEO Fix Kit does not stop at the first HTML response. It opens the page in a browser, reads the rendered title, description, headings, internal links, schema, social tags, images, and body copy, then records which static warnings should be guarded as false positives.</p>
+        <p>On this test page the static-looking warnings were a missing H1, missing internal links, and thin content: ${DEMO_PROOF.measured.staticWordCount} visible words in the raw response vs ${DEMO_PROOF.measured.renderedWordCount} rendered words. The same raw-vs-rendered comparison guards missing-H1 and missing-link warnings on sites that paint content with JavaScript.</p>
         <p>That distinction matters for agentic repair work. If a scanner says "add an H1" when the rendered page already has one, an agent could make the site worse by adding duplicate headings. SEO Fix Kit keeps that item out of the repair queue, explains why it was rejected, and points the user toward a rerun instead of fake busywork.</p>
       </section>
       <section class="grid" aria-label="What a paid Fix Pack uses from the sample">
         <article class="panel proof">
           <strong>Buyer proof</strong>
-          <p>The report shows the observed page URL, rendered facts, issue evidence, and whether the finding is actionable or guarded.</p>
+          <p>The report shows the observed page URL, rendered facts, issue evidence, and whether the finding is actionable or guarded — exactly the fields shown in the real engine output above.</p>
         </article>
         <article class="panel proof">
           <strong>Repair scope</strong>
-          <p>Only proven issues become queue items. Each item has a suggested fix, estimated effort, confidence, and acceptance check.</p>
+          <p>Only proven issues become queue items. Each item has severity, a suggested fix, an exact snippet when the engine can generate one, and an acceptance check.</p>
         </article>
         <article class="panel proof">
           <strong>Rerun standard</strong>
@@ -208,7 +245,7 @@ ${pageSocialHead({ origin, title: "Proof-Backed SEO Repair Demo - SEO Fix Kit", 
       </section>
       <section>
         <h2>What this sample does not claim</h2>
-        <p>This page is a sample, not an audit of your site. Anonymous one-page checks are live at ${origin}/check: paste a public URL and get rendered proof, guarded false positives, and actionable findings when present — with no account, no email, and no stored report. Full reports still run inside the private beta after secure email access and, for deeper crawls, site verification. Neither the sample nor the one-page check promises rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility. The product standard is the same everywhere: prove the issue, avoid false positives, ask for approval, then rerun the same measurement after the fix.</p>
+        <p>This page is a sample, not an audit of your site. The proof excerpt above is the engine's real output for the test page, not a preview of your site's results. Anonymous one-page checks are live at ${origin}/check: paste a public URL and get rendered proof, guarded false positives, and actionable findings when present — with no account, no email, and no stored report. Full reports still run inside the private beta after secure email access and, for deeper crawls, site verification. Neither the sample nor the one-page check promises rankings, traffic, indexing, revenue, AI citations, or live answer-engine visibility. The product standard is the same everywhere: prove the issue, avoid false positives, ask for approval, then rerun the same measurement after the fix.</p>
       </section>
       <p><a class="cta" href="${origin}/check">Check one page now</a></p>
       <footer class="site-footer">
@@ -266,6 +303,12 @@ function methodologyHtml(origin) {
         <h2>Acceptance standard</h2>
         <p>A repair is treated as proof-backed only when the report names the issue, shows source evidence, gives a concrete fix, and includes an acceptance check that can be rerun. Rankings, traffic, indexing, citations, and revenue are never guaranteed.</p>
       </section>
+      <section class="band">
+        <h2>Why not just use a free AI SEO agent skill?</h2>
+        <p>Free installable SEO agent skills are genuinely useful for quick, single-page checks: read a page, spot a missing title or description, draft a fix. Open-source SEO tooling is good at that, and you should keep using it. Those skills run per prompt, though, with no persisted state across a whole site.</p>
+        <p>The hosted product earns its place by doing the parts that need infrastructure and persistence: rendered crawl scope at site scale (self-serve audits up to 1,000 pages, sitemap inventory up to 50,000 discovered URLs, and staged large rendered crawl jobs), a persistent repair queue with approval, acceptance checks, and fixed-rerun proof receipts, owner-approved implementation packs, and paid Fix Pack fulfillment with one rerun after fixes.</p>
+        <p>The boundaries stay the same as a free skill's: no live AI-engine sampling, no AI citation monitoring, and no ranking guarantees. If a one-page check is all you need, <a href="${origin}/check">${origin}/check</a> is free and needs no account; if you need the hosted loop, see the <a href="${origin}/packages">package ladder</a>.</p>
+      </section>
     `
   });
 }
@@ -304,12 +347,14 @@ function packagesHtml(origin) {
             <li>No ranking or traffic guarantee</li>
             <li>Refund guard if payment succeeds but the queue cannot start</li>
           </ul>
+          <a href="${origin}/check">Start from a report with real fixes</a>
+          <a href="${origin}/">Request private access</a>
           <a href="${origin}/support">Read support terms</a>
         </article>
         <article class="package-card">
           <span>Config-gated subscription</span>
           <h2>Proof Monitoring</h2>
-          <p class="package-price"><strong>$49-$99/mo target</strong><br />Only appears in private billing when the Dodo subscription product and webhook entitlement sync are configured.</p>
+          <p class="package-price"><strong>$49-$99/mo target</strong><br />Checkout only opens when the Dodo subscription product and webhook entitlement sync are configured; until then it stays a config-gated offer in private billing.</p>
           <p>Weekly proof reruns, report deltas, and change alerts for verified sites. Monitoring does not include repair execution.</p>
           <ul>
             <li>Verified sites only</li>
@@ -345,12 +390,204 @@ function packagesHtml(origin) {
       <section class="band">
         <h2>Why this ladder exists</h2>
         <p>The product is built to avoid audit noise and over-automation. The first paid step is a small, inspectable repair pass. Future packages only become live when proof, approval controls, billing, and provider safety are implemented.</p>
+        <p>Wondering why a hosted service at all, when free installable AI SEO agent skills exist? The plain answer is on the <a href="${origin}/methodology">methodology page</a>: free skills are great for one-page checks, while hosted audits add site-scale rendered crawl scope, persistent repair state, and fulfillment.</p>
       </section>
     `
   });
 }
 
-function publicProductPageHtml({ origin, path, title, description, eyebrow, heading, lead, body }) {
+function smallBusinessSeoAuditHtml(origin) {
+  return publicProductPageHtml({
+    origin,
+    path: "/small-business-seo-audit",
+    title: "Small Business SEO Audit",
+    description: "A proof-backed SEO audit for small businesses: check one public page free, see the rendered evidence behind each finding, and only pay for a repair pass when real fixes exist.",
+    eyebrow: "Small-business SEO audit",
+    heading: "An SEO audit that shows proof, not homework.",
+    lead: "Small businesses lose hours to audit tools that dump red flags and generic checklists. SEO Fix Kit checks one page free, shows the rendered proof behind each finding, and only queues a repair when the browser-visible page is actually wrong.",
+    softwareDescription: "Private-beta SEO repair software for small businesses that turns rendered proof into safe repair queues, approval records, and rerun checks.",
+    body: `
+      <section class="band">
+        <h2>What a small-business audit should actually show</h2>
+        <ul class="check-list">
+          <li>The earliest failure stage on each URL, with page-level evidence you can open and re-check.</li>
+          <li>Which findings are real and which are static-crawler false positives on JavaScript-rendered pages.</li>
+          <li>A plain-language repair brief with priority, effort, and an acceptance check you can rerun after a change ships.</li>
+          <li>Fixed, still-open, new, and regressed status on reruns instead of a one-time red-flag dump.</li>
+        </ul>
+      </section>
+      <section class="grid three" aria-label="How to start">
+        <article class="panel proof"><strong>Free one-page check</strong><p>Paste a public URL at ${origin}/check. You get rendered proof, guarded false positives, and actionable findings when present — no account, no email, nothing stored.</p></article>
+        <article class="panel"><strong>Private audit for your site</strong><p>Request a secure email access link for rate-limited private audits. Verified hosts unlock self-serve crawl depth up to 1,000 pages per queued audit.</p></article>
+        <article class="panel"><strong>Fix Pack only when fixes exist</strong><p>The paid offer is one proof-backed repair pass tied to one report, plus one rerun after fixes. Dodo shows the checkout price before payment.</p></article>
+      </section>
+      <section class="band">
+        <h2>Why proof beats a checklist</h2>
+        <p>A generic audit can say "add an H1" to a page whose rendered version already has one. SEO Fix Kit opens the page in a real browser, compares raw HTML with the rendered DOM, and keeps that item out of the repair queue. The same standard applies to every report: render, prove, queue, re-measure.</p>
+      </section>
+      <section class="band">
+        <h2>What this page does not claim</h2>
+        <p>This page is a landing page, not an audit of your site. The free check covers one public page at one moment; full multi-page reports run inside the private beta. SEO Fix Kit does not replace Ahrefs or Semrush, does not provide live AI citation monitoring or answer-engine sampling, and never guarantees rankings, traffic, indexing, or revenue.</p>
+      </section>
+      <section class="band">
+        <h2>Start with proof</h2>
+        <p><a class="cta" href="${origin}/check">Check one page now</a></p>
+        <p><a href="${origin}/demo">View the proof sample</a> · <a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a></p>
+      </section>
+    `,
+    faq: [
+      { q: "Is there a free way to check my site before requesting access?", a: "Yes. The one-page check at /check accepts one public URL, renders it in a real browser, and returns proof fields and findings when present, with no account, no email, and nothing stored." },
+      { q: "What does the paid Fix Pack include?", a: "One proof-backed repair pass tied to one saved report, plus one rerun after fixes. Dodo shows the checkout price before payment, and no ranking, traffic, or revenue promise is made." },
+      { q: "Do I need to verify my site to start?", a: "A one-page Lite check runs before verification. Verified hosts unlock normal self-serve crawl depth up to 1,000 pages per queued audit." },
+      { q: "Will SEO Fix Kit guarantee my rankings?", a: "No. Reports are diagnostic and reflect what the crawl and browser render could observe at scan time. Rankings, traffic, indexing, and revenue are never guaranteed." }
+    ]
+  });
+}
+
+function renderedVsStaticAuditHtml(origin) {
+  return publicProductPageHtml({
+    origin,
+    path: "/rendered-vs-static-seo-audit",
+    title: "Rendered vs Static SEO Audit",
+    description: "Why static crawlers invent SEO problems on JavaScript-rendered pages, and how SEO Fix Kit compares raw HTML with the rendered DOM to keep false positives out of the repair queue.",
+    eyebrow: "Rendered vs static audit",
+    heading: "Static crawlers invent work. Rendered proof does not.",
+    lead: "JavaScript-heavy sites fail static scanners that read the raw app shell. SEO Fix Kit opens the page in a real browser, compares raw HTML with the rendered DOM, and only creates a repair when the browser-visible page is actually wrong.",
+    softwareDescription: "Private-beta SEO repair software that renders pages in a real browser to compare static HTML with the final DOM and guard static-crawler false positives.",
+    body: `
+      <section class="grid three" aria-label="Static scanner vs rendered proof">
+        <article class="panel"><strong>Static scanner</strong><p>No H1. No internal links. Thin content. Needs cleanup.</p></article>
+        <article class="panel proof"><strong>Rendered proof</strong><p>Browser render shows a real H1, normal internal links, and substantial page content.</p></article>
+        <article class="panel"><strong>Repair brief</strong><p>No duplicate H1. No fake internal links. No busywork. Keep monitoring and rerun after real content changes.</p></article>
+      </section>
+      <section class="band">
+        <h2>Why this matters for repair work</h2>
+        <p>An agent that trusts a static crawl can make a site worse: if a scanner says "add an H1" when the rendered page already has one, the suggested repair is a duplicate heading, not a fix. Rendered-vs-static comparison separates a crawler limitation from a real customer problem, so the repair queue only receives proven findings.</p>
+      </section>
+      <section class="band">
+        <h2>Where you can see it live</h2>
+        <ul class="check-list">
+          <li>${origin}/demo: the public sample shows a static scanner's false positive against the rendered proof, step by step.</li>
+          <li>${origin}/check: paste any public URL and get rendered proof, guarded false positives, and actionable findings when present — no account and nothing stored.</li>
+          <li>Private reports for verified sites include rendered crawl intelligence, resource waterfall proof, and rerun deltas.</li>
+        </ul>
+      </section>
+      <section class="band">
+        <h2>What this page does not claim</h2>
+        <p>The one-page check covers a single public URL, not a full site audit. Full multi-page reports run inside the private beta. Rendered proof does not guarantee rankings, traffic, indexing, revenue, or AI citations, and SEO Fix Kit does not provide live answer-engine sampling or citation monitoring.</p>
+      </section>
+      <section class="band">
+        <h2>Start with proof</h2>
+        <p><a class="cta" href="${origin}/check">Check one page now</a></p>
+        <p><a href="${origin}/demo">View the proof sample</a> · <a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a></p>
+      </section>
+    `,
+    faq: [
+      { q: "Why does my static SEO tool report problems I cannot see in the browser?", a: "Static scanners read the raw HTML response and miss content rendered by JavaScript. SEO Fix Kit renders the page in a real browser and only reports what the final DOM actually shows." },
+      { q: "Can I see a rendered-vs-static example before signing up?", a: "Yes. The public sample at /demo shows a static scanner false positive against the rendered proof, and the free one-page check at /check runs the same proof loop on any public URL." },
+      { q: "Does rendered proof mean guaranteed fixes or rankings?", a: "No. Every report is diagnostic and reflects what the crawl could observe at scan time. Rankings, traffic, indexing, revenue, and AI citations are never guaranteed." },
+      { q: "How does the repair queue use rendered proof?", a: "Only proven findings become queue items. Each item keeps its source proof, suggested action, effort estimate, and an acceptance check that can be rerun after a change ships." }
+    ]
+  });
+}
+
+function aiAnswerReadinessHtml(origin) {
+  return publicProductPageHtml({
+    origin,
+    path: "/ai-answer-readiness",
+    title: "AI Answer Readiness Check",
+    description: "A site-proof AI Answer Readiness check: rendered content depth, helpful schema, canonical and internal-link clarity, question-led structure, sitemap context, and optional llms.txt reachability — no live citation monitoring.",
+    eyebrow: "AI Answer Readiness",
+    heading: "A site-proof AI readiness check, not a citation tracker.",
+    lead: "AI search visibility starts with content and markup answer engines can actually use. SEO Fix Kit derives AI Answer Readiness from your rendered pages, schema, links, sitemap context, and optional llms.txt — it does not sample live answer engines or monitor citations.",
+    softwareDescription: "Private-beta SEO repair software with proof-derived AI Answer Readiness checks built from rendered content, schema, canonical and internal-link clarity, sitemap context, and optional llms.txt reachability.",
+    body: `
+      <section class="band">
+        <h2>What the readiness check measures</h2>
+        <ul class="check-list">
+          <li>Rendered content depth: whether the browser-visible page carries substantive, crawlable text.</li>
+          <li>Helpful schema: Organization, WebSite, SoftwareApplication, WebPage, FAQPage, and product markup that names entities clearly.</li>
+          <li>Canonical and internal-link clarity: one canonical per URL and a link graph an engine can follow.</li>
+          <li>Question-led structure: headings and copy that answer the questions searchers and answer engines ask.</li>
+          <li>Sitemap context and coverage, plus optional llms.txt reachability when present.</li>
+        </ul>
+      </section>
+      <section class="grid two" aria-label="Readiness boundaries">
+        <article class="panel"><strong>No live answer-engine sampling</strong><p>SEO Fix Kit does not query ChatGPT, Perplexity, Google AI Overview, or other engines to see what they answer about your site.</p></article>
+        <article class="panel"><strong>No AI citation monitoring</strong><p>There is no live tracking of citations, mentions, or visibility scores across AI engines.</p></article>
+        <article class="panel"><strong>llms.txt stays optional</strong><p>llms.txt reachability is an optional signal. SEO Fix Kit does not claim llms.txt is required for Google Search or generative search surfaces.</p></article>
+        <article class="panel"><strong>Site-proof only</strong><p>Readiness is derived from your rendered pages, schema, links, sitemap, and optional llms.txt — not from any engine's internal behavior.</p></article>
+      </section>
+      <section class="band">
+        <h2>How to get the check</h2>
+        <ul class="check-list">
+          <li>Free: paste a public URL at ${origin}/check for rendered proof, guarded false positives, and actionable findings when present — no account and nothing stored.</li>
+          <li>Private reports for verified sites include proof-derived AI Answer Readiness checks beside the rendered crawl evidence.</li>
+          <li>Read the exact boundaries on ${origin}/methodology before relying on any readiness signal.</li>
+        </ul>
+      </section>
+      <section class="band">
+        <h2>What this page does not claim</h2>
+        <p>This page is a landing page, not a readiness report for your site. AI Answer Readiness does not guarantee rankings, traffic, AI citations, or revenue, and it does not replace live AI visibility tracking, which is not part of the product.</p>
+      </section>
+      <section class="band">
+        <h2>Start with proof</h2>
+        <p><a class="cta" href="${origin}/check">Check one page now</a></p>
+        <p><a href="${origin}/demo">View the proof sample</a> · <a href="${origin}/methodology">Read methodology and limits</a> · <a href="${origin}/packages">View package ladder</a></p>
+      </section>
+    `,
+    faq: [
+      { q: "Is AI Answer Readiness the same as monitoring citations in ChatGPT or Perplexity?", a: "No. Readiness is site-proof: it evaluates what your rendered pages, schema, links, sitemap context, and optional llms.txt allow an answer engine to understand. Live answer-engine sampling, AI citation monitoring, and AI visibility score tracking are not live." },
+      { q: "Do I need an llms.txt file to pass the check?", a: "No. llms.txt reachability is an optional signal. SEO Fix Kit does not claim llms.txt is required for Google Search or generative search surfaces." },
+      { q: "Can I check my site's AI readiness for free?", a: "The anonymous one-page check at /check renders one public URL and returns proof fields and findings when present. Full proof-derived AI Answer Readiness checks appear in private reports for verified sites." },
+      { q: "Does a good readiness signal guarantee AI visibility?", a: "No. Readiness is a site-proof diagnostic, and rankings, traffic, AI citations, and revenue are never guaranteed." }
+    ]
+  });
+}
+
+// Shared public product page shell. `faq` is an array of { q, a } pairs that is
+// rendered as a visible section AND emitted as FAQPage JSON-LD, so machine
+// schema can never drift from the visible copy. `softwareDescription`, when
+// provided, adds a truthful SoftwareApplication block for the tool itself.
+function publicProductPageHtml({ origin, path, title, description, eyebrow, heading, lead, body, faq = [], softwareDescription = null }) {
+  const extraLd = [];
+  if (softwareDescription) {
+    extraLd.push(
+      ldBlock({
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        name: "SEO Fix Kit",
+        applicationCategory: "SEO software",
+        operatingSystem: "Web",
+        url: origin,
+        provider: { "@type": "Organization", name: "SEO Fix Kit", url: origin },
+        description: softwareDescription
+      })
+    );
+  }
+  if (faq.length > 0) {
+    extraLd.push(
+      ldBlock({
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        mainEntity: faq.map(({ q, a }) => ({
+          "@type": "Question",
+          name: q,
+          acceptedAnswer: { "@type": "Answer", text: a }
+        }))
+      })
+    );
+  }
+  const faqSection = faq.length > 0
+    ? `
+      <section class="band" aria-label="Frequently asked questions">
+        <h2>Frequently asked questions</h2>
+        <div class="faq-list">
+          ${faq.map(({ q, a }) => `<article class="faq-item"><h3>${escapeHtml(q)}</h3><p>${escapeHtml(a)}</p></article>`).join("")}
+        </div>
+      </section>
+    `
+    : "";
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -359,17 +596,18 @@ function publicProductPageHtml({ origin, path, title, description, eyebrow, head
     <title>${escapeHtml(title)} - SEO Fix Kit</title>
     <meta name="description" content="${escapeHtml(description)}" />
 ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })}
+${extraLd.join("\n")}
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
       * { box-sizing: border-box; }
-      body { margin: 0; min-width: 320px; }
-      main { margin: 0 auto; max-width: 1120px; padding: 36px 22px 68px; }
+      body { margin: 0; min-width: 0; }
+      main { margin: 0 auto; max-width: 1120px; padding: 36px 22px 68px; min-width: 0; }
       a { color: #98f0cc; font-weight: 780; text-decoration: none; }
       header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 72px; }
       nav { display: flex; flex-wrap: wrap; gap: 16px; justify-content: flex-end; }
-      h1 { font-size: clamp(46px, 8vw, 108px); letter-spacing: 0; line-height: .88; margin: 0; max-width: 820px; }
-      h2 { font-size: clamp(24px, 3vw, 34px); line-height: 1.08; margin: 0 0 14px; }
-      p, li { color: rgba(251,248,239,.76); font-size: 17px; line-height: 1.62; }
+      h1 { font-size: clamp(46px, 8vw, 108px); letter-spacing: 0; line-height: .88; margin: 0; max-width: 820px; overflow-wrap: break-word; }
+      h2 { font-size: clamp(24px, 3vw, 34px); line-height: 1.08; margin: 0 0 14px; overflow-wrap: break-word; }
+      p, li { color: rgba(251,248,239,.76); font-size: 17px; line-height: 1.62; overflow-wrap: anywhere; }
       ul { margin: 0; padding-left: 22px; }
       .eyebrow { color: #98f0cc; font-size: 13px; font-weight: 880; letter-spacing: 0; margin: 0 0 18px; text-transform: uppercase; }
       .lead { font-size: clamp(19px, 2.4vw, 25px); max-width: 760px; }
@@ -378,7 +616,7 @@ ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })
       .grid, .package-grid { display: grid; gap: 14px; }
       .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .grid.two, .package-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .panel, .package-card { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; display: grid; gap: 10px; padding: 20px; }
+      .panel, .package-card { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; display: grid; gap: 10px; padding: 20px; min-width: 0; }
       .panel.proof, .package-card.live { border-color: rgba(152,240,204,.28); }
       .panel strong, .package-card span { color: #98f0cc; font-size: 12px; font-weight: 860; text-transform: uppercase; }
       .package-card h2 { margin: 0; }
@@ -386,7 +624,9 @@ ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })
       .package-price strong { color: #dcc062; font-size: 22px; }
       .package-card a { align-items: center; border: 1px solid rgba(152,240,204,.32); border-radius: 8px; display: inline-flex; justify-content: center; min-height: 44px; padding: 0 14px; width: fit-content; }
       .check-list { display: grid; gap: 12px; list-style: none; padding-left: 0; }
-      .check-list li { background: rgba(7,13,10,.58); border: 1px solid rgba(251,248,239,.1); border-radius: 8px; padding: 14px 16px; }
+      .check-list li { background: rgba(7,13,10,.58); border: 1px solid rgba(251,248,239,.1); border-radius: 8px; padding: 14px 16px; min-width: 0; }
+      .faq-list { display: grid; gap: 14px; }
+      .faq-item { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; padding: 18px 20px; min-width: 0; }
       .cta { align-items: center; background: #98f0cc; border-radius: 8px; color: #06100c; display: inline-flex; font-weight: 880; min-height: 48px; padding: 0 18px; }
       .site-footer { align-items: center; border-top: 1px solid rgba(251,248,239,.14); display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; margin-top: 24px; padding-top: 26px; }
       .site-footer a { font-size: 14px; font-weight: 760; }
@@ -409,6 +649,7 @@ ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })
         <p class="lead">${escapeHtml(lead)}</p>
       </section>
       ${body}
+      ${faqSection}
       <footer class="site-footer">
         <span>Audit it. Prove it. Fix it.</span>
         <a href="${origin}/demo">Demo</a>
@@ -424,6 +665,204 @@ ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })
 </html>`;
 }
 
+const PROOF_CASE = {
+  site: "tinystudio.in",
+  siteLabel: "Tiny Studio portfolio",
+  caseDate: "2026-06-20",
+  owner: "Founder-owned (consented and redacted)",
+  before: {
+    score: 85,
+    findings: 7,
+    reportUrl: "https://seofixkit.com/beta/reports/tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b"
+  },
+  intermediate: {
+    score: 99,
+    findings: 2,
+    reportUrl: "https://seofixkit.com/beta/reports/tinystudio-in-75ffee26-02ae-41d3-b2ef-5beb40722e50"
+  },
+  after: {
+    score: 100,
+    findings: 0,
+    reportUrl: "https://seofixkit.com/beta/reports/tinystudio-in-0a45637f-1354-4d26-ace3-d3b594162961"
+  },
+  changes: [
+    { label: "PR #4", ref: "https://github.com/nish3451/tinystudio-in/pull/4", summary: "Tracked static Pages bundle, removed Google Fonts from render path, non-blocking preload for styles, apple-touch-icon, /llms.txt, support ContactPage JSON-LD, /support heading hierarchy, mailto links in place of Cloudflare email-obfuscation, social preview images, expanded Promptly privacy copy." },
+    { label: "PR #5", ref: "https://github.com/nish3451/tinystudio-in/pull/5", summary: "Strict-Transport-Security header via public/_headers." }
+  ]
+};
+
+function proofCaseHtml(origin) {
+  const description = `Real before/after repair proof receipt: founder-owned Tiny Studio portfolio site went from ${PROOF_CASE.before.score}/100 with ${PROOF_CASE.before.findings} findings to ${PROOF_CASE.after.score}/100 with ${PROOF_CASE.after.findings} findings after owner-approved changes. Published with consent and redaction.`;
+  const title = "Before/After Repair Proof - SEO Fix Kit";
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(title)}</title>
+    <meta name="description" content="${escapeHtml(description)}" />
+${pageSocialHead({ origin, title, description, path: "/proof" })}
+${ldBlock({
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "SEO Fix Kit",
+    applicationCategory: "SEO software",
+    operatingSystem: "Web",
+    url: origin,
+    provider: { "@type": "Organization", name: "SEO Fix Kit", url: origin },
+    description: "Proof-backed SEO audits, repair queue, implementation packs, and fixed-rerun proof receipts; publishes no CMS changes and makes no ranking promise."
+  })}
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-width: 0; }
+      main { margin: 0 auto; max-width: 980px; padding: 36px 22px 60px; min-width: 0; }
+      a { color: #98f0cc; font-weight: 780; text-decoration: none; }
+      header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 54px; }
+      h1 { font-size: clamp(40px, 7vw, 84px); letter-spacing: 0; line-height: .92; margin: 0 0 16px; max-width: 820px; overflow-wrap: break-word; }
+      h2 { font-size: clamp(24px, 3vw, 32px); margin: 0 0 10px; overflow-wrap: break-word; }
+      p, li { color: rgba(251,248,239,.76); font-size: 17px; line-height: 1.62; overflow-wrap: anywhere; word-break: break-word; }
+      ul { padding-left: 22px; }
+      .kicker { color: #98f0cc; font-size: 13px; font-weight: 880; letter-spacing: .08em; text-transform: uppercase; }
+      .grid { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 28px 0; }
+      .panel { background: rgba(251,248,239,.055); border: 1px solid rgba(251,248,239,.12); border-radius: 8px; padding: 20px; min-width: 0; }
+      .panel strong { color: #dcc062; display: block; font-size: 14px; margin-bottom: 10px; text-transform: uppercase; }
+      .panel.score strong { font-size: 28px; color: #fbf8ef; }
+      .panel.before { border-color: rgba(220,192,98,.32); }
+      .panel.intermediate { border-color: rgba(251,248,239,.24); }
+      .panel.after { border-color: rgba(152,240,204,.32); }
+      .panel.after strong { color: #98f0cc; }
+      .receipt { background: rgba(7,13,10,.58); border: 1px solid rgba(152,240,204,.18); border-radius: 8px; padding: 18px 22px; margin: 20px 0; min-width: 0; }
+      .receipt h3 { color: #98f0cc; font-size: 14px; font-weight: 880; letter-spacing: .08em; margin: 0 0 10px; text-transform: uppercase; }
+      .receipt dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+      .receipt dt { color: rgba(251,248,239,.6); font-weight: 700; }
+      .receipt dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+      .cta { align-items: center; background: #98f0cc; border-radius: 8px; color: #06100c; display: inline-flex; font-weight: 880; min-height: 48px; padding: 0 18px; }
+      .boundary { background: rgba(220,192,98,.08); border: 1px solid rgba(220,192,98,.32); border-radius: 8px; padding: 16px 20px; margin: 26px 0; }
+      .site-footer { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-top: 30px; }
+      .site-footer a { font-size: 14px; font-weight: 760; }
+      @media (max-width: 760px) { header { align-items: flex-start; gap: 18px; flex-direction: column; } .grid { grid-template-columns: 1fr; } .receipt dl { grid-template-columns: 1fr; gap: 2px 0; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <a href="${origin}/">SEO Fix Kit</a>
+        <span class="kicker">Real before/after</span>
+      </header>
+      <section>
+        <p class="kicker">Repair proof receipt</p>
+        <h1>One real repair, with the same measurement path before and after.</h1>
+        <p>This page is a proof receipt for the first completed beta repair done with SEO Fix Kit: the founder-owned Tiny Studio portfolio site, audited with consent, repaired by the operator with the help of an SEO Fix Kit implementation pack, and rerun on the same host with the same measurement path. The receipt states the founder-owned scope, names the owner-approved change, links the same audit path before and after, and restates the no-ranking boundary.</p>
+        <p><a class="cta" href="${origin}/proof.md">Get the markdown receipt</a></p>
+      </section>
+      <section class="grid" aria-label="Audit scores before, intermediate, and after">
+        <article class="panel before score">
+          <strong>Before</strong>
+          <p>Score <strong>${PROOF_CASE.before.score}</strong>/100 &middot; ${PROOF_CASE.before.findings} findings</p>
+          <p><a href="${PROOF_CASE.before.reportUrl}">Source report</a></p>
+        </article>
+        <article class="panel intermediate score">
+          <strong>Intermediate rerun</strong>
+          <p>Score <strong>${PROOF_CASE.intermediate.score}</strong>/100 &middot; ${PROOF_CASE.intermediate.findings} findings</p>
+          <p><a href="${PROOF_CASE.intermediate.reportUrl}">Rerun report</a></p>
+        </article>
+        <article class="panel after score">
+          <strong>After</strong>
+          <p>Score <strong>${PROOF_CASE.after.score}</strong>/100 &middot; ${PROOF_CASE.after.findings} findings</p>
+          <p><a href="${PROOF_CASE.after.reportUrl}">Final rerun report</a></p>
+        </article>
+      </section>
+      <section class="receipt" aria-label="Receipt details">
+        <h3>Receipt</h3>
+        <dl>
+          <dt>Site</dt><dd>${escapeHtml(PROOF_CASE.siteLabel)} (${escapeHtml(PROOF_CASE.site)})</dd>
+          <dt>Owner</dt><dd>${escapeHtml(PROOF_CASE.owner)}</dd>
+          <dt>Case date</dt><dd>${PROOF_CASE.caseDate}</dd>
+          <dt>Source measurement</dt><dd>Production SEO Fix Kit audit against <code>https://${PROOF_CASE.site}/</code></dd>
+          <dt>Same-host reruns</dt><dd>Intermediate (${PROOF_CASE.intermediate.score}/${PROOF_CASE.intermediate.findings}) and final (${PROOF_CASE.after.score}/${PROOF_CASE.after.findings})</dd>
+          <dt>Approval</dt><dd>Owner-approved implementation pack; merged PRs ${PROOF_CASE.changes.map((change) => change.label).join(" and ")}</dd>
+          <dt>Outcome</dt><dd>Findings went from ${PROOF_CASE.before.findings} to ${PROOF_CASE.after.findings}; final score ${PROOF_CASE.before.score} &rarr; ${PROOF_CASE.after.score}/100</dd>
+        </dl>
+      </section>
+      <section>
+        <h2>Owner-approved changes</h2>
+        <ul>
+${PROOF_CASE.changes.map((change) => `          <li><strong>${escapeHtml(change.label)}</strong> &mdash; ${escapeHtml(change.summary)} (<a href="${escapeHtml(change.ref)}">${escapeHtml(change.ref)}</a>)</li>`).join("\n")}
+        </ul>
+      </section>
+      <section class="boundary">
+        <h2>What this receipt does not claim</h2>
+        <ul>
+          <li>No ranking, traffic, indexing, citation, or revenue promise is made for ${escapeHtml(PROOF_CASE.site)} or any other site.</li>
+          <li>SEO Fix Kit did not publish CMS changes, open GitHub pull requests, merge code, or call provider admin APIs. The merged PRs are owner-applied.</li>
+          <li>The receipt is published with founder consent and redaction of internal implementation detail; it is not a paid Fix Pack delivery certificate.</li>
+          <li>A different site, a different host, or a different starting audit will not produce the same numbers. The receipt is a real measurement path on this site only.</li>
+        </ul>
+      </section>
+      <section>
+        <h2>How to read this page</h2>
+        <p>The same audit path ran three times against the same host: once before the repair, once after the first merge, and once after the second. The proof receipt pins the report ids, scores, finding counts, and merged PR refs so anyone can rerun the same measurement path against <code>https://${PROOF_CASE.site}/</code> and compare. SEO Fix Kit does not claim this receipt represents the result you will see on your site; it is evidence that the same measurement path can connect a real issue to a real operator-applied fix and a real rerun.</p>
+        <p>For an anonymous one-page check on any public URL, see <a href="${origin}/check">${origin}/check</a>. For methodology and limits, see <a href="${origin}/methodology">${origin}/methodology</a>. For package ladder, see <a href="${origin}/packages">${origin}/packages</a>.</p>
+      </section>
+      <footer class="site-footer">
+        <a href="${origin}/">SEO Fix Kit</a>
+        <a href="${origin}/demo">Demo</a>
+        <a href="${origin}/methodology">Methodology</a>
+        <a href="${origin}/packages">Packages</a>
+        <a href="${origin}/support">Support</a>
+        <a href="${origin}/terms">Terms</a>
+        <a href="${origin}/privacy">Privacy</a>
+      </footer>
+    </main>
+  </body>
+</html>`;
+}
+
+function proofCaseMarkdown(origin) {
+  return `# SEO Fix Kit — Repair proof receipt (${PROOF_CASE.caseDate})
+
+Real before/after repair proof receipt: founder-owned ${PROOF_CASE.siteLabel} (${PROOF_CASE.site}) went from ${PROOF_CASE.before.score}/100 with ${PROOF_CASE.before.findings} findings to ${PROOF_CASE.after.score}/100 with ${PROOF_CASE.after.findings} findings after owner-approved changes. Published with consent and redaction.
+
+## Receipt
+
+- Site: ${PROOF_CASE.siteLabel} (${PROOF_CASE.site})
+- Owner: ${PROOF_CASE.owner}
+- Case date: ${PROOF_CASE.caseDate}
+- Source measurement: Production SEO Fix Kit audit against https://${PROOF_CASE.site}/
+- Same-host reruns: intermediate (${PROOF_CASE.intermediate.score}/${PROOF_CASE.intermediate.findings}) and final (${PROOF_CASE.after.score}/${PROOF_CASE.after.findings})
+- Approval: Owner-approved implementation pack; merged PRs ${PROOF_CASE.changes.map((change) => change.label).join(" and ")}
+- Outcome: Findings went from ${PROOF_CASE.before.findings} to ${PROOF_CASE.after.findings}; final score ${PROOF_CASE.before.score} -> ${PROOF_CASE.after.score}/100
+
+## Measurement path
+
+| Stage | Score | Findings | Report |
+| --- | --- | --- | --- |
+| Before | ${PROOF_CASE.before.score} | ${PROOF_CASE.before.findings} | ${PROOF_CASE.before.reportUrl} |
+| Intermediate rerun | ${PROOF_CASE.intermediate.score} | ${PROOF_CASE.intermediate.findings} | ${PROOF_CASE.intermediate.reportUrl} |
+| After | ${PROOF_CASE.after.score} | ${PROOF_CASE.after.findings} | ${PROOF_CASE.after.reportUrl} |
+
+## Owner-approved changes
+
+${PROOF_CASE.changes.map((change) => `- ${change.label}: ${change.summary} (${change.ref})`).join("\n")}
+
+## What this receipt does not claim
+
+- No ranking, traffic, indexing, citation, or revenue promise is made for ${PROOF_CASE.site} or any other site.
+- SEO Fix Kit did not publish CMS changes, open GitHub pull requests, merge code, or call provider admin APIs. The merged PRs are owner-applied.
+- The receipt is published with founder consent and redaction of internal implementation detail; it is not a paid Fix Pack delivery certificate.
+- A different site, a different host, or a different starting audit will not produce the same numbers. The receipt is a real measurement path on this site only.
+
+## How to read this page
+
+The same audit path ran three times against the same host: once before the repair, once after the first merge, and once after the second. The proof receipt pins the report ids, scores, finding counts, and merged PR refs so anyone can rerun the same measurement path against https://${PROOF_CASE.site}/ and compare. SEO Fix Kit does not claim this receipt represents the result you will see on your site; it is evidence that the same measurement path can connect a real issue to a real operator-applied fix and a real rerun.
+
+- Anonymous one-page check: ${origin}/check
+- Methodology and limits: ${origin}/methodology
+- Package ladder: ${origin}/packages
+`;
+}
+
 function privacyHtml(origin) {
   return `<!doctype html>
 <html lang="en">
@@ -435,11 +874,11 @@ function privacyHtml(origin) {
 ${pageSocialHead({ origin, title: "Privacy - SEO Fix Kit", description: "SEO Fix Kit privacy note for access requests, private beta audits, payments, and fulfillment.", path: "/privacy" })}
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
-      body { margin: 0; min-width: 320px; }
-      main { margin: 0 auto; max-width: 760px; padding: 48px 22px; }
+      body { margin: 0; min-width: 0; }
+      main { margin: 0 auto; max-width: 760px; padding: 48px 22px; min-width: 0; }
       a { color: #98f0cc; font-weight: 760; text-decoration: none; }
-      h1 { font-size: clamp(42px, 8vw, 76px); letter-spacing: 0; line-height: .92; margin: 0 0 24px; }
-      p, li { color: rgba(251,248,239,.76); font-size: 18px; line-height: 1.62; }
+      h1 { font-size: clamp(42px, 8vw, 76px); letter-spacing: 0; line-height: .92; margin: 0 0 24px; overflow-wrap: break-word; }
+      p, li { color: rgba(251,248,239,.76); font-size: 18px; line-height: 1.62; overflow-wrap: anywhere; }
       ul { padding-left: 22px; }
     </style>
   </head>
@@ -562,12 +1001,12 @@ function policyPageHtml({ origin, title, description, body, path = "/" }) {
 ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })}
     <style>
       :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #070908; color: #fbf8ef; }
-      body { margin: 0; min-width: 320px; }
-      main { margin: 0 auto; max-width: 760px; padding: 48px 22px; }
+      body { margin: 0; min-width: 0; }
+      main { margin: 0 auto; max-width: 760px; padding: 48px 22px; min-width: 0; }
       a { color: #98f0cc; font-weight: 760; text-decoration: none; }
-      h1 { font-size: clamp(42px, 8vw, 76px); letter-spacing: 0; line-height: .92; margin: 0 0 24px; }
-      h2 { font-size: clamp(22px, 3vw, 28px); margin: 32px 0 8px; }
-      p, li { color: rgba(251,248,239,.76); font-size: 18px; line-height: 1.62; }
+      h1 { font-size: clamp(42px, 8vw, 76px); letter-spacing: 0; line-height: .92; margin: 0 0 24px; overflow-wrap: break-word; }
+      h2 { font-size: clamp(22px, 3vw, 28px); margin: 32px 0 8px; overflow-wrap: break-word; }
+      p, li { color: rgba(251,248,239,.76); font-size: 18px; line-height: 1.62; overflow-wrap: anywhere; }
       ul { padding-left: 22px; }
     </style>
   </head>
@@ -582,6 +1021,8 @@ ${pageSocialHead({ origin, title: `${title} - SEO Fix Kit`, description, path })
 }
 
 export {
+  SOCIAL_IMAGE_PATH,
+  aiAnswerReadinessHtml,
   demoHtml,
   homeMarkdown,
   llmsText,
@@ -589,6 +1030,10 @@ export {
   packagesHtml,
   policyPageHtml,
   privacyHtml,
+  proofCaseHtml,
+  proofCaseMarkdown,
+  renderedVsStaticAuditHtml,
+  smallBusinessSeoAuditHtml,
   supportHtml,
   termsHtml
 };

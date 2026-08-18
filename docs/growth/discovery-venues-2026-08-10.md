@@ -5,8 +5,12 @@ software venues** (backlog owner:
 `/home/nish/workspaces/agent-state/seo-fix-kit-improvement-loop/backlog.md`,
 [research 2026-08-08, rank: 3, risk: green]).
 
-Status: **prepared. Agent-execution is blocked by venue policy on every venue in
-the set** — the fleet `venue-claim` allowlist is empty, every venue here resolves
+Status: **execution begun 2026-08-11** — GeoIndex was submitted via the
+authorized Mac-browser run (pending review, no listing URL yet); every other
+venue still awaits an account-owner step (see the 2026-08-11 execution ledger
+below). The 2026-08-10 prepared-state description and the 2026-08-11
+re-verification below are kept as dated history. The fleet `venue-claim`
+allowlist is still empty, every venue here resolves
 to `unknown`, `reviewed (unknown)`, or `prohibited`, so the venue-claim contract
 permits zero unattended account creation or browser submission work. Per that
 contract and the item's own acceptance criteria, every listing is the account
@@ -34,6 +38,90 @@ Canonical copy inputs (everything in the copy file traces to the live site,
 `https://seofixkit.com/llms.txt`, or `https://seofixkit.com/packages`; see
 "Canonical copy inputs" below).
 
+Re-verified 2026-08-12 (lane-1 packet run): no venue state changed since the
+2026-08-11 ledger. GeoIndex remains pending review — the live 80-vendor
+directory (`https://www.geodes.ai/geo-aeo-and-ai-search-vendor-directory`,
+fetched rendered 2026-08-12) still has zero `seofixkit` / `SEO Fix Kit`
+entries. SaaSHub `/seo-fix-kit` still returns HTTP 404; SaaS Hive
+`/seo-fix-kit` still soft-404s to the generic homepage with a 0-result search;
+AlternativeTo remains HTTP 403 to plain curl (bot-walled; prior Camoufox
+receipts stand). This run folded in the Directree venue (packet
+`growth-loop/packets/seo-fix-kit/done/directree-manual-listing-20260811.md`)
+as venue #17 — live-verified 2026-08-12: no `seofixkit` listing
+(`/seo-fix-kit` HTTP 404; directory search shows no entry), official
+"Free to submit and claim" / "No pay-to-rank" / fact-labelled listings
+(Observed, AI-inferred, Founder-edited) confirmed on the live page. Approved
+Directree copy is now in the copy file. All canonical product surfaces
+(`/llms.txt`, `/packages`, `/demo`, `/methodology`) verified live 2026-08-12,
+so the copy inputs are still current. `venue-claim` remains absent from this
+box and its policy allowlist remains empty, so every venue stays manual-only.
+
+Re-verified 2026-08-13 (lane-1 packet run): no venue state changed since the
+2026-08-12 ledger. Direct probes re-run live 2026-08-13: SaaSHub
+`/seo-fix-kit` HTTP 404 (absent); Directree `/seo-fix-kit` HTTP 404 (absent);
+SaaS Hive `/seo-fix-kit` soft-404s to the generic homepage (zero
+`seofixkit` string, homepage title — no listing); GeoIndex 80-vendor
+directory fetched live (`https://www.geodes.ai/geo-aeo-and-ai-search-vendor-directory`)
+still has zero `seofixkit` / `SEO Fix Kit` entries (GeoIndex submission
+remains pending review). AlternativeTo and Product Hunt remain bot-walled
+(HTTP 403 to plain curl; prior Camoufox receipts stand). No new venue
+packets landed in `agent-state/growth-loop/packets/seo-fix-kit/` since
+2026-08-12 (only the unrelated `intent-pages-machine-readable-proof-20260813.md`
+landed 2026-08-13), and `venues.json` still has zero active claims, so no
+listing exists anywhere and no submission can be claimed as live. All
+canonical product surfaces re-verified live 2026-08-13 (`/llms.txt`,
+`/packages`, `/demo`, `/methodology`, `/check`, `/api/health` all HTTP 200);
+`/packages` still states the $99.00 one-time beta Fix Pack ("one
+proof-backed repair pass" + "one rerun"), so the approved copy inputs
+remain current. `venue-claim` is still absent from this box and its policy
+allowlist remains empty, so every venue stays manual-only; the account
+owner's exact resume path is the 2026-08-11 execution ledger below.
+
+Re-verified 2026-08-14 (lane-1 packet run): no venue state changed since the
+2026-08-13 ledger. Direct probes re-run live 2026-08-14: SaaSHub
+`/seo-fix-kit` HTTP 404 (absent); Directree `/seo-fix-kit` HTTP 404 (absent);
+SaaS Hive `/seo-fix-kit` still soft-404s to the generic homepage (zero
+`seofixkit` string, homepage title — no listing); AlternativeTo and Product
+Hunt remain bot-walled (HTTP 403 to plain curl; prior Camoufox receipts
+stand); GeoIndex 80-vendor directory fetched live
+(`https://www.geodes.ai/geo-aeo-and-ai-search-vendor-directory`) still has
+zero `seofixkit` / `SEO Fix Kit` entries (GeoIndex submission remains
+pending review). No new venue packets landed in
+`agent-state/growth-loop/packets/seo-fix-kit/` since 2026-08-13, and
+`venues.json` still has zero active claims, so no listing exists anywhere
+and no submission can be claimed as live. All canonical product surfaces
+re-verified live 2026-08-14 (`/llms.txt`, `/packages`, `/demo`,
+`/methodology`, `/check`, `/api/health` all HTTP 200); `/packages` still
+states the $99.00 one-time beta Fix Pack ("one proof-backed repair pass" +
+"one rerun"), so the approved copy inputs remain current. `venue-claim` is
+still absent from this box and its policy allowlist remains empty, so every
+venue stays manual-only; the account owner's exact resume path is the
+2026-08-11 execution ledger below.
+
+---
+
+## 2026-08-11 execution ledger (verified outcomes)
+
+Executed 2026-08-11 by the authorized Mac-browser run (account owner's manual
+steps; the fleet `venue-claim` contract was never used — allowlist still
+empty). These outcomes supersede the 2026-08-10 "prepared" status per venue.
+
+| Venue | 2026-08-11 outcome | Exact next step |
+| --- | --- | --- |
+| GeoIndex (Geodes) | **PENDING_REVIEW** — official contact form (`https://www.geodes.ai/geo-index-listing`) submitted with the approved SEO Fix Kit copy and links; the submit button changed to "Thank you." No listing URL exists yet. | Record listing URL + indexed title/description when accepted. |
+| SaaSHub | **NEEDS_NISH_STEP** — the next Continue button explicitly accepts Terms/Privacy. | Nish confirms venue terms, then the prepared submission can continue. |
+| AlternativeTo | **NEEDS_NISH_STEP** — free suggestion requires account sign-in/signup and email verification. | Nish signs up/signs in and verifies email, then submits the prepared copy; optional paid priority is skipped. |
+| SaaS Hive | **NEEDS_NISH_STEP** — free founder listing exists. | Nish creates/signs in to the founder account, then submits the prepared copy. |
+| G2 / Capterra / GetApp | **NEEDS_NISH_STEP** — vendor profiles require business-email/LinkedIn validation through G2 Digital Markets; automated access is not authorized. | Nish completes the shared manual vendor-account validation, then enters the prepared copy. |
+| Product Hunt | **NEEDS_NISH_STEP** — draft only. | Nish chooses/confirms the launch date and publishes manually. |
+| Crunchbase | **NEEDS_NISH_STEP** (optional, low fit) — free organization profiles require a registered account and social authentication. | Optional: Nish registers/signs in and creates the free profile. |
+| StackShare | **NEEDS_NISH_STEP** (optional, low fit) — account-gated manual tool/company stack flow. | Optional: Nish completes the account flow and adds the tool/stack. |
+| Trustpilot | **NOT_CURRENTLY_ELIGIBLE** — no real customer reviews exist yet. | Do not claim/list until real customer reviews exist; never fabricate reviews. |
+| GitHub awesome lists | **NOT_CURRENTLY_ELIGIBLE** — no proven track record, real users, or reviews yet. | No promotional PR now; revisit only with track-record evidence. |
+| SourceForge | **NOT_APPLICABLE** — SEO Fix Kit is proprietary SaaS, not an open-source project listing. | None. |
+| Primary Position | **NOT_APPLICABLE** as a listing venue — there is no submission route. | Optional editorial outreach only. |
+| StartupSubmit | **SKIPPED_PAID** — paid directory-submission service ($99–$299). | No paid purchase. |
+
 ---
 
 ## Venue set and receipts
@@ -41,9 +129,13 @@ Canonical copy inputs (everything in the copy file traces to the live site,
 Gate receipts (`venue-claim check <venue> seo-fix-kit`, run 2026-08-10):
 every venue returned `exit=0` (no active claim record). `venue-claim claim`
 is blocked for all of them (allowlist empty; disposition unknown/prohibited)
-and would exit 4, so **no browser submission was attempted anywhere** — see
-`/home/nish/.local/bin/venue-claim --help` and
-`/home/nish/workspaces/agent-state/growth-loop/venue-claim.md` for the contract.
+and would exit 4, so **as of 2026-08-10 no browser submission had been
+attempted anywhere** — see `/home/nish/.local/bin/venue-claim --help` and
+`/home/nish/workspaces/agent-state/growth-loop/venue-claim.md` for the
+contract. On 2026-08-11 that changed for exactly one venue: the GeoIndex
+contact form was submitted via the authorized Mac-browser run (pending
+review — see the 2026-08-11 execution ledger above); no fleet `venue-claim`
+activity was involved.
 
 | # | Venue | Absence receipt (live, 2026-08-10) | Official submission route / policy evidence | Automation disposition | Owner action |
 | --- | --- | --- | --- | --- | --- |
@@ -63,6 +155,7 @@ and would exit 4, so **no browser submission was attempted anywhere** — see
 | 14 | GitHub `best-of-ai/awesome-ai-seo` | Official README (fetched live, 2026-08-10): no `seofixkit` / `SEO Fix Kit` entry | PR-based curated list; same manual-only contributor workflow | manual-only (PR workflow) | Owner-authored fork + PR **only**; no unattended activity |
 | 15 | GeoIndex (Geodes) | 80-vendor GEO/AEO/AI-search directory fetched live 2026-08-11 (`https://www.geodes.ai/geo-aeo-and-ai-search-vendor-directory`): no SEO Fix Kit entry | Official "Add a vendor or request an edit" page (`https://www.geodes.ai/geo-index-listing`, live 2026-08-11) exposes a contact form plus email/WhatsApp ("Reach us directly"); ToS (live, 2026-08-11) grants no unattended-automation permission — submissions are evaluated/accepted/declined at Geodes' sole discretion (§4 "Inquiries and Services") | unknown (not reviewed) → manual-only | Manual vendor submission via the contact form/email with copy file; record listing URL + indexed title/description when accepted |
 | 16 | Primary Position GEO tools list | Editorial list fetched live 2026-08-11 (`https://primaryposition.com/blog/geo-visibility-tools/`): no SEO Fix Kit entry | Editorial blog post by an SEO agency (David Quaid, 2026-02-27); no submission route, no "add your tool" path, no vendor form | unknown → **not applicable as a listing venue** (editorial coverage, not a directory) | Optional manual editorial outreach via the site's contact form; treat as buyer-discovery evidence, not a submission target |
+| 17 | Directree | Directory + search fetched live 2026-08-12 (`https://www.directree.io/saas-directory`): no SEO Fix Kit entry; direct product probe `/seo-fix-kit` → HTTP 404 | Official directory page (live 2026-08-12): "Free to submit and claim", "No pay-to-rank", "No sponsored slots"; listings label every fact "Observed, AI-inferred, or Founder-edited"; verified listings earn a do-follow backlink; official submit page (`https://www.directree.io/submit`, live 2026-08-12): "You just need a free account first", ~30-second AI listing or full claim editor; terms `https://www.directree.io/terms` (July 2026): "Any user may submit a tool URL", anti-scraping clause only (no automation permission) | reviewed (unknown) → manual-only (ambiguous; no unattended-automation permission) | Manual "Add Listing" with free account by the account owner using copy file; record listing URL + indexed title/description + do-follow receipt when accepted |
 
 Prior fleet packets for this product already cover #1, #2, and #13 in detail and
 are incorporated here by reference (do not duplicate submissions):
@@ -115,7 +208,9 @@ Every venue above is manual-only this run:
 
 1. **Free listing venues (manual, no payment):** AlternativeTo (sign up, verify
    email, "Suggest new application"), SaaSHub (submit form), SaaS Hive (founder
-   signup + launch), GeoIndex (contact-form vendor request, no account),
+   signup + launch), GeoIndex (contact-form vendor request, no account — done
+   2026-08-11, pending review), Directree (free "Add Listing" — requires a free
+   account first, verified live 2026-08-12; added 2026-08-12),
    G2/Capterra/GetApp (vendor profile via G2 Digital Markets with
    business-email validation), Product Hunt (only as a real founder-led
    launch — manual, never automated; PH ToS bars crawling/scraping). Use the
@@ -152,16 +247,22 @@ Every venue above is manual-only this run:
 
 ## Suggested order
 
+2026-08-11 update: GeoIndex is submitted (pending review); this order now
+applies to the remaining account-owner steps in the execution ledger above.
+
 1. AlternativeTo (review backlog — submit first, it is the slowest gate).
 2. SaaSHub (free submit flow).
 3. SaaS Hive (free founder listing; AI-search-oriented, matches GEO positioning).
 4. GeoIndex (free "add a vendor" contact form; GEO/AEO directory that matches
    the site-proof AI Answer Readiness positioning; low friction, no account
    signup needed).
-5. G2 → Capterra → GetApp vendor profiles (business-email validation; one G2
+5. Directree (free "Add Listing"; quick ~30-second AI listing or full claim
+   editor; no pay-to-rank, fact-labelled listings and a do-follow backlink for
+   verified listings — added 2026-08-12).
+6. G2 → Capterra → GetApp vendor profiles (business-email validation; one G2
    Digital Markets account covers all three).
-6. GitHub awesome-lists only after real-user evidence exists.
-7. Product Hunt only as a planned founder-led launch.
-8. Crunchbase / StackShare / Trustpilot: optional, low fit.
-9. Primary Position: editorial outreach only (optional, manual contact form).
-10. StartupSubmit and any paid boosts: NEEDS-NISH.
+7. GitHub awesome-lists only after real-user evidence exists.
+8. Product Hunt only as a planned founder-led launch.
+9. Crunchbase / StackShare / Trustpilot: optional, low fit.
+10. Primary Position: editorial outreach only (optional, manual contact form).
+11. StartupSubmit and any paid boosts: NEEDS-NISH.
