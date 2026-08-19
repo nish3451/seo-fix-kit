@@ -89,6 +89,22 @@ no-ranking promise the README makes, that `/llms.txt`, `/sitemap.xml`, `/robots.
 npm run audit:live-promise
 ```
 
+For the item's verify half — a fresh production walk of `POST /api/public-check`
+on a known test URL (the product's own deterministic `/fixture/rendered-page` by
+default) that records the proof fields verbatim (rendered evidence, guarded
+false positives, actionable findings when present, issue counts, engine
+version), verifies the access-conversion copy (next step into the private beta,
+no-ranking boundary), and verifies zero unsupported result claims:
+
+```bash
+npm run audit:public-check-walk
+```
+
+The walk is quota-aware: one anonymous check consumes part of the running
+network's per-day budget, so a 429 reports as `needs-quota` (exit 3) instead of
+failing. The same assertions are locked offline by `test:public-check-walk`,
+which runs inside `npm run check`.
+
 For the repeatable live walk of the private-beta funnel (the backlog item
 "Live-surface walk of the private-beta funnel"): a real-browser (Playwright
 Chromium) walk of the funnel stops home → `/demo` → `/packages`, with the
