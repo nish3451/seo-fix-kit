@@ -45,6 +45,9 @@ import {
   countRows
 } from "../lib/db.js";
 import {
+  summarizeAccessEvents
+} from "../lib/access-events.js";
+import {
   PRESERVED_FIX_REQUEST_STATUSES,
   hydrateReportRow,
   preserveFixRequestReports
@@ -329,6 +332,26 @@ async function getAdminSummary(request, env) {
         proposalSummaries.get(row.id)
       )
     )
+  });
+}
+
+async function getFunnelSummary(request, env) {
+  const admin = await adminAccessStatus(request, env, "view-summary");
+  if (!admin.ok) return adminDeniedJson(admin);
+  if (!env.WAITLIST_DB) return jsonNoStore({ error: "Funnel storage is not configured." }, 503);
+  await logAdminAction(request, env, "view-funnel", true, admin.actorEmail);
+
+  const url = new URL(request.url);
+  const windowDays = Math.max(1, Math.min(Number(url.searchParams.get("windowDays") || 7), 90));
+  const summary = await summarizeAccessEvents(env, { windowMs: windowDays * 24 * 60 * 60 * 1000 });
+
+  return jsonNoStore({
+    ok: true,
+    windowDays,
+    steps: summary.steps || {},
+    conversionPct: summary.conversionPct || {},
+    totals: summary.totals || {},
+    order: summary.order || []
   });
 }
 
@@ -847,6 +870,7 @@ export {
   exportLeadsCsv,
   fixRequestAdminResponse,
   getAdminSummary,
+  getFunnelSummary,
   sendDailyOpsDigest,
   sendUrgentOpsAlerts,
   updateFixRequestAdmin

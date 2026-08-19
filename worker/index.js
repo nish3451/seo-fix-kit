@@ -6,6 +6,7 @@ import {
   createInvite,
   exportLeadsCsv,
   getAdminSummary,
+  getFunnelSummary,
   sendDailyOpsDigest,
   sendUrgentOpsAlerts,
   updateFixRequestAdmin
@@ -44,6 +45,7 @@ import {
   createSiteClaim,
   joinWaitlist,
   listSiteClaims,
+  recordAccessBeacon,
   requestAccessLink,
   verifyAccessLink,
   verifySiteClaim
@@ -229,6 +231,10 @@ export default {
 
       if (url.pathname === "/api/access/verify" && request.method === "POST") {
         return verifyAccessLink(request, env);
+      }
+
+      if (url.pathname === "/api/access/track" && request.method === "POST") {
+        return recordAccessBeacon(request, env);
       }
 
       if (url.pathname === "/api/beta/login" && request.method === "POST") {
@@ -565,6 +571,10 @@ export default {
 
       if (url.pathname === "/admin/summary") {
         return getAdminSummary(request, env);
+      }
+
+      if (url.pathname === "/admin/funnel") {
+        return getFunnelSummary(request, env);
       }
 
       if (url.pathname === "/admin/invites" && request.method === "POST") {
