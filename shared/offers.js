@@ -38,11 +38,11 @@ const OFFER_CATALOG = [
     name: "Repair Sprint",
     type: "one_time",
     stage: "beta_gated",
-    statusLabel: "Needs approved execution",
+    statusLabel: "Config gated",
     priceRange: "$249-$499 one-time target",
-    checkoutState: "paused",
+    checkoutState: "report_checkout",
     description: "A scoped repair queue, owner approval, delivery notes, and final rerun proof.",
-    availability: "Can be sold after executable proposal queues are reliable.",
+    availability: "Available from a report after executable proposals are approved and Repair Sprint checkout is configured.",
     requirements: ["Saved report", "Executable proposals", "Owner approval", "Final rerun proof"],
     limits: { proposalQueue: 1, reruns: 1 }
   },
@@ -82,10 +82,16 @@ const BETA_AGENCY_LIMITS = {
   clientSites: 5
 };
 
-function offerCatalog({ fixPackCheckoutReady = false, monitoringCheckoutReady = false, entitlements = [] } = {}) {
+function offerCatalog({
+  fixPackCheckoutReady = false,
+  monitoringCheckoutReady = false,
+  repairSprintCheckoutReady = false,
+  entitlements = []
+} = {}) {
   const entitlementMap = new Map((entitlements || []).map((row) => [row.offer_key || row.offerKey, row]));
   return OFFER_CATALOG.map((offer) => {
     const entitlement = entitlementMap.get(offer.key) || null;
+    const repairSprintProviderReady = repairSprintCheckoutReady && offer.checkoutState === "report_checkout";
     const liveCheckout =
       offer.key === OFFER_KEYS.FIX_PACK
         ? fixPackCheckoutReady && offer.checkoutState === "report_checkout"
@@ -96,6 +102,7 @@ function offerCatalog({ fixPackCheckoutReady = false, monitoringCheckoutReady = 
       ...offer,
       statusLabel: entitlement?.status === "active" ? "Active entitlement" : liveCheckout ? "Checkout live" : offer.statusLabel,
       checkoutLive: liveCheckout,
+      checkoutConfigured: offer.key === OFFER_KEYS.REPAIR_SPRINT ? repairSprintProviderReady : liveCheckout,
       entitlementStatus: entitlement?.status || "inactive",
       entitlementSource: entitlement?.source || "",
       currentPeriodEnd: entitlement?.current_period_end || entitlement?.currentPeriodEnd || "",
@@ -131,12 +138,13 @@ function monitoringAccessFromEntitlements(entitlements = [], activeCount = 0, op
   };
 }
 
-function repairSprintEligibilityFromProposals(proposals = [], fixRequest = null) {
+function repairSprintEligibilityFromProposals(proposals = [], fixRequest = null, options = {}) {
   const executable = (proposals || []).filter((proposal) => (proposal.executionMode || proposal.execution_mode) !== "unsupported");
   const approved = executable.filter((proposal) => (proposal.approvalStatus || proposal.approval_status) === "approved");
   const delivered = executable.filter((proposal) => (proposal.deliveryStatus || proposal.delivery_status) === "delivered");
   const paidStatus = fixRequest?.status || "";
   const hasPaidRequest = ["paid", "in_progress", "delivered"].includes(paidStatus);
+  const checkoutReady = Boolean(options.checkoutReady);
   const status = !executable.length
     ? "unsupported"
     : approved.length
@@ -147,7 +155,9 @@ function repairSprintEligibilityFromProposals(proposals = [], fixRequest = null)
   return {
     offerKey: OFFER_KEYS.REPAIR_SPRINT,
     status,
-    checkoutLive: false,
+    checkoutReady,
+    checkoutLive: status === "approval_ready" && checkoutReady,
+    checkoutPath: "/api/beta/repair-sprint-checkout",
     priceRange: "$249-$499 one-time target",
     executable: executable.length,
     approved: approved.length,
@@ -160,7 +170,9 @@ function repairSprintEligibilityFromProposals(proposals = [], fixRequest = null)
           ? "Approve at least one executable proposal before packaging this as a Repair Sprint."
           : hasPaidRequest
             ? "Repair Sprint execution can use the paid Fix Pack fulfillment path for this report."
-            : "Proposal approval is ready; a distinct Repair Sprint checkout remains gated until product billing is wired."
+            : checkoutReady
+              ? "Repair Sprint checkout is available for this approved proposal queue."
+              : "Proposal approval is ready; distinct Repair Sprint checkout remains gated until product billing is wired."
   };
 }
 

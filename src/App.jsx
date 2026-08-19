@@ -3752,6 +3752,7 @@ function FixRequestStatusPanel({ fixRequest, checkoutReturned }) {
 function RepairProposalPanel({ reportId, initialProposals = [], repairSprint = null }) {
   const [proposals, setProposals] = useState(initialProposals);
   const [savingId, setSavingId] = useState("");
+  const [sprintCheckoutStatus, setSprintCheckoutStatus] = useState("idle");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -3771,28 +3772,65 @@ function RepairProposalPanel({ reportId, initialProposals = [], repairSprint = n
     setMessage(action === "approve" ? "Repair approved." : "Repair dismissed.");
   }
 
+  async function startRepairSprintCheckout() {
+    setSprintCheckoutStatus("submitting");
+    setMessage("");
+    try {
+      const response = await fetch("/api/beta/repair-sprint-checkout", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reportId })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || payload.message || "Repair Sprint checkout is unavailable.");
+      }
+      const outcome = monitoringCheckoutOutcome(payload);
+      setSprintCheckoutStatus(outcome.status);
+      setMessage(outcome.message);
+      if (outcome.checkoutUrl) window.location.assign(outcome.checkoutUrl);
+    } catch (error) {
+      setSprintCheckoutStatus("error");
+      setMessage(error?.message || "Repair Sprint checkout is unavailable.");
+    }
+  }
+
   const approvedCount = proposals.filter((proposal) => proposal.approvalStatus === "approved").length;
   const executableCount = proposals.filter((proposal) => proposal.executionMode !== "unsupported").length;
+  const messageIsError =
+    sprintCheckoutStatus === "error" ||
+    message.includes("Could") ||
+    message.includes("unavailable") ||
+    message.includes("paused");
   const currentRepairSprint = repairSprint
-    ? {
-        ...repairSprint,
-        approved: approvedCount,
-        executable: executableCount,
-        status: executableCount
+    ? (() => {
+        const checkoutReady = Boolean(repairSprint.checkoutReady || repairSprint.checkoutLive);
+        const status = executableCount
           ? approvedCount
             ? repairSprint.hasPaidRequest
               ? "active"
               : "approval_ready"
             : "needs_owner_approval"
-          : "unsupported",
-        message: executableCount
-          ? approvedCount
-            ? repairSprint.hasPaidRequest
-              ? "Repair Sprint execution can use the paid Fix Pack fulfillment path for this report."
-              : "Proposal approval is ready; a distinct Repair Sprint checkout remains gated until product billing is wired."
-            : "Approve at least one executable proposal before packaging this as a Repair Sprint."
-          : "This report does not have enough executable proposal proof for a Repair Sprint."
-      }
+          : "unsupported";
+        const checkoutLive = status === "approval_ready" && checkoutReady;
+        return {
+          ...repairSprint,
+          approved: approvedCount,
+          executable: executableCount,
+          checkoutReady,
+          checkoutLive,
+          status,
+          message: executableCount
+            ? approvedCount
+              ? repairSprint.hasPaidRequest
+                ? "Repair Sprint execution can use the paid Fix Pack fulfillment path for this report."
+                : checkoutLive
+                  ? repairSprint.message || "Repair Sprint checkout is available for this approved proposal queue."
+                  : "Proposal approval is ready; distinct Repair Sprint checkout remains gated until product billing is wired."
+              : "Approve at least one executable proposal before packaging this as a Repair Sprint."
+            : "This report does not have enough executable proposal proof for a Repair Sprint."
+        };
+      })()
     : null;
 
   return (
@@ -3815,9 +3853,19 @@ function RepairProposalPanel({ reportId, initialProposals = [], repairSprint = n
             <strong>{currentRepairSprint.priceRange}</strong>
           </div>
           <p>{currentRepairSprint.message}</p>
+          {currentRepairSprint.checkoutLive && (
+            <button
+              className="action-link paid-action"
+              disabled={sprintCheckoutStatus === "submitting"}
+              onClick={startRepairSprintCheckout}
+              type="button"
+            >
+              {sprintCheckoutStatus === "submitting" ? "Opening checkout" : "Start Repair Sprint"}
+            </button>
+          )}
         </div>
       )}
-      {message && <p className={`form-message ${message.includes("Could") ? "error" : "success"}`}>{message}</p>}
+      {message && <p className={`form-message ${messageIsError ? "error" : "success"}`}>{message}</p>}
       <div className="repair-proposal-list">
         {proposals.map((proposal) => (
           <article className={`repair-proposal-card ${proposal.approvalStatus}`} key={proposal.id}>

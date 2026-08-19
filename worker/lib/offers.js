@@ -3,7 +3,7 @@ import {
   monitoringAccessFromEntitlements,
   offerCatalog
 } from "../../shared/offers.js";
-import { dodoMonitoringCheckoutConfigStatus } from "../../shared/dodo.js";
+import { dodoMonitoringCheckoutConfigStatus, dodoRepairSprintCheckoutConfigStatus } from "../../shared/dodo.js";
 
 async function offerEntitlementsForOwner(env, ownerEmail) {
   if (!env.WAITLIST_DB || !ownerEmail) return [];
@@ -28,6 +28,7 @@ async function offerCatalogForOwner(env, ownerEmail, options = {}) {
   const entitlements = await offerEntitlementsForOwner(env, ownerEmail);
   return offerCatalog({
     monitoringCheckoutReady: await monitoringCheckoutReady(env),
+    repairSprintCheckoutReady: dodoRepairSprintCheckoutConfigStatus(env).checkoutReady,
     ...options,
     entitlements
   });

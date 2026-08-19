@@ -75,6 +75,10 @@ export function dodoMonitoringProductId(env = {}) {
   return env.DODO_SEOFIXKIT_PRODUCT_MONITORING_ID || "";
 }
 
+export function dodoRepairSprintProductId(env = {}) {
+  return env.DODO_SEOFIXKIT_PRODUCT_REPAIR_SPRINT_ID || "";
+}
+
 export function dodoBrandId(env = {}) {
   return env.DODO_SEOFIXKIT_BRAND_ID || "";
 }
@@ -115,6 +119,10 @@ export function dodoMonitoringCheckoutConfigStatus(env = {}) {
   return dodoProductCheckoutConfigStatus(env, dodoMonitoringProductId(env));
 }
 
+export function dodoRepairSprintCheckoutConfigStatus(env = {}) {
+  return dodoProductCheckoutConfigStatus(env, dodoRepairSprintProductId(env));
+}
+
 export function dodoProductCheckoutConfigStatus(env = {}, productId = "") {
   const checks = {
     apiKey: Boolean(dodoApiKey(env)),
@@ -136,6 +144,10 @@ export function hasDodoCheckoutConfig(env = {}) {
 
 export function hasDodoMonitoringCheckoutConfig(env = {}) {
   return dodoMonitoringCheckoutConfigStatus(env).checkoutReady;
+}
+
+export function hasDodoRepairSprintCheckoutConfig(env = {}) {
+  return dodoRepairSprintCheckoutConfigStatus(env).checkoutReady;
 }
 
 export async function verifyDodoWebhookSignature({

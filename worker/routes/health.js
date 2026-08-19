@@ -1,4 +1,8 @@
-import { dodoCheckoutConfigStatus, dodoMonitoringCheckoutConfigStatus } from "../../shared/dodo.js";
+import {
+  dodoCheckoutConfigStatus,
+  dodoMonitoringCheckoutConfigStatus,
+  dodoRepairSprintCheckoutConfigStatus
+} from "../../shared/dodo.js";
 import { isEmailConfigured } from "../../shared/fulfillment.js";
 import { VERSION } from "../../shared/audit-engine.js";
 import { jsonNoStore } from "../lib/http.js";
@@ -57,6 +61,7 @@ async function getDeepHealth(_request, env = {}) {
   const schema = await schemaStatus(env);
   const dodo = dodoCheckoutConfigStatus(env);
   const monitoringDodo = dodoMonitoringCheckoutConfigStatus(env);
+  const repairSprintDodo = dodoRepairSprintCheckoutConfigStatus(env);
   const billing = {
     checkoutReady: dodo.checkoutReady,
     webhookReady: dodo.webhookSecret,
@@ -64,6 +69,8 @@ async function getDeepHealth(_request, env = {}) {
     productConfigured: dodo.productId,
     monitoringCheckoutReady: monitoringDodo.checkoutReady,
     monitoringProductConfigured: monitoringDodo.productId,
+    repairSprintCheckoutReady: repairSprintDodo.checkoutReady,
+    repairSprintProductConfigured: repairSprintDodo.productId,
     brandConfigured: dodo.brandId,
     environment: dodo.environment || "missing"
   };
@@ -92,6 +99,7 @@ async function getDeepHealth(_request, env = {}) {
       "Ready means required bindings, provider config, and D1 schema checks passed.",
       "Ready does not prove a real paid card transaction, Dodo paid webhook delivery, completed repair delivery, or final rerun proof.",
       "Proof Monitoring checkout readiness is reported separately and only becomes paid-active after subscription webhook entitlement sync.",
+      "Repair Sprint checkout readiness is reported separately and still requires approved executable proposals before checkout can start.",
       "Agency workspace, large crawl, and offer entitlement checks are storage/config readiness checks, not paid offer activation claims."
     ],
     bindings,
@@ -198,6 +206,12 @@ function capabilityStatus({ bindings, schema, billing }) {
       hasSchema("auditSchedules") &&
       hasSchema("offerEntitlements") &&
       hasSchema("offerEntitlementEvents"),
+    repairSprintCheckout:
+      billing.repairSprintCheckoutReady &&
+      hasSchema("fixRequests") &&
+      hasSchema("repairProposals") &&
+      hasSchema("fixPackCheckoutTarget") &&
+      hasSchema("dodoWebhookEvents"),
     developerApi: hasSchema("developerTokens") && hasSchema("developerWebhooks"),
     agencyWorkspace: hasSchema("whiteLabelShares") && hasSchema("teamMembers") && hasSchema("reportDomains"),
     largeCrawlEarlyAccess: hasSchema("largeCrawlJobs")

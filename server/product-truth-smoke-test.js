@@ -10,6 +10,11 @@ const support = supportHtml(origin);
 const terms = termsHtml(origin);
 const offers = offerCatalog({ fixPackCheckoutReady: true });
 const monitoringOffers = offerCatalog({ fixPackCheckoutReady: true, monitoringCheckoutReady: true });
+const repairSprintOffers = offerCatalog({
+  fixPackCheckoutReady: true,
+  monitoringCheckoutReady: true,
+  repairSprintCheckoutReady: true
+});
 const app = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const index = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const schema = homepageSchema(index);
@@ -17,9 +22,12 @@ const schemaTypes = schemaTypesFromGraph(schema);
 
 assert.equal(sellableOffers(offers).map((offer) => offer.key).join(","), "fix_pack");
 assert.equal(sellableOffers(monitoringOffers).map((offer) => offer.key).join(","), "fix_pack,proof_monitoring");
+assert.equal(sellableOffers(repairSprintOffers).map((offer) => offer.key).join(","), "fix_pack,proof_monitoring");
+assert.equal(repairSprintOffers.find((offer) => offer.key === "repair_sprint").checkoutConfigured, true);
 assert.equal(llms.includes("Proof Monitoring checkout is config-gated"), true);
 assert.equal(llms.includes("access activates from subscription webhooks"), true);
-assert.equal(llms.includes("distinct Repair Sprint checkout is not live yet"), true);
+assert.equal(llms.includes("Repair Sprint checkout is config-gated"), true);
+assert.equal(llms.includes("Does not claim Repair Sprint checkout is active"), true);
 assert.equal(llms.includes("paid Agency Workspace checkout is not live yet"), true);
 assert.equal(llms.includes("Does not claim llms.txt is required for Google Search"), true);
 assert.equal(llms.includes("owner-approved implementation packs"), true);

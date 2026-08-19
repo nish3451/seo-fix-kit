@@ -298,16 +298,43 @@ test("README keyword-volume claim keeps a storage path without a live provider",
 test("README offer-catalog claim matches config-gated monitoring and paused checkouts", () => {
   assert.match(liveSection, /Server-owned offer catalog and entitlement scaffolding for Proof Monitoring, Repair Sprint, SEO\/GEO Repair Agent, and Agency Workspace/i);
   assert.match(liveSection, /Proof Monitoring has a config-gated Dodo subscription checkout path/i);
+  // Repair Sprint moved from "not live yet" to a config-gated one-time checkout
+  // that only opens from a report with an owner-approved executable proposal.
+  // Repair Agent and paid Agency Workspace checkout are still not live, and the
+  // README must keep saying so.
   assert.match(
     liveSection,
-    /Repair Sprint checkout, Repair Agent checkout, and paid Agency Workspace checkout are not live yet/i
+    /Repair Sprint has a config-gated Dodo one-time checkout path for approved proposal queues/i
+  );
+  assert.match(
+    liveSection,
+    /Repair Agent checkout and paid Agency Workspace checkout are not live yet/i
+  );
+  assert.doesNotMatch(
+    liveSection,
+    /Repair Agent checkout .{0,40}(is|are) live/i,
+    "the README may not claim Repair Agent checkout is live"
   );
   for (const name of ["Proof Monitoring", "Repair Sprint", "SEO/GEO Repair Agent", "Agency Workspace"]) {
     assert.match(offersSource, new RegExp(`name: "${name}"`), `offer catalog names ${name}`);
   }
-  assert.match(offersSource, /statusLabel: "Config gated"/, "Proof Monitoring is labeled config-gated");
+  // Both config-gated offers (Proof Monitoring, Repair Sprint) carry the label,
+  // so neither renders as unconditionally purchasable.
+  const configGated = (offersSource.match(/statusLabel: "Config gated"/g) || []).length;
+  assert.equal(configGated, 2, `Proof Monitoring and Repair Sprint are both config-gated (found ${configGated})`);
+  // Repair Sprint's checkout is only ever live when its Dodo product is wired.
+  assert.match(
+    offersSource,
+    /repairSprintCheckoutReady && offer\.checkoutState === "report_checkout"/,
+    "Repair Sprint checkout stays gated behind a configured Dodo product"
+  );
+  assert.match(
+    offersSource,
+    /checkoutLive: status === "approval_ready" && checkoutReady/,
+    "Repair Sprint eligibility only reports a live checkout once a proposal is approved AND checkout is configured"
+  );
   const pausedCheckouts = (offersSource.match(/checkoutState: "paused"/g) || []).length;
-  assert.ok(pausedCheckouts >= 3, `at least three non-live checkouts (found ${pausedCheckouts})`);
+  assert.equal(pausedCheckouts, 2, `Repair Agent and Agency Workspace stay paused (found ${pausedCheckouts})`);
 });
 
 test("README AI Answer Readiness claim stays free of live AI sampling", () => {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   DODO_REFUND_SUCCESS_EVENTS,
   dodoCheckoutConfigStatus,
+  dodoRepairSprintCheckoutConfigStatus,
   dodoProductMatches,
   extractDodoPayment,
   hasDodoCheckoutConfig,
@@ -107,6 +108,16 @@ assert.equal(
 );
 assert.equal(dodoCheckoutConfigStatus({ DODO_SEOFIXKIT_ENVIRONMENT: "staging" }).environment, "");
 assert.equal(dodoCheckoutConfigStatus({ DODO_SEOFIXKIT_ENVIRONMENT: "staging" }).checkoutReady, false);
+assert.equal(
+  dodoRepairSprintCheckoutConfigStatus({
+    DODO_SEOFIXKIT_API_KEY: "key",
+    DODO_SEOFIXKIT_PRODUCT_REPAIR_SPRINT_ID: "pdt_repair_sprint",
+    DODO_SEOFIXKIT_BRAND_ID: "brnd",
+    DODO_SEOFIXKIT_ENVIRONMENT: "test",
+    DODO_SEOFIXKIT_WEBHOOK_SECRET: "secret"
+  }).checkoutReady,
+  true
+);
 assert.equal(normalizeFixRequestStatus("in_progress"), "in_progress");
 assert.equal(normalizeFixRequestStatus("nonsense"), "new");
 assert.equal(fixRequestStatusLabel("delivered"), "Delivered");
@@ -234,6 +245,14 @@ assert.equal(
 assert.equal(
   repairSprintEligibilityFromProposals([{ executionMode: "generated_proposal", approvalStatus: "approved" }]).status,
   "approval_ready"
+);
+assert.equal(
+  repairSprintEligibilityFromProposals(
+    [{ executionMode: "generated_proposal", approvalStatus: "approved" }],
+    null,
+    { checkoutReady: true }
+  ).checkoutLive,
+  true
 );
 assert.equal(
   repairSprintEligibilityFromProposals([{ executionMode: "unsupported", approvalStatus: "approved" }]).status,

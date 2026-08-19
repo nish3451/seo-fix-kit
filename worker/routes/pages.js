@@ -39,7 +39,7 @@ Live product claims:
 - Paid Fix Pack fulfillment includes owner-approved repair proposals, status, delivery notes, and one rerun after fixes.
 - Proof Monitoring checkout is config-gated behind the Dodo subscription product and webhook entitlement sync; access activates from subscription webhooks, not redirects.
 - The private billing portal lists the staged offer ladder for monitoring, Repair Sprint, SEO/GEO repair agent, and agency workspace.
-- Repair Sprint eligibility can be shown from approved proposal state, but distinct Repair Sprint checkout is not live yet.
+- Repair Sprint checkout is config-gated behind the Dodo one-time product and opens only from approved executable proposal queues.
 - Agency Workspace features run under beta limits; paid Agency Workspace checkout is not live yet.
 
 Hosted-only differentiators vs free installable SEO agent skills:
@@ -69,6 +69,7 @@ Current product boundary:
 - Does not provide live AI-engine visibility tracking, AI citation monitoring, or answer-engine sampling. AI Answer Readiness is site-proof only.
 - Does not auto-publish growth content, create CMS drafts, open pull requests, or promise rankings/traffic from growth briefs.
 - Does not claim paid Proof Monitoring is active unless Dodo subscription checkout and webhook entitlement sync are configured.
+- Does not claim Repair Sprint checkout is active unless the Dodo one-time product is configured and the report has approved executable proposals.
 - Does not sell live recurring repair agent or agency workspace subscriptions until entitlement billing is wired.
 - Does not claim llms.txt is required for Google Search or Google generative search surfaces.
 - Does not scrape private Google Business Profile data or discover every citation automatically.
