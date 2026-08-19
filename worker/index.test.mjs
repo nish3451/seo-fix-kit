@@ -262,6 +262,22 @@ test("Worker dispatch serves the real before/after repair proof receipt", async 
   assert.match(await proofDotMd.text(), /^# SEO Fix Kit .* Repair proof receipt/m);
 });
 
+test("Worker dispatch serves the IndexNow key file at root and .well-known, apex-only", async () => {
+  const env = await fakeWorkerEnv();
+  const { INDEX_NOW_KEY, indexNowKeyFilePaths } = await import("../shared/index-now.js");
+
+  for (const keyPath of indexNowKeyFilePaths()) {
+    const apex = await worker.fetch(new Request(`https://seofixkit.com${keyPath}`), env, fakeCtx());
+    assert.equal(apex.status, 200);
+    assert.equal((await apex.text()).trim(), INDEX_NOW_KEY);
+    assert.match(apex.headers.get("x-robots-tag") || "", /noindex/);
+
+    const www = await worker.fetch(new Request(`https://www.seofixkit.com${keyPath}`), env, fakeCtx());
+    assert.equal(www.status, 301);
+    assert.equal(www.headers.get("location"), `https://seofixkit.com${keyPath}`);
+  }
+});
+
 test("Worker dispatch exposes public-safe deep health readiness", async () => {
   const env = await fakeWorkerEnv();
   const response = await worker.fetch(new Request("https://seofixkit.test/api/deep-health"), env, fakeCtx());
