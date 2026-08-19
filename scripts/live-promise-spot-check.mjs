@@ -419,6 +419,10 @@ function landingPageLdExpectations(path, pageName) {
 // query intact, so canonicals, robots.txt, and sitemap.xml stay apex-only.
 // Redirects are checked with `redirect: "manual"` so the 301 itself is
 // observable instead of being silently followed.
+// The static-asset check exists because wrangler.jsonc must route every
+// request through the Worker (`run_worker_first: true`); an asset path served
+// 200 from www means the config regressed to a path list that bypasses the
+// Worker redirect.
 export function canonicalHostSpotChecks(baseUrl) {
   const apex = new URL(baseUrl);
   const wwwOrigin = `https://www.${apex.hostname}`;
@@ -458,6 +462,34 @@ export function canonicalHostSpotChecks(baseUrl) {
           name: "location",
           value: `${baseUrl}/favicon.svg`,
           reason: "static asset path must 301 onto the apex host"
+        }
+      ]
+    },
+    {
+      path: "www.seofixkit.com/.well-known/security.txt",
+      name: "www.seofixkit.com well-known paths redirect onto the apex host",
+      url: `${wwwOrigin}/.well-known/security.txt`,
+      redirectManual: true,
+      acceptStatuses: [301],
+      expectedHeaders: [
+        {
+          name: "location",
+          value: `${baseUrl}/.well-known/security.txt`,
+          reason: "static assets must never be served from www"
+        }
+      ]
+    },
+    {
+      path: "www.seofixkit.com/unknown-spa-path",
+      name: "www.seofixkit.com SPA-fallback paths redirect onto the apex host",
+      url: `${wwwOrigin}/unknown-spa-path`,
+      redirectManual: true,
+      acceptStatuses: [301],
+      expectedHeaders: [
+        {
+          name: "location",
+          value: `${baseUrl}/unknown-spa-path`,
+          reason: "SPA fallback must never serve the shell from www"
         }
       ]
     }

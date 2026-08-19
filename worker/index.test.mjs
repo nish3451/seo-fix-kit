@@ -191,10 +191,19 @@ test("Worker dispatch 301-redirects www.seofixkit.com onto the apex host", async
   assert.equal(sitemap.status, 301);
   assert.equal(sitemap.headers.get("location"), "https://seofixkit.com/sitemap.xml");
 
-  // Static assets must 301 too: with wrangler.jsonc "run_worker_first": true
-  // every www request reaches this Worker (the array form let asset paths
-  // bypass the Worker and be served 200 straight from the asset CDN).
-  for (const assetPath of ["/favicon.svg", "/security.txt", "/assets/index-abc123.css"]) {
+  // Static-asset and SPA-fallback paths must 301 too: with wrangler.jsonc
+  // "run_worker_first": true every www request reaches this Worker. The old
+  // array form let asset paths bypass the Worker and be served 200 straight
+  // from the asset CDN, and SPA-fallback paths never reached it at all, both
+  // of which leak a second host into canonicals/sitemap indexing.
+  for (const assetPath of [
+    "/favicon.svg",
+    "/security.txt",
+    "/assets/index-abc123.css",
+    "/.well-known/security.txt",
+    "/assets/waitlist-hero.jpg",
+    "/some-random-client-path"
+  ]) {
     const asset = await worker.fetch(new Request(`https://www.seofixkit.com${assetPath}`), env, fakeCtx());
     assert.equal(asset.status, 301, `www ${assetPath} must 301`);
     assert.equal(asset.headers.get("location"), `https://seofixkit.com${assetPath}`);
