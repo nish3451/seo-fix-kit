@@ -115,7 +115,13 @@ test("live spot-check covers the public machine surfaces", () => {
 test("live spot-check covers the www-to-apex canonical redirect", () => {
   assert.deepEqual(
     canonicalHostSpotChecks(origin).map((check) => check.path),
-    ["www.seofixkit.com/", "www.seofixkit.com/check", "www.seofixkit.com/favicon.svg"]
+    [
+      "www.seofixkit.com/",
+      "www.seofixkit.com/check",
+      "www.seofixkit.com/favicon.svg",
+      "www.seofixkit.com/.well-known/security.txt",
+      "www.seofixkit.com/unknown-spa-path"
+    ]
   );
   for (const check of canonicalHostSpotChecks(origin)) {
     assert.equal(check.redirectManual, true, "redirect checks must observe the 301 itself");
@@ -125,7 +131,7 @@ test("live spot-check covers the www-to-apex canonical redirect", () => {
 
 test("live spot-check passes against the shipped public page copy", async () => {
   const results = await spotCheckPublicPages({ baseUrl: origin, fetcher: pageFetcher() });
-  assert.equal(results.length, 22);
+  assert.equal(results.length, 24);
   for (const result of results) {
     assert.deepEqual(result.failures, [], `${result.path} must pass: ${result.name}`);
   }
