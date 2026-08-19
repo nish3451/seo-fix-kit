@@ -11,6 +11,7 @@ import {
   checkJsonLd,
   friendlyCheckError,
   publicCheckQuotaChecks,
+  runPublicCheck,
   validatePublicCheckUrl
 } from "./public-check.js";
 
@@ -156,6 +157,62 @@ test("public check quota buckets cover per-network and per-site windows without 
     "a different host hashes to different bucket keys"
   );
   assert.ok(checks.every((check) => Number(check.limit) > 0), "all limits are positive");
+});
+
+// Regression: the anonymous /check quota must be ENFORCED by the route, not
+// just keyed. The bucket-key tests above pin publicCheckQuotaChecks output,
+// but a disabled guard used to keep every public-check test green. Drive the
+// real handler with an exhausted audit_usage bucket (D1 reports
+// meta.changes === 0 when `WHERE count < limit` matches nothing) and require
+// HTTP 429 with zero audit-engine work: any engine binding read means the
+// handler walked past the quota guard into the audit.
+test("public check route returns 429 from an exhausted audit_usage bucket with zero audit-engine work", async () => {
+  const sqlSeen = [];
+  const exhaustedDb = {
+    prepare(sql) {
+      sqlSeen.push(sql);
+      return {
+        bind() {
+          return {
+            async run() {
+              // Exactly what D1 returns when the ON CONFLICT ... WHERE
+              // count < ? guard matches no row: the bucket is at its cap.
+              return { meta: { changes: 0 } };
+            }
+          };
+        }
+      };
+    }
+  };
+
+  const engineBindingsRead = [];
+  const engineBindingNames = ["BROWSER", "GOOGLE_PAGESPEED_API_KEY", "PAGESPEED_API_KEY", "SEOFIXKIT_PAGESPEED_DISABLED"];
+  const env = new Proxy(
+    { WAITLIST_DB: exhaustedDb },
+    {
+      get(target, property) {
+        if (engineBindingNames.includes(property)) engineBindingsRead.push(property);
+        return target[property];
+      }
+    }
+  );
+
+  const request = new Request("https://seofixkit.com/api/public-check", {
+    method: "POST",
+    headers: { "content-type": "application/json", "cf-connecting-ip": "203.0.113.9" },
+    body: JSON.stringify({ url: "https://93.184.216.34/" })
+  });
+
+  const response = await runPublicCheck(request, env);
+  assert.equal(response.status, 429, "an exhausted quota bucket must be rejected with HTTP 429");
+  const payload = await response.json();
+  assert.ok(payload.error, "rate-limit response carries visitor copy");
+  assert.ok(typeof payload.resetAt === "string" && !Number.isNaN(Date.parse(payload.resetAt)), "rate-limit response carries the bucket reset time");
+  assert.ok(
+    sqlSeen.some((sql) => sql.includes("INSERT INTO audit_usage") && sql.includes("ON CONFLICT(bucket)")),
+    "the quota decision really went through the audit_usage table"
+  );
+  assert.deepEqual(engineBindingsRead, [], "the audit engine must never be constructed when the quota is exhausted");
 });
 
 test("public check response is built only from engine fields with truthful copy", () => {
