@@ -2949,6 +2949,14 @@ export function publicAuditUrlStatus(value) {
   }
 
   const host = parsed.hostname.toLowerCase();
+  // A single-label hostname (no dot and no IPv6 colons) is never a public
+  // website: it is a typo, an intranet name, or a local alias. Reject it
+  // here so the visitor gets a clear validation message instead of a raw
+  // browser `net::ERR_*` navigation failure after the render attempt.
+  if (!host.includes(".") && !host.includes(":")) {
+    return { ok: false, error: "Enter a valid public website URL." };
+  }
+
   if (
     host === "localhost" ||
     host.endsWith(".localhost") ||

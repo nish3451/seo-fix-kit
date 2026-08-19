@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import test from "node:test";
+import nodeVm from "node:vm";
 import { createAuditEngine } from "../../shared/audit-engine.js";
 import { auditUrl } from "../../server/audit/engine.js";
 import { renderedFixture } from "./audits.js";
@@ -38,6 +39,21 @@ test("public check URL validation rejects malformed and private targets", () => 
   assert.equal(protocolRelative.url, "https://example.com/about");
 });
 
+test("public check URL validation rejects single-label hostnames before any render", () => {
+  // A dotless hostname is a typo, an intranet name, or a local alias — never
+  // a public website. It must fail here with the friendly validation message
+  // instead of sending the browser to `https://notaurl/` and returning a raw
+  // `net::ERR_*` navigation failure.
+  for (const input of ["notaurl", "example", "intranet", "https://printer/", "http://nish-laptop"]) {
+    const result = validatePublicCheckUrl(input);
+    assert.equal(result.ok, false, `dotless hostname must be rejected: ${input}`);
+    assert.equal(result.error, "Enter a valid public website URL.", `friendly message for: ${input}`);
+  }
+  // Dotted public hosts and IP literals still pass through to the browser.
+  assert.equal(validatePublicCheckUrl("example.com").ok, true);
+  assert.equal(validatePublicCheckUrl("https://8.8.8.8/").ok, true);
+});
+
 test("engine failures map to visitor copy, never raw browser diagnostics", () => {
   // Raw Playwright errors that used to reach the /check error box verbatim.
   assert.equal(
@@ -71,6 +87,50 @@ test("engine failures map to visitor copy, never raw browser diagnostics", () =>
   // Unknown input keeps the generic fallback and stays bounded.
   const fallback = friendlyCheckError("");
   assert.equal(fallback, "The check failed. Try another public URL.");
+});
+
+test("public check page validates the URL client-side before any network round trip", () => {
+  const html = checkHtml(origin);
+  assert.match(html, /function publicUrlError\(value\)/, "the page carries a client-side validator");
+  assert.match(html, /single-label hostname/, "the validator mirrors the server-side public-URL rule");
+  assert.ok(
+    (html.match(/Enter a valid public website URL\./g) || []).length >= 2,
+    "the validator emits the same friendly message the server emits"
+  );
+  const submit = html.match(/form\.addEventListener\("submit"[\s\S]*?finally\s*\{[\s\S]*?\}\)\(\);/);
+  assert.ok(submit, "submit handler present");
+  assert.match(submit[0], /validationError/, "a validation failure short-circuits before the fetch");
+  assert.ok(
+    /if \(validationError\) \{[\s\S]*?return;[\s\S]*?\}/.test(submit[0]),
+    "validation failure returns without fetching"
+  );
+  assert.match(html, /id="url-input" name="url" type="text" inputmode="url"/, "scheme-less entries stay allowed client-side");
+});
+
+test("the page's inline client-side validator actually executes with the server's rules", () => {
+  // The page is a template literal; a validator that only looks right in the
+  // source but breaks when served (e.g. a collapsed regex escape) must fail
+  // here. Execute the served function text in a fresh context and pin both
+  // the rejection and the acceptance sides.
+  const html = checkHtml(origin);
+  const served = html.match(/function publicUrlError[\s\S]*?return "";\n        }/);
+  assert.ok(served, "the served page includes the full validator function");
+  assert.match(
+    served[0],
+    /:\\\/\\\//,
+    "the served validator regex must keep its escaped slash (a bare // would comment out the rest of the line)"
+  );
+
+  const sandbox = { URL, String };
+  nodeVm.createContext(sandbox);
+  const validator = nodeVm.runInContext(`(${served[0]})`, sandbox);
+
+  for (const input of ["notaurl", "example", "intranet", "http://printer/", "", "https://"]) {
+    assert.equal(validator(input), "Enter a valid public website URL.", `client rejects: ${input}`);
+  }
+  for (const input of ["example.com", "https://example.com/x", "example.com/about?q=1", "8.8.8.8", "//example.com/a"]) {
+    assert.equal(validator(input), "", `client accepts: ${input}`);
+  }
 });
 
 test("public check quota buckets cover per-network and per-site windows without storing the target host", async () => {
