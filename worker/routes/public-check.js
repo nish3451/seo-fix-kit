@@ -433,6 +433,31 @@ export function checkHtml(origin) {
           return node;
         }
 
+        // Mirrors the server-side public URL rule (shared/audit-engine.js
+        // publicAuditUrlStatus): scheme-less entries are allowed, but a
+        // single-label hostname (no dot, no IPv6 colons) is never a public
+        // website. Checking here stops typos before they consume a browser
+        // render or rate-limit quota and before a raw net:: error comes back.
+        function publicUrlError(value) {
+          const trimmed = String(value || "").trim();
+          if (!trimmed) return "Enter a valid public website URL.";
+          // This page is built as a template literal, so the regex escape
+          // must be written with doubled backslashes here: a single
+          // backslash-slash would collapse to a slash-slash comment marker
+          // in the served JS and break the whole line.
+          const withProtocol = /^[a-z][a-z0-9+.-]*:\\/\\//i.test(trimmed) ? trimmed : "https://" + trimmed;
+          let parsed = null;
+          try {
+            parsed = new URL(withProtocol);
+          } catch {
+            return "Enter a valid public website URL.";
+          }
+          if (!["http:", "https:"].includes(parsed.protocol)) return "Enter a valid public website URL.";
+          const host = parsed.hostname.toLowerCase();
+          if (!host.includes(".") && !host.includes(":")) return "Enter a valid public website URL.";
+          return "";
+        }
+
         function measure(label, value) {
           const box = el("div", "", "measure");
           box.appendChild(el("div", label, "label"));
@@ -464,6 +489,14 @@ export function checkHtml(origin) {
           event.preventDefault();
           const url = urlInput.value.trim();
           if (!url) return;
+          result.classList.remove("show");
+          result.replaceChildren();
+          const validationError = publicUrlError(url);
+          if (validationError) {
+            result.appendChild(el("div", validationError, "error-box"));
+            result.classList.add("show");
+            return;
+          }
           button.disabled = true;
           button.textContent = "Checking...";
           result.classList.remove("show");

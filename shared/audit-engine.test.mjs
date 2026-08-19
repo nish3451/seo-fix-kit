@@ -4,7 +4,8 @@ import {
   createAuditEngine,
   isSameOriginInfraFailure,
   isThrottledResource,
-  normalizeUrl
+  normalizeUrl,
+  publicAuditUrlStatus
 } from "./audit-engine.js";
 import { buildBacklinkAudit } from "./backlink-audit.js";
 import { buildCrawlInventory } from "./crawl-inventory.js";
@@ -1091,6 +1092,22 @@ test("normalizeUrl rejects non-http schemes and embedded credentials instead of 
   assert.throws(() => normalizeUrl("mailto:hello@example.com"), /embedded credentials/i);
   assert.throws(() => normalizeUrl("https://user:pass@example.com/"), /embedded credentials/i);
   assert.throws(() => normalizeUrl("https://user@example.com/"), /embedded credentials/i);
+});
+
+test("publicAuditUrlStatus keeps every audit target a public, dotted host", () => {
+  // Single-label hostnames (typos, intranet names, local aliases) are never
+  // public websites; every public audit surface shares this guard, so a
+  // dotless target must fail here rather than reach a browser and return a
+  // raw net:: navigation error.
+  for (const input of ["https://notaurl/", "https://intranet/", "https://example", "http://printer/"]) {
+    const result = publicAuditUrlStatus(input);
+    assert.equal(result.ok, false, `dotless hostname must be rejected: ${input}`);
+    assert.equal(result.error, "Enter a valid public website URL.", `friendly message for: ${input}`);
+  }
+  // Dotted public hosts, including public IP literals, still pass.
+  assert.equal(publicAuditUrlStatus("https://example.com/").ok, true);
+  assert.equal(publicAuditUrlStatus("https://8.8.8.8/").ok, true);
+  assert.equal(publicAuditUrlStatus("https://example.com:8443/path").ok, true);
 });
 
 // Regression: aiconverter.app never reaches network idle (analytics beacons,

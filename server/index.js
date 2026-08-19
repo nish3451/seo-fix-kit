@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { auditUrl } from "./audit/engine.js";
 import { rootSitemap } from "../shared/audit-engine.js";
+import { indexNowKeyFileBody, indexNowKeyFilePaths } from "../shared/index-now.js";
 import {
   buildWhiteLabelReportHtml,
   defaultBranding,
@@ -27,6 +28,7 @@ import {
 import {
   buildPublicCheckResponse,
   checkHtml,
+  friendlyCheckError,
   publicCheckQuotaChecks,
   validatePublicCheckUrl
 } from "../worker/routes/public-check.js";
@@ -1925,8 +1927,7 @@ app.post("/api/public-check", async (req, res) => {
     const report = await auditUrl(validated.url, { maxPages: 1, appOrigin: origin });
     res.set("cache-control", "no-store").json(buildPublicCheckResponse(report));
   } catch (error) {
-    const message = String(error?.message || "The check failed. Try another public URL.").slice(0, 260);
-    res.status(422).set("cache-control", "no-store").json({ error: message });
+    res.status(422).set("cache-control", "no-store").json({ error: friendlyCheckError(error) });
   }
 });
 
@@ -2527,6 +2528,11 @@ function demoKeywordRows(baseUrl) {
 app.get("/robots.txt", (req, res) => {
   const origin = `http://${req.get("host")}`;
   res.type("text").send(`User-agent: *\nAllow: /\n\nSitemap: ${origin}/sitemap.xml\n`);
+});
+
+// IndexNow key file parity with the Worker (production serves both paths).
+app.get([...indexNowKeyFilePaths()], (req, res) => {
+  res.set("x-robots-tag", "noindex, nofollow").type("text").send(indexNowKeyFileBody());
 });
 
 app.get("/sitemap.xml", (req, res) => {
@@ -5156,6 +5162,9 @@ function publicAuditUrlStatus(value) {
   }
 
   const host = parsed.hostname.toLowerCase();
+  if (!host.includes(".") && !host.includes(":")) {
+    return { ok: false, error: "Enter a valid public website URL." };
+  }
   if (
     host === "localhost" ||
     host.endsWith(".localhost") ||
