@@ -27,6 +27,20 @@ import {
   normalizeDnsTxt,
   normalizeEmail
 } from "../lib/text.js";
+import { recordAccessEvent, isFunnelStep } from "../lib/access-events.js";
+
+function funnelKeyFromRequest(request, body) {
+  return cleanText(
+    (body && (body.funnelKey || body.funnel_key)) ||
+      request?.headers?.get?.("x-seofixkit-funnel-key") ||
+      "",
+    64
+  );
+}
+
+function landingPathFromRequest(body, fallback = "/") {
+  return cleanText(body?.landingPath || body?.landing_path || fallback, 500) || fallback;
+}
 
 const ACCESS_LINK_TTL_SECONDS = 60 * 15;
 
@@ -106,6 +120,16 @@ async function joinWaitlist(request, env) {
     )
     .run();
 
+  await recordAccessEvent(env, {
+    step: "beta_submit",
+    funnelKey: funnelKeyFromRequest(request, body),
+    ownerEmail: email,
+    source,
+    landingPath,
+    request,
+    metadata: { submitMs: Number.isFinite(submitMs) ? Math.round(submitMs) : null }
+  });
+
   return json({ ok: true, status: "joined" });
 }
 
@@ -133,7 +157,19 @@ async function requestAccessLink(request, env) {
   }
 
   const now = new Date().toISOString();
+  const funnelKey = funnelKeyFromRequest(request, body);
+  const landingPath = landingPathFromRequest(body, "/beta");
   await recordWaitlistLead(request, env, ownerEmail, body, "self-serve-access", now);
+
+  await recordAccessEvent(env, {
+    step: "access_requested",
+    funnelKey,
+    ownerEmail,
+    source: "self-serve-access",
+    landingPath,
+    request,
+    metadata: { submitMs: Number.isFinite(submitMs) ? Math.round(submitMs) : null }
+  });
 
   const token = randomToken();
   const tokenHash = await sha256Hex(token);
@@ -167,6 +203,16 @@ async function requestAccessLink(request, env) {
     await env.WAITLIST_DB.prepare("DELETE FROM access_tokens WHERE token_hash = ?").bind(tokenHash).run();
     return jsonNoStore({ error: error?.message || "Access email could not be sent." }, 503);
   }
+
+  await recordAccessEvent(env, {
+    step: "access_link_sent",
+    funnelKey,
+    ownerEmail,
+    source: "self-serve-access",
+    landingPath,
+    request,
+    metadata: { expiresAt }
+  });
 
   return jsonNoStore({
     ok: true,
@@ -212,10 +258,29 @@ async function verifyAccessLink(request, env) {
     return jsonNoStore({ error: "Access link is expired or already used." }, 401);
   }
 
+  await recordAccessEvent(env, {
+    step: "access_link_verified",
+    funnelKey: funnelKeyFromRequest(request, body),
+    ownerEmail: row.owner_email,
+    source: "self-serve-access",
+    landingPath: landingPathFromRequest(body, "/beta"),
+    request,
+    metadata: { expiresAt: row.expires_at }
+  });
+
   const session = await createBetaSession(request, env, {
     ownerEmail: row.owner_email,
     inviteId: null,
     accessMode: "self-serve"
+  });
+  await recordAccessEvent(env, {
+    step: "session_created",
+    funnelKey: funnelKeyFromRequest(request, body),
+    ownerEmail: row.owner_email,
+    source: "self-serve-access",
+    landingPath: landingPathFromRequest(body, "/beta"),
+    request,
+    metadata: { accessMode: "self-serve", expiresAt: session.expiresAt }
   });
   const response = jsonNoStore({
     ok: true,
@@ -331,6 +396,15 @@ async function betaLogin(request, env) {
     ownerEmail,
     inviteId: invite.inviteId,
     accessMode: invite.accessMode
+  });
+  await recordAccessEvent(env, {
+    step: "session_created",
+    funnelKey: funnelKeyFromRequest(request, body),
+    ownerEmail,
+    source: invite.accessMode === "founder-override" ? "founder-override" : "invite",
+    landingPath: landingPathFromRequest(body, "/beta"),
+    request,
+    metadata: { accessMode: invite.accessMode, inviteId: invite.inviteId, expiresAt: session.expiresAt }
   });
   const response = jsonNoStore({
     ok: true,
@@ -703,9 +777,58 @@ async function inviteAccessStatus(request, env, ownerEmail, inviteCode, inviteCo
   return { ok: true, inviteId: row.id, accessMode: "invite" };
 }
 
+// Record a client-side beacon (page-view or first-input) for the private-beta
+// funnel. Rate-limited per network so it cannot be abused as a free
+// analytics sink. Always returns 204 so the SPA beacon never throws.
+async function recordAccessBeacon(request, env) {
+  let body = {};
+  try {
+    body = await request.json();
+  } catch {
+    body = {};
+  }
+  const step = cleanText(body.step || "", 40);
+  if (!isFunnelStep(step)) {
+    return new Response(null, { status: 204 });
+  }
+  const quota = await accessBeaconQuotaStatus(request, env);
+  if (!quota.ok) {
+    return new Response(null, { status: 204 });
+  }
+  const ownerEmail = normalizeEmail(body.email || "");
+  await recordAccessEvent(env, {
+    step,
+    funnelKey: funnelKeyFromRequest(request, body),
+    ownerEmail,
+    source: cleanText(body.source || "spa-beacon", 80),
+    landingPath: landingPathFromRequest(body, "/"),
+    request,
+    metadata: {
+      beacon: true,
+      timeOnPageMs: Number.isFinite(Number(body.timeOnPageMs)) ? Math.round(Number(body.timeOnPageMs)) : null
+    }
+  });
+  return new Response(null, { status: 204 });
+}
+
+async function accessBeaconQuotaStatus(request, env) {
+  const hour = hourWindow(new Date());
+  const ipHash = await requestIpHash(request);
+  return checkQuotaSet(env, [
+    {
+      bucket: `beacon:ip:${hour.key}:${ipHash}`,
+      limit: 240,
+      windowStart: hour.key,
+      resetAt: hour.resetAt,
+      error: "Too many activation beacons from this network."
+    }
+  ]);
+}
+
 export {
   ACCESS_LINK_TTL_SECONDS,
   DEFAULT_INVITE_TTL_DAYS,
+  accessBeaconQuotaStatus,
   accessLinkQuotaStatus,
   betaLogin,
   betaLogout,
@@ -717,6 +840,7 @@ export {
   loginQuotaStatus,
   randomInviteCode,
   readSmallText,
+  recordAccessBeacon,
   recordWaitlistLead,
   requestAccessLink,
   safeBetaReturnPath,

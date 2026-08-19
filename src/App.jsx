@@ -29,6 +29,7 @@ import {
 
 const BETA_SESSION_KEY = "seofixkit_beta_unlocked";
 const BETA_EMAIL_KEY = "seofixkit_beta_email";
+const FUNNEL_KEY = "seofixkit_funnel_key";
 
 export default function App() {
   if (window.location.pathname.startsWith("/beta")) {
@@ -45,10 +46,34 @@ function WaitlistPage() {
   const [message, setMessage] = useState("");
   const [accessUrl, setAccessUrl] = useState("");
   const [formStartedAt] = useState(() => Date.now());
+  const [funnelKey] = useState(() => readOrCreateFunnelKey());
+  const [inputFired, setInputFired] = useState(false);
 
   useEffect(() => {
     document.title = "SEO Fix Kit - Proof-Backed SEO Repair Beta";
   }, []);
+
+  useEffect(() => {
+    sendAccessBeacon("beta_view", {
+      funnelKey,
+      source: "homepage-access",
+      landingPath: window.location.pathname + window.location.search || "/",
+      timeOnPageMs: 0
+    });
+  }, [funnelKey]);
+
+  function handleEmailChange(event) {
+    setEmail(event.target.value);
+    if (!inputFired && event.target.value) {
+      setInputFired(true);
+      sendAccessBeacon("beta_input", {
+        funnelKey,
+        source: "homepage-access",
+        landingPath: window.location.pathname + window.location.search || "/",
+        timeOnPageMs: Date.now() - formStartedAt
+      });
+    }
+  }
 
   async function joinWaitlist(event) {
     event.preventDefault();
@@ -60,7 +85,8 @@ function WaitlistPage() {
         email,
         company,
         source: "homepage-access",
-        formStartedAt
+        formStartedAt,
+        funnelKey
       });
       setStatus("success");
       setMessage(payload.message || "Check your email for a secure access link.");
@@ -120,7 +146,7 @@ function WaitlistPage() {
                 autoComplete="email"
                 id="email"
                 inputMode="email"
-                onChange={(event) => setEmail(event.target.value)}
+                onChange={handleEmailChange}
                 placeholder="you@example.com"
                 required
                 type="email"
@@ -352,7 +378,8 @@ function BetaApp() {
     let cancelled = false;
     setLoginStatus("submitting");
     setLoginMessage("Opening secure access link.");
-    verifyAccessToken(accessToken)
+    const storedFunnelKey = window.sessionStorage.getItem(FUNNEL_KEY) || "";
+    verifyAccessToken(accessToken, storedFunnelKey)
       .then((payload) => {
         if (cancelled) return;
         window.sessionStorage.setItem(BETA_SESSION_KEY, "1");
@@ -432,11 +459,13 @@ function BetaApp() {
     setLoginStatus("submitting");
     setLoginMessage("");
     try {
+      const gateFunnelKey = readOrCreateFunnelKey();
       const payload = await postAccessRequest({
         email: loginEmail,
         source: "beta-gate-access",
         formStartedAt: accessFormStartedAt,
-        returnTo: window.location.pathname.startsWith("/beta") ? window.location.pathname : ""
+        returnTo: window.location.pathname.startsWith("/beta") ? window.location.pathname : "",
+        funnelKey: gateFunnelKey
       });
       setLoginStatus("success");
       setLoginMessage(
@@ -5076,16 +5105,20 @@ async function refreshSession(setIsAuthed, setOwnerEmail) {
   }
 }
 
-async function postAccessRequest({ email, company = "", source, formStartedAt, returnTo = "" }) {
+async function postAccessRequest({ email, company = "", source, formStartedAt, returnTo = "", funnelKey = "" }) {
   const response = await fetch("/api/access/request", {
     method: "POST",
     credentials: "same-origin",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(funnelKey ? { "x-seofixkit-funnel-key": funnelKey } : {})
+    },
     body: JSON.stringify({
       email,
       company,
       source,
       ...(returnTo ? { returnTo } : {}),
+      ...(funnelKey ? { funnelKey } : {}),
       ...trackingPayload(formStartedAt)
     })
   });
@@ -5096,12 +5129,15 @@ async function postAccessRequest({ email, company = "", source, formStartedAt, r
   return payload;
 }
 
-async function verifyAccessToken(token) {
+async function verifyAccessToken(token, funnelKey = "") {
   const response = await fetch("/api/access/verify", {
     method: "POST",
     credentials: "same-origin",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ token })
+    headers: {
+      "content-type": "application/json",
+      ...(funnelKey ? { "x-seofixkit-funnel-key": funnelKey } : {})
+    },
+    body: JSON.stringify({ token, ...(funnelKey ? { funnelKey } : {}) })
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok !== true) {
@@ -5722,6 +5758,48 @@ function trackingPayload(formStartedAt) {
       content: params.get("utm_content") || ""
     }
   };
+}
+
+function readOrCreateFunnelKey() {
+  try {
+    const existing = window.sessionStorage.getItem(FUNNEL_KEY);
+    if (existing) return existing;
+    const bytes = new Uint8Array(8);
+    window.crypto.getRandomValues(bytes);
+    const key = "fk_" + Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    window.sessionStorage.setItem(FUNNEL_KEY, key);
+    return key;
+  } catch {
+    return "";
+  }
+}
+
+function sendAccessBeacon(step, { funnelKey = "", source = "", landingPath = "", timeOnPageMs = null } = {}) {
+  try {
+    if (!navigator.sendBeacon && !window.fetch) return;
+    const body = JSON.stringify({
+      step,
+      funnelKey,
+      source,
+      landingPath,
+      timeOnPageMs
+    });
+    const blob = new Blob([body], { type: "application/json" });
+    const beacon = navigator.sendBeacon
+      ? navigator.sendBeacon("/api/access/track", blob)
+      : false;
+    if (!beacon) {
+      window.fetch("/api/access/track", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body,
+        keepalive: true
+      }).catch(() => {});
+    }
+  } catch {
+    // Instrumentation is best-effort; never break the page.
+  }
 }
 
 function LogoMark() {

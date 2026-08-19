@@ -14,6 +14,7 @@ import { localSeoInputKey, parseLocalSeoInput } from "../../shared/local-seo-aud
 import { normalizeRenderedCrawlTarget } from "../../shared/rendered-crawl-scale.js";
 import { resolvesToPrivateAddress } from "../../shared/url-safety.js";
 import { auditAuthorizationStatus, betaAccessResponse, betaAccessStatus } from "../lib/auth.js";
+import { recordAccessEvent } from "../lib/access-events.js";
 import { runD1BatchChunks } from "../lib/db.js";
 import { json, jsonNoStore } from "../lib/http.js";
 import { monitoringAccessForOwner } from "../lib/offers.js";
@@ -155,6 +156,15 @@ async function runPrivateAudit(request, env, ctx) {
     renderedCrawlTarget
   });
   await enqueueAuditJob(env, ctx, job.id, new URL(request.url).origin);
+  await recordAccessEvent(env, {
+    step: "audit_started",
+    funnelKey: cleanText(body?.funnelKey || request.headers.get("x-seofixkit-funnel-key") || "", 64),
+    ownerEmail: access.ownerEmail || job.owner_email,
+    source: access.accessMode === "founder-override" ? "founder-override" : "private-beta",
+    landingPath: cleanText(body?.landingPath || `/${job.target_host || "audit"}`, 500),
+    request,
+    metadata: { jobId: job.id, targetHost: job.target_host, maxPages: job.max_pages }
+  });
 
   return jsonNoStore(
     {
