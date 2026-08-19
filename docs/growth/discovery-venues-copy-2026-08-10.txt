@@ -157,6 +157,50 @@ PER-VENUE FIELDS
 - Note: permanent structured product pages; free and paid founder plans
   exist. Manual founder signup only.
 
+--- GeoIndex by Geodes (add a vendor / request an edit) ---
+- Route: https://www.geodes.ai/geo-index-listing (contact form; email and
+  WhatsApp also listed on the page)
+- Name: SEO Fix Kit
+- Category: GEO/AEO Optimization Tools (directory filters include
+  "GEO/AEO Optimization Tools" and "AI Visibility Tracking & Monitoring";
+  SEO Fix Kit fits the optimization side — site-proof AI Answer Readiness,
+  NOT live citation monitoring)
+- One-line description: Proof-backed SEO repair: rendered vs static HTML
+  proof, guarded false positives, and actionable fixes — with site-proof AI
+  Answer Readiness checks (no live AI-engine sampling).
+- Description (full): use the Long description above verbatim.
+- Links: https://seofixkit.com/demo, https://seofixkit.com/methodology,
+  https://seofixkit.com/check
+- Honesty lines to keep visible: "AI Answer Readiness is derived from your
+  site's rendered content; SEO Fix Kit does not monitor live AI-engine
+  answers or citations."
+- Note: directory evaluated by the Geodes team (ToS §4); acceptance not
+  guaranteed. Manual submission only; no payment required to request a
+  listing.
+
+--- Directree (free "Add Listing"; added 2026-08-12) ---
+- Route: https://www.directree.io/submit (free account first, verified live
+  2026-08-12; ~30-second AI listing or full claim editor; "No pay-to-rank";
+  verified listings earn a do-follow backlink)
+- Name: SEO Fix Kit
+- Website URL: https://seofixkit.com
+- One-line description: Proof-backed SEO repair: rendered vs static HTML
+  proof, guarded false positives, and actionable fixes — clear fixes, not
+  generic audit homework.
+- Description (full): use the Long description above verbatim. Directree
+  labels facts Observed / AI-inferred / Founder-edited — keep founder-edited
+  statements to the canonical copy only, and let the venue crawl
+  https://seofixkit.com for observed facts.
+- Links: https://seofixkit.com/demo, https://seofixkit.com/methodology,
+  https://seofixkit.com/check
+- Category: SEO Tools / SEO Audit (use the venue's category list at
+  submission time)
+- Honesty lines to keep visible: "No ranking or traffic guarantee." and
+  "AI Answer Readiness is derived from your site's rendered content; SEO Fix
+  Kit does not monitor live AI-engine answers or citations."
+- Note: free account required; submission is manual-only (venue terms give no
+  unattended-automation permission; anti-scraping clause is not a permission).
+
 --- GitHub awesome lists (fork + PR, manual, only with track record) ---
 - Suganthan-Mohanadasan/awesome-seo-tools — section "Technical SEO and Site
   Auditing". Proposed entry:

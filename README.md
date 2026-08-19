@@ -10,7 +10,7 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 
 ## What is live in this repo
 
-- Rendered-page audit with Playwright.
+- Rendered-page audit powered by Cloudflare Browser Run in the deployed Worker and Playwright for local development.
 - Static HTML vs rendered DOM comparison.
 - Evidence-backed findings.
 - Self-serve crawl-depth tiers up to 1,000 pages per queued audit, with per-page scores and page proof.
@@ -29,7 +29,7 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - AI Answer Readiness / SEO-GEO readiness checks derived from rendered content depth, helpful schema, canonical/internal-link clarity, question-led structure, sitemap context, and optional `/llms.txt` reachability; no live AI-engine sampling or citation monitoring.
 - Draft-only growth opportunities from verified keyword, competitor, AI-readiness, and crawl gaps; no article-volume autopilot, auto-publishing, or ranking promises.
 - False-positive guard section for static-vs-rendered mismatches.
-- Exact fix snippets for common SEO repairs.
+- Generated fix snippets for common SEO repairs (proposed markup the engine builds, never a quote observed on the page).
 - Copyable developer repair brief with priority, effort, proof, acceptance checks, and snippets.
 - Persistent repair queue records for saved reports, with proof snapshots, acceptance checks, status, action mode, rerun state, and approval-safe agent action records.
 - Report-level repair agent board with status filters, teammate assignment, notes, safe draft actions, approval/ignore controls, and no external publishing side effects.
@@ -42,8 +42,8 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Cloudflare Worker target using Workers Static Assets and Browser Run.
 - Locked private-beta homepage with `/api/waitlist` and `/api/access/request` backed by D1.
 - Public anonymous one-page URL check at `/check` and `POST /api/public-check`: real browser rendering of one public page, static-vs-rendered proof, guarded false positives, actionable findings when present, per-network and per-site rate limits with hashed, short-lived counters, no stored report, and a handoff into private beta access with no ranking promise.
-- Public `/demo`, `/methodology`, and `/packages` pages showing the proof loop, limits, and package ladder before payment.
-- Public intent-matching landing pages at `/small-business-seo-audit`, `/rendered-vs-static-seo-audit`, and `/ai-answer-readiness` for small-business SEO audits, rendered-vs-static proof, and proof-derived AI Answer Readiness, each with unique title/meta, truthful FAQ and SoftwareApplication structured data, links into the demo and check path, and sitemap, `llms.txt`, and `skill.md` entries; none claims live answer-engine sampling or AI citation monitoring.
+- Public `/demo`, `/methodology`, `/packages`, and `/proof` pages showing the proof loop, limits, package ladder, and a real before/after repair receipt (founder-owned Tiny Studio portfolio: 85/7 → 99/2 → 100/0 across the same measurement path, with consent and redaction) before payment.
+- Intent-matching public landing pages at `/small-business-seo-audit`, `/rendered-vs-static-seo-audit`, and `/ai-answer-readiness`, each with unique title and meta, a visible FAQ rendered from the same source as FAQPage JSON-LD, truthful SoftwareApplication schema, and links into `/check` and `/demo`; none claim live AI-engine sampling or AI citation monitoring.
 - Hidden `/beta` private audit workbench protected by invite code login or a secure one-use email access link.
 - Expiring beta sessions backed by D1 `beta_sessions`.
 - Explicit session access modes for invite, self-serve, and founder override sessions.
@@ -77,15 +77,35 @@ npm run check
 ```
 
 For a live spot-check that the public `/check`, `/demo`, `/methodology`, `/packages`,
-`/support`, `/terms`, and `/privacy` pages on the deployed site still show the anonymous
-proof check, proof loop, stated limits, package ladder, and no-ranking promise the README
-makes, that `/llms.txt`, `/sitemap.xml`, `/robots.txt`, `/api/health`,
+`/proof`, `/support`, `/terms`, and `/privacy` pages on the deployed site still show the anonymous
+proof check, proof loop, stated limits, package ladder, real before/after repair receipt, and
+no-ranking promise the README makes, that `/llms.txt`, `/sitemap.xml`, `/robots.txt`, `/api/health`,
 `/api/deep-health`, and the `POST /api/public-check` route are still served, and that
 `www.seofixkit.com` still 301-redirects onto the apex host:
 
 ```bash
 npm run audit:live-promise
 ```
+
+For the repeatable live walk of the private-beta funnel (the backlog item
+"Live-surface walk of the private-beta funnel"): a real-browser (Playwright
+Chromium) walk of the funnel stops home → `/demo` → `/packages`, with the
+access request form inspected in observe mode only (never submitted, so no
+waitlist lead or access token is created), on desktop and an iPhone-13 mobile
+viewport. It verifies each stop serves the expected title, canonical where one
+exists, and load-bearing funnel copy; records console/page errors, broken
+internal links, and mobile horizontal overflow; and emits the walk JSON (the
+"summarized in journal" record) plus a human summary. Each live walk's result
+is journaled verbatim in
+`docs/growth/private-beta-funnel-walk-ledger.md`:
+
+```bash
+npm run audit:funnel-walk
+```
+
+The walk is opt-in live-read evidence and never part of `npm run check`; the
+same per-stop assertions are locked offline by `test:funnel-walk`, which runs
+inside `npm run check`.
 
 ## Founder-led ICP experiment
 
@@ -95,13 +115,17 @@ invitations to JavaScript-heavy SaaS founders to run their own URL through `/che
 numeric gates (10 visits, 3 completed checks, 1 private-access request, 1 eligible Fix Pack
 conversation or purchase) and a keep/kill decision on whether "JS SaaS founder who wants proven
 fixes, not audit noise" remains the ICP. Outreach is founder-owned, never unattended promotion.
+The execution kit (prospect candidates with live stack evidence and truthful per-channel
+invitation copy, both prepared 2026-08-12) lives at
+`docs/research/icp-experiment-prospect-candidates-2026-08-12.md` and
+`docs/research/icp-experiment-invitation-copy-2026-08-12.txt`.
 
 ## Cloudflare path
 
 Cloudflare cannot run the local Express + Chromium server directly. The deployable path is:
 
 - React UI served by Workers Static Assets from `dist/`
-- Public `/check`, `/demo`, `/methodology`, `/packages`, `/small-business-seo-audit`, `/rendered-vs-static-seo-audit`, `/ai-answer-readiness`, `/privacy`, `/support`, `/terms`, `/sitemap.xml`, and `/llms.txt` stay served by the Worker/public asset path
+- Public `/check`, `/demo`, `/methodology`, `/packages`, `/proof`, `/small-business-seo-audit`, `/rendered-vs-static-seo-audit`, `/ai-answer-readiness`, `/privacy`, `/support`, `/terms`, `/sitemap.xml`, and `/llms.txt` stay served by the Worker/public asset path
 - `/api/health` is a shallow public runtime check; `/api/deep-health` is a public-safe readiness check for bindings, D1 schema, Dodo checkout/webhook config, and self-serve repair capabilities without exposing secrets, provider ids, checkout URLs, customer data, or table counts
 - `/api/public-check` runs the anonymous one-page URL check for any visitor: one public page rendered in a real browser, proof fields and guarded false positives from the shared audit engine, findings when present, per-network and per-site rate limits with hashed, short-lived counters, and no stored report; `/check` is the indexable public entry page
 - `/api/waitlist` handled by `worker/index.js` and stored in D1
@@ -148,6 +172,11 @@ Dry-run build:
 ```bash
 npm run cf:dry-run
 ```
+
+The dry-run runs through `scripts/wrangler-dry-run.mjs`, which names any malformed
+ancestor `package.json` (e.g. the recurring zero-byte scaffold debris in `/home/nish`)
+loudly on stderr and, when one is present, executes Wrangler from a shielded scratch
+copy so the canary cannot be broken by a file outside this repo.
 
 Apply D1 migrations after creating or changing the waitlist schema:
 
@@ -227,6 +256,10 @@ permanently 301-redirects every `www.seofixkit.com` request onto the apex host
 with the path and query intact. Every URL the Worker serves (page canonicals,
 social tags, `robots.txt`, `sitemap.xml`, `llms.txt`, and fixture URLs) is
 generated from the apex origin, so canonicals and the sitemap are apex-only.
+The assets binding runs the Worker first for every request (`run_worker_first:
+true`), so static assets (`/assets/*`, `/favicon.svg`, `/security.txt`) are
+redirected off `www` as well instead of being served straight from the asset
+CDN on a second host.
 
 ## Product boundary
 

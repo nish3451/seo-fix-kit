@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import worker from "./index.js";
 import { sha256Hex } from "./lib/security.js";
 
@@ -189,6 +190,15 @@ test("Worker dispatch 301-redirects www.seofixkit.com onto the apex host", async
   const sitemap = await worker.fetch(new Request("https://www.seofixkit.com/sitemap.xml"), env, fakeCtx());
   assert.equal(sitemap.status, 301);
   assert.equal(sitemap.headers.get("location"), "https://seofixkit.com/sitemap.xml");
+
+  // Static assets must 301 too: with wrangler.jsonc "run_worker_first": true
+  // every www request reaches this Worker (the array form let asset paths
+  // bypass the Worker and be served 200 straight from the asset CDN).
+  for (const assetPath of ["/favicon.svg", "/security.txt", "/assets/index-abc123.css"]) {
+    const asset = await worker.fetch(new Request(`https://www.seofixkit.com${assetPath}`), env, fakeCtx());
+    assert.equal(asset.status, 301, `www ${assetPath} must 301`);
+    assert.equal(asset.headers.get("location"), `https://seofixkit.com${assetPath}`);
+  }
 });
 
 test("Worker dispatch serves apex-only canonicals, robots, sitemap, and llms.txt", async () => {
@@ -211,7 +221,45 @@ test("Worker dispatch serves apex-only canonicals, robots, sitemap, and llms.txt
   assert.doesNotMatch(methodologyBody, /www\.seofixkit\.com/);
 
   const llms = await worker.fetch(new Request("https://seofixkit.com/llms.txt"), env, fakeCtx());
-  assert.match(await llms.text(), /https:\/\/seofixkit\.com\/check/);
+  const llmsBody = await llms.text();
+  assert.match(llmsBody, /https:\/\/seofixkit\.com\/check/);
+  assert.match(llmsBody, /https:\/\/seofixkit\.com\/proof/);
+  assert.match(sitemapBody, /<loc>https:\/\/seofixkit\.com\/proof<\/loc>/);
+});
+
+test("Worker dispatch serves the real before/after repair proof receipt", async () => {
+  const env = await fakeWorkerEnv();
+
+  const proof = await worker.fetch(new Request("https://seofixkit.com/proof"), env, fakeCtx());
+  assert.equal(proof.status, 200);
+  assert.match(proof.headers.get("content-type"), /text\/html; charset=utf-8/);
+  const proofBody = await proof.text();
+  assert.match(proofBody, /One real repair, with the same measurement path before and after\./);
+  assert.match(proofBody, /Score <strong>85<\/strong>\/100 &middot; 7 findings/);
+  assert.match(proofBody, /Score <strong>99<\/strong>\/100 &middot; 2 findings/);
+  assert.match(proofBody, /Score <strong>100<\/strong>\/100 &middot; 0 findings/);
+  assert.match(proofBody, /tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b/);
+  assert.match(proofBody, /tinystudio-in-75ffee26-02ae-41d3-b2ef-5beb40722e50/);
+  assert.match(proofBody, /tinystudio-in-0a45637f-1354-4d26-ace3-d3b594162961/);
+  assert.match(proofBody, /rel="canonical" href="https:\/\/seofixkit\.com\/proof"/);
+  assert.doesNotMatch(proofBody, /www\.seofixkit\.com/);
+
+  const proofMarkdown = await worker.fetch(
+    new Request("https://seofixkit.com/proof", { headers: { accept: "text/markdown" } }),
+    env,
+    fakeCtx()
+  );
+  assert.equal(proofMarkdown.status, 200);
+  assert.match(proofMarkdown.headers.get("content-type"), /text\/markdown; charset=utf-8/);
+  const proofMarkdownBody = await proofMarkdown.text();
+  assert.match(proofMarkdownBody, /^# SEO Fix Kit .* Repair proof receipt/m);
+  assert.match(proofMarkdownBody, /85\/100 with 7 findings/);
+  assert.match(proofMarkdownBody, /100\/100 with 0 findings/);
+
+  const proofDotMd = await worker.fetch(new Request("https://seofixkit.com/proof.md"), env, fakeCtx());
+  assert.equal(proofDotMd.status, 200);
+  assert.match(proofDotMd.headers.get("content-type"), /text\/markdown; charset=utf-8/);
+  assert.match(await proofDotMd.text(), /^# SEO Fix Kit .* Repair proof receipt/m);
 });
 
 test("Worker dispatch exposes public-safe deep health readiness", async () => {
@@ -323,6 +371,38 @@ test("Worker deep health claims the route for HEAD and unsupported methods", asy
   const body = await postResponse.json();
   assert.equal(postResponse.status, 405);
   assert.equal(body.error, "Method not allowed.");
+});
+
+test("Worker dispatch passes through the asset layer 404 for unknown URLs instead of rewriting to the homepage", async () => {
+  const env = await fakeWorkerEnv();
+
+  // The ASSETS binding (wrangler.jsonc not_found_handling "404-page") owns the
+  // 404 response for unknown URLs. The worker must pass it through unchanged
+  // (status, body) with security headers, never a 200 homepage shell.
+  const unknown = await worker.fetch(new Request("https://seofixkit.test/definitely-not-a-real-page-xyz"), env, fakeCtx());
+  assert.equal(unknown.status, 404);
+  assert.equal(await unknown.text(), "asset fallback");
+  assert.match(unknown.headers.get("x-content-type-options") || "", /nosniff/);
+  assert.match(unknown.headers.get("x-frame-options") || "", /DENY/);
+
+  // Unknown /api/* and /v1/* paths must also surface a 404, not the SPA shell.
+  const unknownApi = await worker.fetch(new Request("https://seofixkit.test/api/nonexistent-route"), env, fakeCtx());
+  assert.equal(unknownApi.status, 404);
+  assert.equal(await unknownApi.text(), "asset fallback");
+
+  const unknownV1 = await worker.fetch(new Request("https://seofixkit.test/v1/nonexistent-route"), env, fakeCtx());
+  assert.equal(unknownV1.status, 404);
+});
+
+test("Deploy surface serves a real 404 page instead of the single-page-application homepage catch-all", () => {
+  const config = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+  assert.match(config, /"not_found_handling"\s*:\s*"404-page"/);
+  assert.doesNotMatch(config, /"not_found_handling"\s*:\s*"single-page-application"/);
+
+  const notFoundPage = readFileSync(new URL("../public/404.html", import.meta.url), "utf8");
+  assert.match(notFoundPage, /<title>Page not found - SEO Fix Kit<\/title>/);
+  assert.match(notFoundPage, /noindex/);
+  assert.match(notFoundPage, /https:\/\/seofixkit\.com\//);
 });
 
 test("Worker dispatch creates admin-only beta proof sessions without exposing tokens", async () => {

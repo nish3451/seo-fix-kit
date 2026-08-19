@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createAuditEngine, isThrottledResource, normalizeUrl } from "./audit-engine.js";
+import {
+  createAuditEngine,
+  isSameOriginInfraFailure,
+  isThrottledResource,
+  normalizeUrl
+} from "./audit-engine.js";
 import { buildBacklinkAudit } from "./backlink-audit.js";
 import { buildCrawlInventory } from "./crawl-inventory.js";
 import { buildLocalSeoAudit } from "./local-seo-audit.js";
@@ -230,6 +235,127 @@ test("resource validation blocks private-DNS resources and redirect targets befo
   assert.equal(fetched.includes("https://redirect.example/resource"), true);
   assert.equal(fetched.includes("https://private.example/resource"), false);
   assert.equal(fetched.includes("https://private.example/canonical"), false);
+});
+
+
+// Regression: a site can declare og:image/twitter:image while pointing them at a
+// file that does not load as an image. Presence alone was previously treated as
+// a working social preview, and the suggested snippet hard-coded
+// ${origin}/og-image.png even when that file did not exist on the audited site.
+test("social images that are declared but not loadable produce a broken-preview finding", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser("https://public.example/", {
+        openGraph: { image: "https://public.example/social/og.png" },
+        twitter: { image: "https://public.example/social/og.png" }
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      if (url === "https://public.example/social/og.png") {
+        return new Response("not really an image", { status: 200, headers: { "content-type": "text/html" } });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const broken = report.findings.find((finding) => /Social share image is not loadable/.test(finding.title));
+  assert.ok(broken, "a declared-but-not-image social tag must be reported");
+  // og:image and twitter:image point at the same URL, so the check is deduped:
+  // the evidence names the single shared image URL and its broken response.
+  assert.match(broken.evidence, /og:image \(https:\/\/public\.example\/social\/og\.png\): returned 200 with content-type text\/html/);
+  assert.doesNotMatch(broken.evidence, /twitter:image \(https:\/\/public\.example\/social\/og\.png\)/, "a shared social image URL is checked once");
+});
+
+test("social images that are declared and loadable are not reported broken", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser("https://public.example/", {
+        openGraph: { image: "https://public.example/social/og.png" },
+        twitter: { image: "https://public.example/social/og.png" }
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      if (url === "https://public.example/social/og.png") {
+        return new Response("fake png bytes", { status: 200, headers: { "content-type": "image/png" } });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const broken = report.findings.find((finding) => /Social share image (is not loadable|incomplete)/.test(finding.title));
+  assert.equal(broken, undefined, "a live social image must not be reported as broken");
+});
+
+test("social snippet never guesses an unverified og-image path when the audited page has no working social image", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser("https://public.example/", {
+        openGraph: {},
+        twitter: {}
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const social = report.findings.find((finding) => /Social share image incomplete/.test(finding.title));
+  assert.ok(social, "missing social tags must still be reported");
+  assert.match(social.snippet, /Create https:\/\/public\.example\/og-image\.png \(1200x630\)/,
+    "the snippet must tell the customer the og-image.png path is a placeholder they need to create");
+});
+
+test("social snippet uses the verified live og:image URL when one exists", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser("https://public.example/", {
+        openGraph: { image: "https://public.example/social/og.png" },
+        twitter: { image: "https://public.example/social/og.png" }
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      if (url === "https://public.example/social/og.png") {
+        return new Response("fake png bytes", { status: 200, headers: { "content-type": "image/png" } });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const social = report.findings.find((finding) => /Social share image incomplete/.test(finding.title));
+  // og and twitter both present and live: no incomplete finding, no broken finding.
+  assert.equal(social, undefined);
+  const socialPreview = report.fixPack.find((fix) => fix.title === "Social preview tags");
+  assert.ok(socialPreview, "the fix pack must still carry a social preview snippet");
+  assert.match(socialPreview.snippet, /content="https:\/\/public\.example\/social\/og\.png"/);
+  assert.doesNotMatch(socialPreview.snippet, /og-image\.png/);
 });
 
 test("rendered audit navigation rechecks private DNS before browser goto", async () => {
@@ -476,6 +602,20 @@ function fakeBrowser(finalUrl, overrides = {}, hooks = {}) {
         },
         async goto(url) {
           hooks.gotoUrls?.push(url);
+          const gotoCall = (hooks.gotoCalls || 0) + 1;
+          hooks.gotoCalls = gotoCall;
+          // hooks.gotoTimeoutMs: the first navigation burns the timeout budget
+          // (simulating a page that never reaches network idle), then throws a
+          // timeout so the engine falls back to domcontentloaded.
+          if (hooks.gotoTimeoutMs && gotoCall === 1) {
+            await new Promise((resolve) => setTimeout(resolve, hooks.gotoTimeoutMs));
+            throw new Error(`Navigation timeout of ${hooks.gotoTimeoutMs} ms exceeded`);
+          }
+          // hooks.gotoSettleMs: the first navigation takes that long but DOES
+          // settle (network idle reached), for the slow-but-settled control.
+          if (hooks.gotoSettleMs && gotoCall === 1) {
+            await new Promise((resolve) => setTimeout(resolve, hooks.gotoSettleMs));
+          }
           if (routeHandler) {
             for (const requestUrl of hooks.requestUrls || []) {
               await routeHandler({
@@ -568,6 +708,182 @@ test("genuine failures are still not mistaken for throttling", () => {
   }
   assert.equal(isThrottledResource(null), false);
   assert.equal(isThrottledResource({ ok: false }), false);
+});
+
+
+// Regression: a Cloudflare-hosted site whose origin briefly fails returns
+// 522 (connection timed out) / 523 (origin unreachable) / 524 (origin did not
+// answer in time) for every same-origin link at once. Those are Cloudflare-edge
+// errors for the checked site's own origin — transient infrastructure, not
+// per-link breakage — and Google backs off and retries 5xx instead of dropping
+// the URLs. The public /check must not turn a scan-time origin hiccup into
+// verified critical "broken internal links" findings the page does not have.
+test("same-origin Cloudflare origin errors are not treated as broken internal links", () => {
+  for (const status of [522, 523, 524]) {
+    assert.equal(
+      isSameOriginInfraFailure({ status, ok: false, kind: "internal" }),
+      true,
+      `same-origin ${status} should count as transient infra, not broken`
+    );
+  }
+  for (const status of [522, 523, 524]) {
+    assert.equal(
+      isSameOriginInfraFailure({ status, ok: false, kind: "external" }),
+      false,
+      `an external target's ${status} is a real observation and must still be reported`
+    );
+  }
+  for (const status of [522, 523, 524]) {
+    assert.equal(
+      isSameOriginInfraFailure({ status, ok: false, kind: "image" }),
+      false,
+      `${status} on images stays reportable; only same-origin links are transient`
+    );
+  }
+  assert.equal(
+    isSameOriginInfraFailure({ status: 404, ok: false, kind: "internal" }),
+    false,
+    "a real 404 on an internal link is still broken"
+  );
+  assert.equal(
+    isSameOriginInfraFailure({ status: 502, ok: false, kind: "internal" }),
+    false,
+    "502 stays a real failure"
+  );
+  assert.equal(isSameOriginInfraFailure(null), false);
+  assert.equal(isSameOriginInfraFailure({ ok: false }), false);
+  assert.equal(isSameOriginInfraFailure({ status: 522, ok: false }), false);
+});
+
+test("same-origin 522/523/524 link failures never become critical broken-link findings", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser("https://public.example/", {
+        title: "Proof page with useful content",
+        links: [
+          { text: "About", href: "https://public.example/about", rawHref: "/about" },
+          { text: "Contact", href: "https://public.example/contact", rawHref: "/contact" },
+          { text: "Pricing", href: "https://public.example/pricing", rawHref: "/pricing" },
+          { text: "Reference", href: "https://other.example/ref", rawHref: "https://other.example/ref" }
+        ],
+        internalLinks: [
+          { text: "About", href: "https://public.example/about", rawHref: "/about" },
+          { text: "Contact", href: "https://public.example/contact", rawHref: "/contact" },
+          { text: "Pricing", href: "https://public.example/pricing", rawHref: "/pricing" }
+        ],
+        externalLinks: [
+          { text: "Reference", href: "https://other.example/ref", rawHref: "https://other.example/ref" }
+        ]
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      if (url === "https://public.example/about") {
+        return new Response("origin unreachable", { status: 523, headers: { "content-type": "text/html" } });
+      }
+      if (url === "https://public.example/contact") {
+        return new Response("connection timed out", { status: 522, headers: { "content-type": "text/html" } });
+      }
+      if (url === "https://public.example/pricing") {
+        return new Response("origin did not answer in time", { status: 524, headers: { "content-type": "text/html" } });
+      }
+      if (url === "https://other.example/ref") {
+        return new Response("origin unreachable", { status: 523, headers: { "content-type": "text/html" } });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const brokenInternal = (report.findings || []).filter((finding) => /Broken internal links/.test(finding.title || ""));
+  assert.deepEqual(brokenInternal, [], "same-origin 522/523/524 failures must not be reported as broken internal links");
+  assert.equal(report.summary.critical, 0, "a scan-time origin hiccup must not inflate the critical count");
+
+  const brokenExternal = (report.findings || []).filter((finding) => /Broken external links/.test(finding.title || ""));
+  assert.equal(brokenExternal.length, 1, "an external origin failure is still a real observation");
+  assert.match(brokenExternal[0].evidence, /other\.example\/ref returned 523/, "external 523 stays evidenced");
+});
+
+
+// Regression: the free /check engine was reporting "Canonical URL is not
+// reachable" when a same-origin canonical (e.g. self-referential, apex↔www,
+// or www→apex) hit the same transient Cloudflare origin error that already
+// guards same-origin internal links. Treating one transient origin hiccup as
+// both "broken internal links" and "broken canonical" duplicates the same
+// false positive at warning tier and turns the customer's own infrastructure
+// blip into a critical-and-warning storm on a clean page.
+test("same-origin 522/523/524 canonical failures never become 'Canonical URL is not reachable' findings", async () => {
+  for (const status of [522, 523, 524]) {
+    const engine = createAuditEngine({
+      launchBrowser: async () =>
+        fakeBrowser("https://public.example/", {
+          title: "Proof page with useful content",
+          canonical: "https://public.example/"
+        }),
+      fetchImpl: async (url) => {
+        if (url === "https://public.example/") {
+          return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" }
+          });
+        }
+        if (url === "https://public.example/canonical") {
+          return new Response("origin hiccup", { status, headers: { "content-type": "text/html" } });
+        }
+        return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+      },
+      pagespeedDisabled: true
+    });
+
+    const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+    const canonicalFindings = (report.findings || []).filter((finding) => /Canonical URL is not reachable/i.test(finding.title || ""));
+    assert.deepEqual(canonicalFindings, [], `same-origin canonical ${status} must not be reported as unreachable`);
+    const canonicalNotice = (report.findings || []).filter((finding) => /Canonical URL redirects/i.test(finding.title || ""));
+    assert.deepEqual(canonicalNotice, [], `same-origin canonical ${status} must not surface as a redirect notice either`);
+  }
+});
+
+
+// Regression: a cross-origin canonical (declared on the page but pointing to a
+// different host) must still surface 522/523/524 as a real reachability finding
+// at warning tier. The infra-failure guard only applies to same-origin
+// resources where the failure is the customer's own origin, not the third
+// party they pointed their canonical at.
+test("cross-origin canonical 522/523/524 is still reported as unreachable", async () => {
+  for (const status of [522, 523, 524]) {
+    const engine = createAuditEngine({
+      launchBrowser: async () =>
+        fakeBrowser("https://public.example/", {
+          title: "Proof page with useful content",
+          canonical: "https://other.example/canonical"
+        }),
+      fetchImpl: async (url) => {
+        if (url === "https://public.example/") {
+          return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" }
+          });
+        }
+        if (url === "https://other.example/canonical") {
+          return new Response("origin hiccup", { status, headers: { "content-type": "text/html" } });
+        }
+        return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+      },
+      pagespeedDisabled: true
+    });
+
+    const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+    const canonicalFindings = (report.findings || []).filter((finding) => /Canonical URL is not reachable/i.test(finding.title || ""));
+    assert.equal(canonicalFindings.length, 1, `cross-origin canonical ${status} stays a real observation`);
+    assert.match(canonicalFindings[0].evidence, new RegExp(`other\\.example/canonical returned ${status}`), `evidence must cite the cross-origin ${status}`);
+    const canonicalNotice = (report.findings || []).filter((finding) => /Canonical URL redirects/i.test(finding.title || ""));
+    assert.deepEqual(canonicalNotice, [], `a failed cross-origin canonical ${status} is not a redirect notice`);
+  }
 });
 
 
@@ -775,4 +1091,61 @@ test("normalizeUrl rejects non-http schemes and embedded credentials instead of 
   assert.throws(() => normalizeUrl("mailto:hello@example.com"), /embedded credentials/i);
   assert.throws(() => normalizeUrl("https://user:pass@example.com/"), /embedded credentials/i);
   assert.throws(() => normalizeUrl("https://user@example.com/"), /embedded credentials/i);
+});
+
+// Regression: aiconverter.app never reaches network idle (analytics beacons,
+// polling), so the audit falls back to domcontentloaded. The elapsed time is
+// then dominated by OUR navigation timeout — reporting "reached network idle in
+// 26.9s" as a Slow rendered load finding sells our measurement policy as the
+// customer's defect (same family as the throttled-link and empty-header bugs).
+test("never-idle fallback does not become a slow-load repair finding", async () => {
+  const hooks = { gotoTimeoutMs: 2600 };
+  const engine = createAuditEngine({
+    launchBrowser: async () => fakeBrowser("https://public.example/", {}, hooks),
+    fetchImpl: async () =>
+      new Response(
+        "<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof</h1><p>Useful content here.</p></body></html>",
+        { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
+      ),
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const rendered = report.pages?.[0]?.rendered || {};
+
+  // The fallback measurement is genuinely long (over the slow-render
+  // threshold), so this test would fail before the fix: the finding fired
+  // purely from our own timeout budget.
+  assert.equal(rendered.loadSettled, false, "fallback render must record that idle was never reached");
+  assert.ok(rendered.loadDurationMs > 4000, "test setup must exceed the slow-render threshold");
+
+  const slowLoad = (report.findings || []).filter((f) => /Slow rendered load/i.test(f.title || ""));
+  assert.deepEqual(slowLoad, [], "a page that never settled must not become slow-load repair work");
+  assert.ok(
+    !(report.repairBrief || "").includes("reached network idle"),
+    "the brief must not claim network idle was reached"
+  );
+  assert.match(report.repairBrief || "", /network idle never reached/);
+});
+
+test("settled slow pages still get a slow-load finding with truthful evidence", async () => {
+  const hooks = { gotoSettleMs: 4200 };
+  const engine = createAuditEngine({
+    launchBrowser: async () => fakeBrowser("https://public.example/", {}, hooks),
+    fetchImpl: async () =>
+      new Response(
+        "<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof</h1><p>Useful content here.</p></body></html>",
+        { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
+      ),
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const rendered = report.pages?.[0]?.rendered || {};
+
+  assert.equal(rendered.loadSettled, true, "a settling navigation must record idle as reached");
+  const slowLoad = (report.findings || []).filter((f) => /Slow rendered load/i.test(f.title || ""));
+  assert.equal(slowLoad.length, 1, "a genuinely slow page that settled must still be flagged");
+  assert.match(slowLoad[0].evidence, /reached network idle/);
+  assert.ok(!(report.repairBrief || "").includes("network idle never reached"));
 });
