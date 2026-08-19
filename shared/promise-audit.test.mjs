@@ -97,9 +97,12 @@ test("README competitor promise caps at five public homepages", () => {
 
 test("README Lite check promise matches the 1-page, 3/day quota", () => {
   assert.match(liveSection, /homepage-only Lite check \(1 page, 3\/day\)/i);
+  assert.match(liveSection, /runs without verification/i);
   assert.match(auditsSource, /maxPages <= 1/, "Lite eligibility is a homepage-only 1-page run");
   assert.match(auditsSource, /audit:lite-day/, "Lite quota uses a daily bucket");
   assert.match(auditsSource, /limit: 3/, "Lite checks are capped at three per day");
+  assert.match(auditsSource, /may run before\n\s*\/\/ site verification/, "Lite checks run before site verification");
+  assert.match(auditsSource, /allowLite: liteEligible/, "Lite eligibility is passed to the authorization gate");
 });
 
 test("README weekly monitor promise matches the schedule interval", () => {
@@ -457,6 +460,8 @@ test("README local SEO claim matches NAP, LocalBusiness schema, and citation che
   assert.match(liveSection, /local SEO audit for supplied business details, Google Business Profile URL, local keywords, and citation URLs/i);
   assert.match(liveSection, /NAP, LocalBusiness schema, citation consistency, and repair actions/i);
   assert.match(localSeoSource, /googleBusinessProfileUrl/, "GBP URL accepted");
+  assert.match(localSeoSource, /localKeywords:/, "local keywords accepted");
+  assert.match(localSeoSource, /citationUrls/, "citation URLs accepted");
   assert.match(localSeoSource, /napFieldsSupplied/, "NAP fields checked");
   assert.match(localSeoSource, /LocalBusiness schema is missing/, "LocalBusiness schema checked");
   assert.match(localSeoSource, /citation/i, "citation consistency checked");
@@ -465,6 +470,9 @@ test("README local SEO claim matches NAP, LocalBusiness schema, and citation che
 
 test("README keyword/rank import claim matches listed repair actions and history tables", () => {
   assert.match(liveSection, /keyword\/rank import audit and trend-history tables/i);
+  assert.match(liveSection, /for supplied Search Console or rank-tracker rows/i);
+  assert.match(keywordAuditSource, /searchConsoleRows/, "Search Console rows accepted");
+  assert.match(keywordAuditSource, /supplied Search Console or rank-tracker rows/, "the audit names the supplied-row boundary");
   assert.match(liveSection, /low-CTR/i);
   assert.match(liveSection, /page-two/i);
   assert.match(liveSection, /zero-click/i);
@@ -485,6 +493,7 @@ test("README keyword/rank import claim matches listed repair actions and history
 test("README platform audit claim matches schema, faceted, archive, and plugin checks", () => {
   assert.match(liveSection, /WordPress and ecommerce platform audit for detected stores\/CMS pages/i);
   assert.match(liveSection, /Product schema, BreadcrumbList schema, faceted\/variant URLs, WordPress archive links, and plugin resource repair actions/i);
+  assert.match(platformSeoSource, /detectPlatforms/, "stores/CMS platforms are detected from rendered proof");
   assert.match(platformSeoSource, /productSchema/, "Product schema checked");
   assert.match(platformSeoSource, /breadcrumbSchema/, "BreadcrumbList schema checked");
   assert.match(platformSeoSource, /facetedNavigation/, "faceted/variant URLs checked");
@@ -755,6 +764,103 @@ test("README retention claim keeps cleanup for expired reports, sessions, and qu
   assert.match(dbSource, /DELETE FROM audit_usage/, "quota buckets are cleaned");
 });
 
+// Lane-1 promise audit, current pass (2026-08-10). A fresh audit of every
+// "What is live in this repo" bullet against the code, plus a live spot-check
+// of /demo, /methodology, and /packages on https://seofixkit.com (all 15
+// spot-check surfaces passed), confirmed the sub-claims below are backed by
+// code today, but the sub-claims had no regression pin of their own. Each pin
+// ties the README wording to the exact code that must keep backing it.
+
+test("README AI readiness claim keeps the proof-derived signal list", () => {
+  assert.match(
+    liveSection,
+    /derived from rendered content depth, helpful schema, canonical\/internal-link clarity, question-led structure, sitemap context/i
+  );
+  assert.match(aiReadinessSource, /contentDepthCheck/, "rendered content depth is checked");
+  assert.match(aiReadinessSource, /HELPFUL_SCHEMA_TYPES/, "helpful schema types are checked");
+  assert.match(aiReadinessSource, /sourceClarityCheck/, "canonical and internal-link clarity are checked");
+  assert.match(aiReadinessSource, /answerStructureCheck/, "question-led structure is checked");
+  assert.match(aiReadinessSource, /discoveryFilesCheck\(report\.crawlInventory/, "sitemap context is checked");
+});
+
+test("README growth-opportunity claim keeps the verified-gap sources", () => {
+  assert.match(
+    liveSection,
+    /Draft-only growth opportunities from verified keyword, competitor, AI-readiness, and crawl gaps/i
+  );
+  for (const sourceKind of ["keyword", "competitor", "ai_answer_readiness", "crawl"]) {
+    assert.match(
+      growthSource,
+      new RegExp(`sourceKind: "${sourceKind}"`),
+      `growth briefs come from ${sourceKind} gaps`
+    );
+  }
+  assert.match(
+    growthSource,
+    /created from verified keyword, competitor, AI-readiness, or crawl gaps/,
+    "the brief summary names the verified gap sources"
+  );
+});
+
+test("README anonymous one-page check claim keeps browser proof, guards, rate windows, nothing stored, and handoff", () => {
+  const publicCheckSource = readFileSync(new URL("../worker/routes/public-check.js", import.meta.url), "utf8");
+  assert.match(liveSection, /real browser rendering of one public page/i);
+  assert.match(liveSection, /per-network and per-site rate limits/i);
+  assert.match(liveSection, /no stored report/i);
+  assert.match(liveSection, /handoff into private beta access/i);
+  assert.match(publicCheckSource, /await auditUrl\(validated\.url, env/, "the check renders the page in a real browser");
+  assert.match(publicCheckSource, /staticWordCount/, "static-vs-rendered proof returns the static word count");
+  assert.match(publicCheckSource, /renderedWordCount/, "static-vs-rendered proof returns the rendered word count");
+  assert.match(publicCheckSource, /guardedFalsePositives/, "guarded false positives are reported");
+  assert.match(publicCheckSource, /Actionable findings/, "findings render when present");
+  assert.match(publicCheckSource, /bucket: `check:ip-hour/, "per-network hourly rate window exists");
+  assert.match(publicCheckSource, /bucket: `check:ip-day/, "per-network daily rate window exists");
+  assert.match(publicCheckSource, /bucket: `check:target-hour/, "per-site hourly rate window exists");
+  assert.match(publicCheckSource, /The only D1 writes are the[\s\S]*rate-limit counters/, "the check stores nothing beyond rate-limit counters");
+  assert.match(publicCheckSource, /No report or URL from your check is stored/, "the page states nothing is stored");
+  assert.match(publicCheckSource, /The full repair workflow runs in the private beta/, "the check hands off into private beta access");
+});
+
+test("README developer API claim keeps project-style verified sites", () => {
+  assert.match(liveSection, /project-style verified sites/i);
+  assert.match(developerApiSource, /projects: "GET \/v1\/projects"/, "the API documents project endpoints");
+  assert.match(developerApiSource, /projects:read/, "API keys carry a projects scope");
+  assert.match(developerApiSource, /apiProjectResponse/, "verified sites serialize as projects");
+});
+
+test("README repair-proof-receipt claim keeps original-issue, approved/applied-change, and same-host rerun links", () => {
+  assert.match(
+    liveSection,
+    /connecting the original issue, approved\/applied change, and same-host rerun report/i
+  );
+  assert.match(proofReceiptSource, /const issueId = text\(action\.issue_id/, "receipts link the original issue");
+  assert.match(proofReceiptSource, /approvalState !== "approved"/, "receipts require owner approval");
+  assert.match(proofReceiptSource, /executionState !== "applied"/, "receipts require the applied change");
+  assert.match(proofReceiptSource, /Rerun proof report must cover the same host\./, "receipts require the same-host rerun report");
+});
+
+test("README offer-catalog claim keeps scaffolding for every listed offer", () => {
+  assert.match(
+    liveSection,
+    /Server-owned offer catalog and entitlement scaffolding for Proof Monitoring, Repair Sprint, SEO\/GEO Repair Agent, and Agency Workspace/i
+  );
+  for (const name of ["Proof Monitoring", "Repair Sprint", "SEO/GEO Repair Agent", "Agency Workspace"]) {
+    assert.match(offersSource, new RegExp(`name: "${name}"`), `offer catalog lists ${name}`);
+  }
+});
+
+test("README admin ops dashboard claim keeps waitlist, invites, audits, and admin-created invite codes", () => {
+  assert.match(
+    liveSection,
+    /`\/beta\/admin` ops dashboard for waitlist, invites, audits, repeated issue patterns, and fix requests/i
+  );
+  assert.match(adminSource, /countRows\(env, "waitlist_leads"\)/, "dashboard surfaces waitlist counts");
+  assert.match(adminSource, /countRows\(env, "beta_invites"\)/, "dashboard surfaces invite counts");
+  assert.match(adminSource, /countRows\(env, "audit_reports"/, "dashboard surfaces audit counts");
+  assert.match(adminSource, /countRows\(env, "audit_jobs", "status = 'running'"\)/, "dashboard surfaces running audit jobs");
+  assert.match(adminSource, /recentInvites/, "dashboard lists recent invites");
+  assert.match(adminSource, /INSERT INTO beta_invites/, "invite codes are admin-created in D1");
+});
 // Lane-1 2026-08-15 promise-audit pass. The offline lock above and the live
 // spot-check in scripts/live-promise-spot-check.mjs were both green on this
 // date; these pins lock the remaining sub-claims that had no regression pin of
