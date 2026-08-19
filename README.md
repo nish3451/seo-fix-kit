@@ -44,6 +44,7 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Public anonymous one-page URL check at `/check` and `POST /api/public-check`: real browser rendering of one public page, static-vs-rendered proof, guarded false positives, actionable findings when present, per-network and per-site rate limits with hashed, short-lived counters, no stored report, and a handoff into private beta access with no ranking promise.
 - Public `/demo`, `/methodology`, `/packages`, and `/proof` pages showing the proof loop, limits, package ladder, and a real before/after repair receipt (founder-owned Tiny Studio portfolio: 85/7 → 99/2 → 100/0 across the same measurement path, with consent and redaction) before payment.
 - Intent-matching public landing pages at `/small-business-seo-audit`, `/rendered-vs-static-seo-audit`, and `/ai-answer-readiness`, each with unique title and meta, a visible FAQ rendered from the same source as FAQPage JSON-LD, truthful SoftwareApplication schema, and links into `/check` and `/demo`; none claim live AI-engine sampling or AI citation monitoring.
+- Credential-free IndexNow submission path for Bing (and Bing-derived DuckDuckGo) search coverage: the Worker serves the IndexNow key file at `/{key}.txt` and `/.well-known/{key}.txt` (apex-only, `noindex`), and `npm run submit:indexnow` verifies the key file is live before POSTing the live sitemap URL set to the IndexNow endpoints; the sitemap carries truthful per-page `<lastmod>` freshness hints for all public URLs.
 - Hidden `/beta` private audit workbench protected by invite code login or a secure one-use email access link.
 - Expiring beta sessions backed by D1 `beta_sessions`.
 - Explicit session access modes for invite, self-serve, and founder override sessions.
@@ -171,6 +172,15 @@ Dry-run build:
 
 ```bash
 npm run cf:dry-run
+```
+
+Submit the live sitemap URL set to IndexNow (Bing/Naver/Seznam/Yandex)
+once the key-file routes are released; refuses to submit until the key
+file is live at both locations:
+
+```bash
+npm run submit:indexnow          # real submission
+npm run submit:indexnow -- --dry-run   # preview only, no network writes
 ```
 
 The dry-run runs through `scripts/wrangler-dry-run.mjs`, which names any malformed

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { auditUrl } from "./audit/engine.js";
 import { rootSitemap } from "../shared/audit-engine.js";
+import { indexNowKeyFileBody, indexNowKeyFilePaths } from "../shared/index-now.js";
 import {
   buildWhiteLabelReportHtml,
   defaultBranding,
@@ -2527,6 +2528,11 @@ function demoKeywordRows(baseUrl) {
 app.get("/robots.txt", (req, res) => {
   const origin = `http://${req.get("host")}`;
   res.type("text").send(`User-agent: *\nAllow: /\n\nSitemap: ${origin}/sitemap.xml\n`);
+});
+
+// IndexNow key file parity with the Worker (production serves both paths).
+app.get([...indexNowKeyFilePaths()], (req, res) => {
+  res.set("x-robots-tag", "noindex, nofollow").type("text").send(indexNowKeyFileBody());
 });
 
 app.get("/sitemap.xml", (req, res) => {

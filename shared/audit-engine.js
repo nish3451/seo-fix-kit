@@ -3021,9 +3021,34 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// The canonical public route set for the apex host, shared by the sitemap,
+// IndexNow submissions, and any future search-submission surface. Keep in sync
+// with the public page routes in worker/index.js and worker/routes/pages.js.
+export const ROOT_PUBLIC_PATHS = ["/", "/demo", "/check", "/methodology", "/packages", "/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness", "/privacy", "/proof", "/support", "/terms"];
+
+// Truthful per-page last modification times (W3C datetime, UTC): the commit
+// timestamp of the last change to the code that renders each page — for "/"
+// the SPA source (src/App.jsx), for the worker-rendered pages the generator in
+// worker/routes/pages.js or worker/routes/public-check.js. Update a page's
+// entry whenever that page's visible content changes, so the sitemap keeps
+// giving crawlers an accurate re-crawl freshness signal.
+export const ROOT_PUBLIC_LASTMODS = {
+  "/": "2026-08-13T03:48:58Z",
+  "/demo": "2026-08-15T07:14:01Z",
+  "/check": "2026-08-15T04:27:51Z",
+  "/methodology": "2026-08-15T07:14:01Z",
+  "/packages": "2026-08-15T07:14:01Z",
+  "/small-business-seo-audit": "2026-08-15T07:14:01Z",
+  "/rendered-vs-static-seo-audit": "2026-08-15T07:14:01Z",
+  "/ai-answer-readiness": "2026-08-15T07:14:01Z",
+  "/privacy": "2026-08-11T12:01:28Z",
+  "/proof": "2026-08-15T06:27:08Z",
+  "/support": "2026-06-12T14:12:49Z",
+  "/terms": "2026-06-12T14:12:49Z"
+};
+
 export function rootSitemap(origin) {
-  const urls = ["/", "/demo", "/check", "/methodology", "/packages", "/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness", "/privacy", "/proof", "/support", "/terms"];
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls
-    .map((path) => `<url><loc>${origin}${path}</loc></url>`)
-    .join("")}</urlset>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${ROOT_PUBLIC_PATHS.map(
+    (path) => `<url><loc>${origin}${path}</loc><lastmod>${ROOT_PUBLIC_LASTMODS[path]}</lastmod></url>`
+  ).join("")}</urlset>`;
 }
