@@ -607,6 +607,7 @@ ${extraLd.join("\n")}
       nav { display: flex; flex-wrap: wrap; gap: 16px; justify-content: flex-end; }
       h1 { font-size: clamp(46px, 8vw, 108px); letter-spacing: 0; line-height: .88; margin: 0; max-width: 820px; overflow-wrap: break-word; }
       h2 { font-size: clamp(24px, 3vw, 34px); line-height: 1.08; margin: 0 0 14px; overflow-wrap: break-word; }
+      h3 { font-size: 17px; line-height: 1.4; margin: 0 0 8px; }
       p, li { color: rgba(251,248,239,.76); font-size: 17px; line-height: 1.62; overflow-wrap: anywhere; }
       ul { margin: 0; padding-left: 22px; }
       .eyebrow { color: #98f0cc; font-size: 13px; font-weight: 880; letter-spacing: 0; margin: 0 0 18px; text-transform: uppercase; }
