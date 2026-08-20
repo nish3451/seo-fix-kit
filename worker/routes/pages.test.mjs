@@ -271,6 +271,10 @@ test("intent-matching landing pages carry unique, truthful, machine-readable pro
   assert.match(pages[2].html, /No AI citation monitoring/);
   assert.match(pages[2].html, /llms\.txt stays optional/);
   assert.match(pages[2].html, /does not sample live answer engines or monitor citations/);
+  assert.match(pages[2].html, /Compared with CrawlRaven/);
+  assert.match(pages[2].html, /ranked by the clicks and impressions on the affected pages/);
+  assert.match(pages[2].html, /does not connect to Search Console or GA4 automatically/);
+  assert.match(pages[2].html, /Does SEO Fix Kit rank AI readiness faults by traffic like CrawlRaven\?/);
   assert.doesNotMatch(pages[2].html, /live AI citation monitoring is live/i);
 });
 

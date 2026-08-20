@@ -265,8 +265,10 @@ function WaitlistPage() {
             <p>
               AI Answer Readiness is proof-derived from rendered content, schema,
               canonical and internal-link clarity, sitemap context, question-led
-              sections, and optional llms.txt boundaries. It is not live
-              answer-engine sampling or AI citation monitoring.
+              sections, and optional llms.txt boundaries. When Search Console rows
+              are imported, those faults are ranked by the clicks and impressions
+              on the affected pages. It is not live answer-engine sampling or AI
+              citation monitoring.
             </p>
           </article>
           <article>
@@ -2369,7 +2371,7 @@ function AiAnswerReadinessPanel({ audit }) {
             ? `${summary.repairOpportunityCount} proof-derived readiness ${summary.repairOpportunityCount === 1 ? "repair" : "repairs"} found.`
             : "Rendered proof is ready for machine-readable answers."}
         </h2>
-        <p>Site-proof checks for extractable content, helpful schema, canonical/source clarity, answer structure, and optional llms.txt. This is not AI visibility tracking or citation monitoring.</p>
+        <p>Site-proof checks for extractable content, helpful schema, canonical/source clarity, answer structure, and optional llms.txt. When Search Console rows are imported, faults are ranked by the traffic behind them. This is not AI visibility tracking or citation monitoring.</p>
       </div>
 
       <div className="ai-readiness-metrics" aria-label="AI Answer Readiness summary">
@@ -2378,6 +2380,7 @@ function AiAnswerReadinessPanel({ audit }) {
         <Metric label="Schema pages" value={summary.pagesWithHelpfulSchema || 0} />
         <Metric label="Question structure" value={summary.pagesWithQuestionStructure || 0} />
         <Metric label="llms.txt" value={summary.llmsTxtStatus === "reachable" ? "Yes" : "No"} />
+        <Metric label="Prioritization" value={summary.trafficRanked ? "Imported traffic" : "Proof order"} />
       </div>
 
       {highestPriority && (
@@ -2386,6 +2389,11 @@ function AiAnswerReadinessPanel({ audit }) {
           <strong>{highestPriority.title}</strong>
           <p>{highestPriority.proof}</p>
           <small>{highestPriority.estimatedEffort || "30-90 min"} - {highestPriority.workType || "content"}</small>
+          {highestPriority.trafficRanked ? (
+            <small>
+              {Number(highestPriority.trafficClicks || 0).toLocaleString("en-US")} clicks / {Number(highestPriority.trafficImpressions || 0).toLocaleString("en-US")} impressions on affected pages
+            </small>
+          ) : null}
         </article>
       )}
 
