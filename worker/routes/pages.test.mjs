@@ -275,6 +275,14 @@ test("intent-matching landing pages carry unique, truthful, machine-readable pro
   assert.match(pages[2].html, /ranked by the clicks and impressions on the affected pages/);
   assert.match(pages[2].html, /does not connect to Search Console or GA4 automatically/);
   assert.match(pages[2].html, /Does SEO Fix Kit rank AI readiness faults by traffic like CrawlRaven\?/);
+  // Direct challenge to the getaisearchscore.com r=0.009 headline stays truth-safe:
+  // the null is real, but it does not refute proof-derived readiness.
+  assert.match(pages[2].html, /On "technical readiness predicts nothing \(r=0\.009\)"/);
+  assert.match(pages[2].html, /441 domains, Perplexity-only citations, cross-sectional/);
+  assert.match(pages[2].html, /not on individual technical faults/);
+  assert.match(pages[2].html, /judges readiness on the rendered page/);
+  assert.match(pages[2].html, /never claims to predict citations/);
+  assert.match(pages[2].html, /Content relevance is the citation driver; technical health is the hygiene floor/);
   assert.doesNotMatch(pages[2].html, /live AI citation monitoring is live/i);
 });
 

@@ -228,6 +228,9 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "names CrawlRaven comparison", match: "Compared with CrawlRaven" },
         { reason: "names imported traffic ranking", match: "ranked by the clicks and impressions on the affected pages" },
         { reason: "names no auto-join gap", match: "does not connect to Search Console or GA4 automatically" },
+        { reason: "challenges the r=0.009 headline directly", match: 'On "technical readiness predicts nothing (r=0.009)"' },
+        { reason: "keeps the r=0.009 challenge truth-safe", match: "441 domains, Perplexity-only citations, cross-sectional" },
+        { reason: "keeps the no-citation-prediction boundary", match: "never claims to predict citations" },
         { reason: "no-overclaim section", match: "What this page does not claim" },
         { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
         ...landingPageLdExpectations("/ai-answer-readiness", "AI Answer Readiness Check")
