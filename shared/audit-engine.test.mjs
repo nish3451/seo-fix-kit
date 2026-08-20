@@ -818,13 +818,20 @@ test("same-origin 522/523/524 link failures never become critical broken-link fi
 // both "broken internal links" and "broken canonical" duplicates the same
 // false positive at warning tier and turns the customer's own infrastructure
 // blip into a critical-and-warning storm on a clean page.
+//
+// The canonical here is intentionally a DIFFERENT URL on the same origin
+// (not the page URL itself), so the canonical check actually fetches
+// /canonical and the fetch handler really returns 522/523/524. The earlier
+// test that pointed `canonical` at the page URL was a no-op: the canonical
+// check fetched the page URL, which the handler returned 200 for, so the
+// 522/523/524 branch was never exercised and the assert could only pass.
 test("same-origin 522/523/524 canonical failures never become 'Canonical URL is not reachable' findings", async () => {
   for (const status of [522, 523, 524]) {
     const engine = createAuditEngine({
       launchBrowser: async () =>
         fakeBrowser("https://public.example/", {
           title: "Proof page with useful content",
-          canonical: "https://public.example/"
+          canonical: "https://public.example/canonical"
         }),
       fetchImpl: async (url) => {
         if (url === "https://public.example/") {
@@ -842,11 +849,50 @@ test("same-origin 522/523/524 canonical failures never become 'Canonical URL is 
     });
 
     const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+    const canonicalCheck = report.pages[0].canonicalCheck;
+    assert.equal(canonicalCheck.kind, "internal", `same-origin canonical must be tagged internal so isSameOriginInfraFailure shields it; got kind=${canonicalCheck.kind}`);
+    assert.equal(canonicalCheck.status, status, `canonical check must actually exercise the ${status} branch; got status=${canonicalCheck.status}`);
     const canonicalFindings = (report.findings || []).filter((finding) => /Canonical URL is not reachable/i.test(finding.title || ""));
     assert.deepEqual(canonicalFindings, [], `same-origin canonical ${status} must not be reported as unreachable`);
     const canonicalNotice = (report.findings || []).filter((finding) => /Canonical URL redirects/i.test(finding.title || ""));
     assert.deepEqual(canonicalNotice, [], `same-origin canonical ${status} must not surface as a redirect notice either`);
   }
+});
+
+
+// Regression: a self-referential canonical (canonical === page URL) shares the
+// audit's own fetched response, so the canonical check is automatically
+// "internal" under the same-origin rule. Auditing a clean page must never
+// reach a "Canonical URL is not reachable" or "Canonical URL redirects"
+// finding just because the canonical is a typo of the page URL.
+test("self-referential canonical (canonical = page URL) never emits canonical reachability or redirect findings", async () => {
+  const pageUrl = "https://public.example/";
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser(pageUrl, {
+        title: "Proof page with useful content",
+        canonical: pageUrl
+      }),
+    fetchImpl: async (url) => {
+      if (url === pageUrl) {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl(pageUrl, { maxPages: 1, pageSpeed: false });
+  const canonicalCheck = report.pages[0].canonicalCheck;
+  assert.equal(canonicalCheck.kind, "internal", "self-referential canonical must be tagged internal under the same-origin rule");
+  assert.equal(canonicalCheck.status, 200, "self-referential canonical inherits the page's own 200 response");
+  const canonicalFindings = (report.findings || []).filter((finding) => /Canonical URL is not reachable/i.test(finding.title || ""));
+  assert.deepEqual(canonicalFindings, [], "self-referential canonical must never produce an unreachable warning");
+  const canonicalNotice = (report.findings || []).filter((finding) => /Canonical URL redirects/i.test(finding.title || ""));
+  assert.deepEqual(canonicalNotice, [], "self-referential canonical must never produce a redirect notice");
 });
 
 
