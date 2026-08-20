@@ -293,7 +293,8 @@ export function createAuditEngine({
     }
 
     const aiAnswerReadiness = buildAiAnswerReadiness(report, {
-      llmsTxt: report.llmsTxt
+      llmsTxt: report.llmsTxt,
+      keywordRows: report.keywordRankAudit?.rows || options.keywordRows || options.keywordRankRows || []
     });
     if (aiAnswerReadiness.status === "ready") {
       report.aiAnswerReadiness = aiAnswerReadiness;

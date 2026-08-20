@@ -100,6 +100,83 @@ test("failed pages do not create content-readiness repair opportunities", () => 
   assert.deepEqual(issueIds, []);
 });
 
+test("without imported Search Console rows, readiness faults stay in proof order", () => {
+  const audit = buildAiAnswerReadiness(trafficRankFixtureReport());
+  const issueIds = audit.repairOpportunities.map((item) => item.issueId);
+
+  assert.equal(audit.summary.trafficRanked, false);
+  assert.equal(audit.summary.prioritization, "proof-order");
+  assert.deepEqual(issueIds, [
+    "ai-answer-readiness-content-depth",
+    "ai-answer-readiness-source-clarity",
+    "ai-answer-readiness-llms-txt"
+  ]);
+  assert.equal(audit.repairOpportunities[0].pageUrl, "https://example.com/");
+  assert.doesNotMatch(audit.repairOpportunities[0].proof, /Imported Search Console rows/);
+});
+
+test("imported Search Console rows rank readiness faults by traffic on affected pages", () => {
+  const audit = buildAiAnswerReadiness(trafficRankFixtureReport(), {
+    keywordRows: [
+      { query: "example pricing", pageUrl: "https://www.example.com/pricing", clicks: 900, impressions: 12000 },
+      { query: "example home", pageUrl: "https://example.com/", clicks: 10, impressions: 400 }
+    ]
+  });
+  const issueIds = audit.repairOpportunities.map((item) => item.issueId);
+  const sourceItem = audit.repairOpportunities.find((item) => item.issueId === "ai-answer-readiness-source-clarity");
+  const contentItem = audit.repairOpportunities.find((item) => item.issueId === "ai-answer-readiness-content-depth");
+  const llmsItem = audit.repairOpportunities.find((item) => item.issueId === "ai-answer-readiness-llms-txt");
+
+  assert.equal(audit.summary.trafficRanked, true);
+  assert.equal(audit.summary.prioritization, "imported-search-console-traffic");
+  assert.equal(audit.summary.trafficRowsUsed, 2);
+  assert.deepEqual(issueIds, [
+    "ai-answer-readiness-source-clarity",
+    "ai-answer-readiness-content-depth",
+    "ai-answer-readiness-llms-txt"
+  ]);
+  assert.equal(sourceItem.priority, 1);
+  assert.equal(sourceItem.pageUrl, "https://example.com/pricing");
+  assert.equal(sourceItem.trafficClicks, 900);
+  assert.match(sourceItem.proof, /900 clicks and 12,000 impressions/);
+  assert.equal(contentItem.priority, 2);
+  assert.equal(contentItem.trafficClicks, 10);
+  assert.equal(llmsItem.priority, 3);
+  assert.equal(llmsItem.trafficClicks, 0);
+  assert.match(llmsItem.proof, /No imported Search Console rows matched these pages/);
+  assert.doesNotMatch(JSON.stringify(audit), /citation monitoring is live/i);
+});
+
+test("the highest-traffic thin page leads the content-depth repair", () => {
+  const report = thinAppShellReport();
+  report.pages = [
+    report.pages[0],
+    {
+      ...report.pages[0],
+      url: "https://example.com/guides",
+      finalUrl: "https://example.com/guides",
+      rendered: {
+        ...report.pages[0].rendered,
+        finalUrl: "https://example.com/guides",
+        canonical: "https://example.com/guides",
+        internalLinks: [{ href: "https://example.com/", text: "Home" }]
+      }
+    }
+  ];
+  const audit = buildAiAnswerReadiness(report, {
+    keywordRows: [
+      { query: "guides", pageUrl: "https://example.com/guides", clicks: 400, impressions: 8000 },
+      { query: "home", pageUrl: "https://example.com/", clicks: 5, impressions: 90 }
+    ]
+  });
+  const contentItem = audit.repairOpportunities.find((item) => item.issueId === "ai-answer-readiness-content-depth");
+
+  assert.equal(contentItem.pageUrl, "https://example.com/guides");
+  assert.equal(contentItem.pageLabel, "/guides");
+  assert.match(contentItem.proof, /led by \/guides/);
+  assert.equal(contentItem.trafficClicks, 405);
+});
+
 function thinAppShellReport() {
   return {
     url: "https://example.com/",
@@ -132,6 +209,78 @@ function thinAppShellReport() {
         schemaTypes: []
       }
     }]
+  };
+}
+
+function trafficRankFixtureReport() {
+  const pricingBody = [
+    "Pricing for SEO Fix Kit is public on the packages page and stays diagnostic.",
+    "What does the paid Fix Pack include? One proof-backed repair pass plus one rerun after fixes.",
+    "How should teams compare plans? Start with the anonymous one-page check, then request private access for a saved report.",
+    "This pricing page names the live $99 one-time Fix Pack, config-gated monitoring, and the Repair Sprint path without ranking promises.",
+    "It also explains what is not sold: completed 50,000-page rendered validation, live AI citation monitoring, and guaranteed traffic."
+  ].join(" ");
+  return {
+    url: "https://example.com/",
+    llmsTxt: { ok: false, status: 404, url: "https://example.com/llms.txt", body: "" },
+    crawlInventory: {
+      status: "empty",
+      summary: { sitemapsFetched: 1, urlsDiscovered: 0 }
+    },
+    pages: [
+      {
+        url: "https://example.com/",
+        finalUrl: "https://example.com/",
+        static: {
+          title: "Example",
+          wordCount: 12,
+          h1s: ["Example"],
+          internalLinks: [{ href: "https://example.com/pricing", text: "Pricing" }],
+          schemaTypes: []
+        },
+        rendered: {
+          finalUrl: "https://example.com/",
+          title: "Example",
+          description: "A short JavaScript app shell.",
+          h1s: ["Example"],
+          headings: [{ level: "h1", text: "Example" }],
+          wordCount: 42,
+          bodyText: "Example app shell with too little visible page-specific detail.",
+          canonical: "https://example.com/",
+          robots: "",
+          internalLinks: [{ href: "https://example.com/pricing", text: "Pricing" }],
+          schemaTypes: ["Organization"]
+        }
+      },
+      {
+        url: "https://example.com/pricing",
+        finalUrl: "https://example.com/pricing",
+        static: {
+          title: "Pricing",
+          wordCount: 80,
+          h1s: ["Pricing"],
+          internalLinks: [],
+          schemaTypes: []
+        },
+        rendered: {
+          finalUrl: "https://example.com/pricing",
+          title: "Pricing",
+          description: "Public pricing for proof-backed SEO repair.",
+          h1s: ["Pricing"],
+          headings: [
+            { level: "h1", text: "Pricing" },
+            { level: "h2", text: "What does the paid Fix Pack include?" },
+            { level: "h2", text: "How should teams compare plans?" }
+          ],
+          wordCount: 280,
+          bodyText: pricingBody,
+          canonical: "",
+          robots: "",
+          internalLinks: [],
+          schemaTypes: ["Offer"]
+        }
+      }
+    ]
   };
 }
 
