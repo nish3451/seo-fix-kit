@@ -822,6 +822,7 @@ function aiAnswerReadinessSection(audit = {}) {
         ${metric("Schema pages", summary.pagesWithHelpfulSchema || 0)}
         ${metric("Question structure", summary.pagesWithQuestionStructure || 0)}
         ${metric("llms.txt", summary.llmsTxtStatus === "reachable" ? "Yes" : "No")}
+        ${metric("Prioritization", summary.trafficRanked ? "Imported traffic" : "Proof order")}
       </div>
       ${repairs.length ? `<ol class="repair-list">${repairs.map(aiAnswerReadinessRepairItem).join("")}</ol>` : `<p class="muted">No AI Answer Readiness repair actions were created from this proof pass.</p>`}
       <p class="muted">This section uses site proof only. It does not sample answer engines or monitor AI citations.</p>
