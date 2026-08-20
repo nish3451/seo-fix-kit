@@ -1,3 +1,5 @@
+import { OFFER_KEYS } from "./offers.js";
+
 export const FIX_REQUEST_STATUSES = new Set([
   "new",
   "checkout_created",
@@ -127,18 +129,18 @@ export function adminNotificationEmail(env) {
   return normalizeEmail(env?.SEOFIXKIT_ADMIN_EMAIL || "");
 }
 
-export function buildPaymentNotificationEmail({ appOrigin, fixRequest, report, payment, recipientType }) {
+export function buildPaymentNotificationEmail({ appOrigin, fixRequest, report, payment, offerKey, recipientType }) {
+  const offer = paymentNotificationOffer(offerKey);
   const reportUrl = `${appOrigin}/beta/reports/${encodeURIComponent(fixRequest.report_id)}`;
   const target = fixRequest.target_host || safeHost(fixRequest.target_url);
   const subject =
     recipientType === "admin"
-      ? `SEO Fix Pack paid: ${target}`
-      : `SEO Fix Pack payment confirmed for ${target}`;
+      ? `${offer.name} paid: ${target}`
+      : `${offer.name} payment confirmed for ${target}`;
   const amount = payment?.amount && payment?.currency ? formatMoneyMinorUnits(payment.currency, payment.amount) : "";
+  const intro = recipientType === "admin" ? offer.adminIntro : offer.ownerIntro;
   const text = [
-    recipientType === "admin"
-      ? "A SEO Fix Pack payment was confirmed."
-      : "Your SEO Fix Pack payment is confirmed.",
+    intro,
     "",
     `Site: ${fixRequest.target_url}`,
     `Report: ${reportUrl}`,
@@ -147,16 +149,14 @@ export function buildPaymentNotificationEmail({ appOrigin, fixRequest, report, p
     "",
     "Next status: repair in progress.",
     "Your paid report stays available in your workspace and does not expire.",
-    "No ranking promises are made; this covers the proven repair queue and one rerun after fixes."
+    offer.scope
   ]
     .filter((line) => line !== "")
     .join("\n");
 
   const html = [
     "<p>",
-    recipientType === "admin"
-      ? "A SEO Fix Pack payment was confirmed."
-      : "Your SEO Fix Pack payment is confirmed.",
+    intro,
     "</p>",
     "<ul>",
     `<li><strong>Site:</strong> ${escapeHtml(fixRequest.target_url)}</li>`,
@@ -166,7 +166,7 @@ export function buildPaymentNotificationEmail({ appOrigin, fixRequest, report, p
     "</ul>",
     "<p>Next status: repair in progress.</p>",
     "<p>Your paid report stays available in your workspace and does not expire.</p>",
-    "<p>No ranking promises are made; this covers the proven repair queue and one rerun after fixes.</p>"
+    `<p>${offer.scope}</p>`
   ]
     .filter(Boolean)
     .join("");
@@ -177,6 +177,24 @@ export function buildPaymentNotificationEmail({ appOrigin, fixRequest, report, p
     html,
     reportUrl,
     reportTitle: report?.title || target
+  };
+}
+
+function paymentNotificationOffer(offerKey) {
+  if (offerKey === OFFER_KEYS.REPAIR_SPRINT) {
+    return {
+      name: "Repair Sprint",
+      adminIntro: "A Repair Sprint payment was confirmed.",
+      ownerIntro: "Your Repair Sprint payment is confirmed.",
+      scope:
+        "No ranking promises are made; this covers the approved repair proposals executed for this report and the delivery proof for each one."
+    };
+  }
+  return {
+    name: "SEO Fix Pack",
+    adminIntro: "A SEO Fix Pack payment was confirmed.",
+    ownerIntro: "Your SEO Fix Pack payment is confirmed.",
+    scope: "No ranking promises are made; this covers the proven repair queue and one rerun after fixes."
   };
 }
 

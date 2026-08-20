@@ -156,8 +156,30 @@ const notification = buildPaymentNotificationEmail({
   recipientType: "owner"
 });
 assert.equal(notification.subject.includes("example.com"), true);
+assert.equal(notification.subject.includes("SEO Fix Pack"), true);
 assert.equal(notification.text.includes("No ranking promises"), true);
+assert.equal(notification.text.includes("proven repair queue and one rerun after fixes"), true);
 assert.equal(notification.text.includes("USD 99.00"), true);
+
+const sprintNotification = buildPaymentNotificationEmail({
+  appOrigin: "https://seofixkit.com",
+  fixRequest: {
+    report_id: "report_123",
+    target_host: "example.com",
+    target_url: "https://example.com/"
+  },
+  report: {},
+  payment,
+  offerKey: OFFER_KEYS.REPAIR_SPRINT,
+  recipientType: "owner"
+});
+assert.equal(sprintNotification.subject.includes("Repair Sprint"), true);
+assert.equal(sprintNotification.subject.includes("Fix Pack"), false);
+assert.equal(sprintNotification.text.includes("Your Repair Sprint payment is confirmed."), true);
+assert.equal(sprintNotification.text.includes("Fix Pack"), false);
+assert.equal(sprintNotification.html.includes("Fix Pack"), false);
+assert.equal(sprintNotification.text.includes("approved repair proposals executed"), true);
+assert.equal(sprintNotification.text.includes("delivery proof"), true);
 
 const delivery = buildStatusNotificationEmail({
   appOrigin: "https://seofixkit.com",

@@ -4,7 +4,9 @@ function monitoringCheckoutDisabled({ checkoutReady = false, status = "idle", ha
   return status === "submitting" || !checkoutReady || !hasEligibleSite;
 }
 
-function monitoringCheckoutOutcome(payload = {}) {
+// `offerName` keeps the fallback copy truthful when a different one-time offer
+// (Repair Sprint) reuses this outcome shape.
+function monitoringCheckoutOutcome(payload = {}, { offerName = "Proof Monitoring" } = {}) {
   const checkoutUrl = safeDodoCheckoutUrl(payload.checkoutUrl || "");
   if (checkoutUrl) {
     return {
@@ -23,21 +25,21 @@ function monitoringCheckoutOutcome(payload = {}) {
   if (payload.mode === "active") {
     return {
       status: "success",
-      message: payload.message || "Proof Monitoring is already active.",
+      message: payload.message || `${offerName} is already active.`,
       checkoutUrl: ""
     };
   }
   return {
     status: payload.checkoutAvailable === false ? "unavailable" : "error",
-    message: payload.message || payload.error || "Proof Monitoring checkout is unavailable.",
+    message: payload.message || payload.error || `${offerName} checkout is unavailable.`,
     checkoutUrl: ""
   };
 }
 
-function monitoringCheckoutErrorOutcome(error) {
+function monitoringCheckoutErrorOutcome(error, { offerName = "Proof Monitoring" } = {}) {
   return {
     status: "error",
-    message: error?.message || "Proof Monitoring checkout is unavailable.",
+    message: error?.message || `${offerName} checkout is unavailable.`,
     checkoutUrl: ""
   };
 }

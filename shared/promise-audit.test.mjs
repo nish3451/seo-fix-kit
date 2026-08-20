@@ -50,6 +50,8 @@ const fixPackCheckoutSource = readFileSync(new URL("../src/fix-pack-checkout.js"
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
 const reportsSource = readFileSync(new URL("../worker/routes/reports.js", import.meta.url), "utf8");
+const billingSource = readFileSync(new URL("../worker/routes/billing.js", import.meta.url), "utf8");
+const dodoSource = readFileSync(new URL("./dodo.js", import.meta.url), "utf8");
 const reportDataSource = readFileSync(new URL("../worker/lib/report-data.js", import.meta.url), "utf8");
 const serverEngineSource = readFileSync(new URL("../server/audit/engine.js", import.meta.url), "utf8");
 const dbSource = readFileSync(new URL("../worker/lib/db.js", import.meta.url), "utf8");
@@ -607,15 +609,59 @@ test("README account repair feed claim matches ranked open, drafted, applied, an
   assert.match(accountFeedSource, /rerun/, "applied repairs needing rerun proof surfaced");
 });
 
-test("README repair proposal claim matches records tied to Fix Pack requests", () => {
-  assert.match(liveSection, /Repair proposal records tied to Fix Pack requests/i);
+test("README repair proposal claim matches report-seeded, pre-purchase approvable records", () => {
+  // Proposals are no longer tied to a Fix Pack request at creation: a saved
+  // report seeds them unattached, the owner can approve before paying, and
+  // checkout is what attaches them to a fix request.
+  assert.match(
+    liveSection,
+    /Repair proposal records seeded when a saved report is viewed, owner-approvable before purchase, and attached to a fix request when checkout starts/i
+  );
+  assert.doesNotMatch(
+    liveSection,
+    /Repair proposal records tied to Fix Pack requests/i,
+    "the README may not claim proposals only exist for Fix Pack requests"
+  );
   assert.ok(migrationHas("repair_proposals"), "repair_proposals table exists");
   assert.ok(migrationHas("repair_proposal_events"), "repair proposal events table exists");
+  assert.match(reportsSource, /await seedRepairProposalsForReport\(/, "saved report load seeds proposals");
+  assert.match(
+    reportsSource,
+    /COALESCE\(fix_request_id, ''\) = ''/,
+    "unattached proposals stay owner-approvable before purchase"
+  );
+  assert.match(
+    billingSource,
+    /async function attachRepairSprintProposalsToFixRequest/,
+    "checkout attaches the approved proposal queue to a fix request"
+  );
   assert.match(liveSection, /final rerun proof references/i);
   assert.match(liveSection, /protected retention for paid proof/i);
   assert.ok(
     /UPDATE audit_reports[\s\S]*expires_at = NULL[\s\S]*fix_requests[\s\S]*status IN \('paid'/.test(allMigrations),
     "paid Fix Pack reports keep protected retention"
+  );
+});
+
+test("README Dodo var list does not claim an unwired product id is already in wrangler.jsonc", () => {
+  assert.match(
+    readme,
+    /A product id for an offer whose Dodo product is not wired yet is added to `wrangler\.jsonc` at that point/i
+  );
+  assert.match(
+    readme,
+    /`DODO_SEOFIXKIT_PRODUCT_REPAIR_SPRINT_ID` \(added to `wrangler\.jsonc` when the Repair Sprint product is wired/i
+  );
+  assert.match(wranglerJsonc, /DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID/, "the wired Fix Pack product id is present");
+  assert.doesNotMatch(
+    wranglerJsonc,
+    /DODO_SEOFIXKIT_PRODUCT_REPAIR_SPRINT_ID/,
+    "the Repair Sprint product id is not wired yet, so the README may not list it as present"
+  );
+  assert.match(
+    dodoSource,
+    /env\.DODO_SEOFIXKIT_PRODUCT_REPAIR_SPRINT_ID \|\| ""/,
+    "a missing Repair Sprint product id resolves empty so checkout fails closed"
   );
 });
 
@@ -783,7 +829,8 @@ test("README implementation pack claim keeps approved change text", () => {
 });
 
 test("README proposal claim keeps execution modes, owner approval, and delivery state", () => {
-  assert.match(liveSection, /with execution modes, owner approval, delivery state/i);
+  assert.match(liveSection, /owner-approvable before purchase/i);
+  assert.match(liveSection, /with execution modes, delivery state/i);
   assert.match(allMigrations, /execution_mode TEXT/, "proposals store execution mode");
   assert.match(allMigrations, /approval_status TEXT/, "proposals store owner approval");
   assert.match(allMigrations, /delivery_status TEXT/, "proposals store delivery state");

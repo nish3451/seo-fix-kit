@@ -90,9 +90,19 @@ const PAID_LIKE_FIX_REQUEST_STATUSES = new Set(["paid", "in_progress", "delivere
 
 const REBUY_BLOCKED_FIX_REQUEST_STATUSES = new Set(["refunded", "refund_failed", "disputed"]);
 
-const REPAIR_SPRINT_BLOCKED_FIX_REQUEST_STATUSES = new Set(["payment_failed", ...REBUY_BLOCKED_FIX_REQUEST_STATUSES]);
+const REPAIR_SPRINT_BLOCKED_FIX_REQUEST_STATUSES = new Set(REBUY_BLOCKED_FIX_REQUEST_STATUSES);
 
 const CHECKOUT_URL_TTL_HOURS = 24;
+
+// Identity rejections that mean Dodo took real money the Worker can never
+// attribute: the paid product contradicts the stored checkout, so no retry or
+// later webhook fixes it. These land in dodo_webhook_events as 'error' so the
+// admin webhook-error alert sees them, while Dodo still gets a 200 and stops
+// retrying.
+const UNATTRIBUTABLE_PAYMENT_IDENTITY_REASONS = new Set([
+  "checkout_product_mismatch",
+  "repair_sprint_checkout_target_missing"
+]);
 
 async function requestFixPack(request, env) {
   const access = await betaAccessStatus(request, env);
@@ -331,11 +341,11 @@ async function requestRepairSprintCheckout(request, env) {
     return repairSprintCheckoutErrorResponse({
       status: 409,
       code: "REPAIR_SPRINT_REBUY_BLOCKED",
-      error: "This report has a failed, refunded, or disputed payment state. Email support@seofixkit.com to restart a Repair Sprint.",
+      error: "This report has a refunded or disputed payment state. Email support@seofixkit.com to restart a Repair Sprint.",
       repairSprint: {
         ...blockedEligibility,
         status: "blocked",
-        message: "This report has a failed, refunded, or disputed payment state. Email support@seofixkit.com to restart a Repair Sprint."
+        message: "This report has a refunded or disputed payment state. Email support@seofixkit.com to restart a Repair Sprint."
       },
       proposalSummary: repairSprintProposalSummary([]),
       request: fixRequestWithProposalSummary(existingFixRequest, repairSprintProposalSummary([]), now)
@@ -426,8 +436,9 @@ async function requestRepairSprintCheckout(request, env) {
       proposalSummary
     });
   }
-  await attachRepairSprintProposalsToFixRequest(env, fixRequest, proposals, now);
-
+  // Attaching proposals narrows the owner approval window to the paid states, so
+  // it only happens once Dodo actually returned a checkout. A failed checkout
+  // must leave the queue unattached and freely approvable.
   let checkout;
   try {
     checkout = await createDodoRepairSprintCheckout(request, env, row, fixRequest, access, checkoutTarget);
@@ -441,7 +452,6 @@ async function requestRepairSprintCheckout(request, env) {
       request: fixRequestWithProposalSummary(fixRequest, proposalSummary, now)
     });
   }
-
   const checkoutCreatedAt = new Date().toISOString();
   await env.WAITLIST_DB.prepare(
     `UPDATE fix_requests
@@ -464,6 +474,7 @@ async function requestRepairSprintCheckout(request, env) {
       fixRequest.id
     )
     .run();
+  await attachRepairSprintProposalsToFixRequest(env, fixRequest, proposals, now);
 
   return jsonNoStore({
     ok: true,
@@ -1196,17 +1207,46 @@ async function seedRepairProposalsForFixRequest(env, report, fixRequest, reportR
   if (!proposals.length) return { status: "ready", total: 0, created: 0, executable: 0 };
 
   try {
+    // Reports seed their own proposals with an empty fix_request_id, so the
+    // report+owner window is the only one that sees them. Rows already sitting
+    // there get adopted with their owner approval intact instead of copied.
     const existing = await env.WAITLIST_DB.prepare(
-      `SELECT issue_id
+      `SELECT id, issue_id, fix_request_id
        FROM repair_proposals
-       WHERE fix_request_id = ?`
+       WHERE report_id = ?
+         AND owner_email = ?`
     )
-      .bind(fixRequest.id)
+      .bind(reportRow.id, access.ownerEmail)
       .all();
-    const existingIssueIds = new Set((existing.results || []).map((row) => row.issue_id));
+    const existingIssueIds = new Set();
+    const adoptableProposalIds = new Map();
+    for (const row of existing.results || []) {
+      if (!row.issue_id) continue;
+      if (row.fix_request_id === fixRequest.id) existingIssueIds.add(row.issue_id);
+      else if (!row.fix_request_id && !adoptableProposalIds.has(row.issue_id)) {
+        adoptableProposalIds.set(row.issue_id, row.id);
+      }
+    }
     let created = 0;
+    let adopted = 0;
     for (const proposal of proposals) {
       if (existingIssueIds.has(proposal.issueId)) continue;
+      const adoptableId = adoptableProposalIds.get(proposal.issueId);
+      if (adoptableId) {
+        const adoptResult = await env.WAITLIST_DB.prepare(
+          `UPDATE repair_proposals
+           SET fix_request_id = ?,
+               updated_at = ?
+           WHERE id = ?
+             AND report_id = ?
+             AND owner_email = ?
+             AND COALESCE(fix_request_id, '') = ''`
+        )
+          .bind(fixRequest.id, now, adoptableId, reportRow.id, access.ownerEmail)
+          .run();
+        adopted += Number(adoptResult?.meta?.changes || 0);
+        continue;
+      }
       const result = await env.WAITLIST_DB.prepare(
         `INSERT OR IGNORE INTO repair_proposals
           (id, fix_request_id, report_id, owner_email, issue_id, issue_title, target_url, target_host,
@@ -1244,6 +1284,7 @@ async function seedRepairProposalsForFixRequest(env, report, fixRequest, reportR
       status: "ready",
       total: proposals.length,
       created,
+      adopted,
       executable: proposals.filter((proposal) => proposal.executionMode !== "unsupported").length
     };
   } catch {
@@ -1792,7 +1833,13 @@ async function handleDodoWebhook(request, env, ctx) {
     const result = isSubscriptionEvent
       ? await processDodoSubscriptionWebhook(env, eventType, subscription, webhookId)
       : await processDodoPaymentWebhook(env, eventType, payment, webhookId);
-    await markDodoWebhookProcessed(env, webhookId, result.status || "processed", "", result.fixRequestId || payment.metadataFixRequestId || "");
+    await markDodoWebhookProcessed(
+      env,
+      webhookId,
+      result.status || "processed",
+      result.alertReason ? `payment_identity_rejected: ${result.alertReason}` : "",
+      result.fixRequestId || payment.metadataFixRequestId || ""
+    );
     if (result.paymentNotification?.fixRequest) {
       const notification = notifyPaymentSucceeded(env, result.paymentNotification.fixRequest, payment, {
         offerKey: result.paymentNotification.offerKey || result.offerKey || OFFER_KEYS.FIX_PACK
@@ -1897,7 +1944,16 @@ async function processDodoPaymentWebhook(env, eventType, payment, webhookId = ""
       reason: identity.reason,
       detail: { eventType, paymentId: payment.paymentId, webhookId }
     });
-    return { ok: false, ignored: true, status: "ignored", reason: identity.reason, fixRequestId: fixRequest.id };
+    const unattributable =
+      DODO_PAYMENT_SUCCESS_EVENTS.has(eventType) && UNATTRIBUTABLE_PAYMENT_IDENTITY_REASONS.has(identity.reason);
+    return {
+      ok: false,
+      ignored: true,
+      status: unattributable ? "error" : "ignored",
+      alertReason: unattributable ? identity.reason : "",
+      reason: identity.reason,
+      fixRequestId: fixRequest.id
+    };
   }
 
   if (DODO_PAYMENT_SUCCESS_EVENTS.has(eventType)) {
@@ -1975,9 +2031,7 @@ async function processDodoPaymentWebhook(env, eventType, payment, webhookId = ""
       status: "processed",
       paid: true,
       fixRequestId: fixRequest.id,
-      paymentNotification: { fixRequest: updated || fixRequest }
-        ? { fixRequest: updated || fixRequest, offerKey: identity.offerKey || OFFER_KEYS.FIX_PACK }
-        : null
+      paymentNotification: { fixRequest: updated || fixRequest, offerKey: identity.offerKey || OFFER_KEYS.FIX_PACK }
     };
   }
 
@@ -2530,6 +2584,10 @@ async function dodoPaymentIdentityStatus(env, eventType, payment, fixRequest) {
     const nextRepairTargetState = await checkoutRepairTargetFulfillmentState(env, fixRequest, repairTarget);
     if (!nextRepairTargetState.ok) return nextRepairTargetState;
     repairTargetState = nextRepairTargetState;
+  } else if (expectedPaymentProduct.offerKey === OFFER_KEYS.REPAIR_SPRINT) {
+    // A Repair Sprint is only ever sold against a stored approved-proposal
+    // snapshot; without one there is nothing to verify approval against.
+    return { ok: false, reason: "repair_sprint_checkout_target_missing" };
   }
   if (payment.customerEmail && normalizeEmail(payment.customerEmail) !== fixRequest.owner_email) {
     return { ok: false, reason: "customer_email_mismatch" };
@@ -2595,6 +2653,7 @@ async function checkoutRepairSprintFulfillmentState(env, fixRequest = {}, sprint
        WHERE fix_request_id = ?
          AND report_id = ?
          AND owner_email = ?
+       ORDER BY priority ASC, updated_at DESC
        LIMIT 50`
     )
       .bind(fixRequest.id, fixRequest.report_id, fixRequest.owner_email)

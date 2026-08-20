@@ -209,6 +209,8 @@ function capabilityStatus({ bindings, schema, billing }) {
     repairSprintCheckout:
       billing.repairSprintCheckoutReady &&
       hasSchema("fixRequests") &&
+      hasSchema("fixPackCheckoutColumns") &&
+      hasSchema("fixPackPaymentColumns") &&
       hasSchema("repairProposals") &&
       hasSchema("fixPackCheckoutTarget") &&
       hasSchema("dodoWebhookEvents"),

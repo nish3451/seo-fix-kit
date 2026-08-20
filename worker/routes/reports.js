@@ -553,12 +553,13 @@ async function seedRepairProposalsForReport(env, report, reportRow, ownerEmail) 
   });
   if (!proposals.length) return;
   try {
+    // Every saved row for this report counts as already-seeded, attached or
+    // not; a windowed read here would silently re-insert the rows it missed.
     const saved = await env.WAITLIST_DB.prepare(
       `SELECT issue_id
        FROM repair_proposals
        WHERE report_id = ?
-         AND owner_email = ?
-       LIMIT 50`
+         AND owner_email = ?`
     )
       .bind(reportRow.id, ownerEmail)
       .all();

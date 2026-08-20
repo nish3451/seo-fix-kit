@@ -10,7 +10,8 @@ function isRepairTablesMissingError(error) {
     message.includes("not found")
   ) && (
     message.includes("repair_queue_items") ||
-    message.includes("repair_agent_actions")
+    message.includes("repair_agent_actions") ||
+    message.includes("repair_proposals")
   );
 }
 

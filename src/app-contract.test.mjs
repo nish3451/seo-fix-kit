@@ -149,6 +149,24 @@ test("Proof Monitoring checkout outcome redirects only when a safe URL exists", 
   assert.equal(thrown.message, "Dodo monitoring checkout failed.");
 });
 
+test("Repair Sprint checkout failures speak as Repair Sprint, not Proof Monitoring", () => {
+  const unavailable = monitoringCheckoutOutcome(
+    { ok: false, checkoutAvailable: false },
+    { offerName: "Repair Sprint" }
+  );
+  assert.equal(unavailable.status, "unavailable");
+  assert.equal(unavailable.message, "Repair Sprint checkout is unavailable.");
+
+  const thrown = monitoringCheckoutErrorOutcome(new Error(""), { offerName: "Repair Sprint" });
+  assert.equal(thrown.message, "Repair Sprint checkout is unavailable.");
+
+  assert.equal(
+    monitoringCheckoutOutcome({ ok: false, checkoutAvailable: false }).message,
+    "Proof Monitoring checkout is unavailable."
+  );
+  assert.equal(monitoringCheckoutErrorOutcome(new Error("")).message, "Proof Monitoring checkout is unavailable.");
+});
+
 test("Dodo checkout URL helper accepts only HTTPS provider URLs", () => {
   assert.equal(safeDodoCheckoutUrl("https://checkout.dodopayments.com/a"), "https://checkout.dodopayments.com/a");
   assert.equal(safeDodoCheckoutUrl("https://pay.dodopayments.com/a"), "https://pay.dodopayments.com/a");

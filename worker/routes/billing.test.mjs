@@ -8,9 +8,10 @@ import {
   processDodoSubscriptionWebhook,
   requestFixPack,
   requestMonitoringCheckout,
-  requestRepairSprintCheckout
+  requestRepairSprintCheckout,
+  seedRepairProposalsForFixRequest
 } from "./billing.js";
-import { updateRepairProposalApproval } from "./reports.js";
+import { seedRepairProposalsForReport, updateRepairProposalApproval } from "./reports.js";
 import { extractDodoPayment, extractDodoSubscription } from "../../shared/dodo.js";
 import { sha256Hex } from "../lib/security.js";
 
@@ -1592,8 +1593,8 @@ test("Repair Sprint checkout fails closed when product is not configured", async
   assert.equal(dodoRequests.length, 0);
 });
 
-test("Repair Sprint checkout blocks failed, refunded, and disputed prior requests", async () => {
-  for (const status of ["payment_failed", "refunded", "refund_failed", "disputed"]) {
+test("Repair Sprint checkout blocks refunded and disputed prior requests", async () => {
+  for (const status of ["refunded", "refund_failed", "disputed"]) {
     const env = await fakeBillingEnv();
     env.fixRequests.push(checkoutFixRequest(env, {
       id: `fix-request-${status}`,
@@ -1646,6 +1647,103 @@ test("Repair Sprint checkout blocks failed, refunded, and disputed prior request
 
     assert.equal(dodoRequests.length, 0);
   }
+});
+
+test("Repair Sprint checkout lets a declined customer retry self-serve", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-payment-failed",
+    status: "payment_failed",
+    product_id: "pdt_repair_sprint",
+    checkout_repair_json: JSON.stringify({
+      offerKey: "repair_sprint",
+      proposalIds: ["proposal-1"],
+      issueIds: ["issue-1"],
+      approved: 1,
+      executable: 1
+    })
+  }));
+  env.repairProposals.push(approvedRepairProposal(env, {
+    id: "proposal-1",
+    fix_request_id: "fix-request-payment-failed"
+  }));
+  const dodoRequests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options = {}) => {
+    dodoRequests.push({ url: String(url), body: JSON.parse(options.body || "{}") });
+    return new Response(JSON.stringify({
+      checkout_url: "https://checkout.example.com/repair-sprint-retry",
+      session_id: "dodo-repair-sprint-retry"
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const response = await requestRepairSprintCheckout(new Request("https://seofixkit.test/api/beta/repair-sprint-checkout", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-beta-session": env.sessionToken
+      },
+      body: JSON.stringify({ reportId: env.reportId })
+    }), env);
+
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.mode, "checkout");
+    assert.equal(body.checkoutUrl, "https://checkout.example.com/repair-sprint-retry");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(dodoRequests.length, 1);
+  assert.equal(env.fixRequests[0].status, "checkout_created");
+});
+
+test("Repair Sprint checkout leaves proposals approvable when Dodo checkout fails", async () => {
+  const env = await fakeBillingEnv();
+  const proposalId = "00000000-0000-4000-8000-000000000002";
+  env.repairProposals.push(approvedRepairProposal(env, { id: proposalId }));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ message: "Dodo is down." }), {
+    status: 503,
+    headers: { "content-type": "application/json" }
+  });
+
+  try {
+    const response = await requestRepairSprintCheckout(new Request("https://seofixkit.test/api/beta/repair-sprint-checkout", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-beta-session": env.sessionToken
+      },
+      body: JSON.stringify({ reportId: env.reportId })
+    }), env);
+
+    assert.equal(response.status, 503);
+    const body = await response.json();
+    assert.equal(body.checkoutAvailable, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(env.repairProposals[0].fix_request_id, "");
+  assert.equal(env.proposalAttachWrites || 0, 0);
+
+  const dismissResponse = await updateRepairProposalApproval(new Request(
+    `https://seofixkit.test/api/reports/${env.reportId}/repair-proposals/${proposalId}`,
+    {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        "x-beta-session": env.sessionToken
+      },
+      body: JSON.stringify({ action: "dismiss" })
+    }
+  ), env);
+  assert.equal(dismissResponse.status, 200);
 });
 
 test("Repair Sprint checkout fails closed when proposal storage is unavailable", async () => {
@@ -1808,6 +1906,180 @@ test("Dodo payment webhook rejects stale Fix Pack payment after Repair Sprint ch
   assert.equal(env.fixRequests[0].payment_id, "");
   const rejectedEvent = env.events.find((event) => event.event === "payment_identity_rejected");
   assert.equal(rejectedEvent.reason, "checkout_product_mismatch");
+});
+
+test("signed payment webhook records an unattributable product mismatch as a webhook error", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-sprint",
+    checkout_session_id: "dodo-repair-sprint-session-1",
+    product_id: "pdt_repair_sprint",
+    checkout_repair_json: JSON.stringify({
+      offerKey: "repair_sprint",
+      proposalIds: ["proposal-1"],
+      issueIds: ["issue-1"],
+      approved: 1,
+      executable: 1
+    })
+  }));
+  env.repairProposals.push(approvedRepairProposal(env, {
+    id: "proposal-1",
+    fix_request_id: "fix-request-sprint"
+  }));
+  const data = paymentEventData(env, {
+    id: "payment-stale-fix-pack",
+    checkout_session_id: "dodo-old-fix-pack-session",
+    fixRequestId: "fix-request-sprint"
+  });
+
+  const response = await handleDodoWebhook(
+    signedDodoWebhookRequest({ type: "payment.succeeded", data }, "wh_signed_product_mismatch", env),
+    env,
+    null
+  );
+
+  // Dodo still gets a 200 so it stops retrying, but the ledger row carries the
+  // error status the admin webhook-error alert counts.
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.received, true);
+  assert.equal(body.ignored, true);
+  assert.equal(body.reason, "checkout_product_mismatch");
+  assert.equal(env.fixRequests[0].payment_id, "");
+  assert.equal(env.dodoWebhookEvents.at(-1).status, "error");
+  assert.match(env.dodoWebhookEvents.at(-1).error, /checkout_product_mismatch/);
+});
+
+test("Dodo payment webhook rejects a Repair Sprint payment with no stored checkout target", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-sprint",
+    checkout_session_id: "dodo-repair-sprint-session-1",
+    product_id: "pdt_repair_sprint",
+    checkout_repair_json: ""
+  }));
+  env.repairProposals.push(approvedRepairProposal(env, {
+    id: "proposal-1",
+    fix_request_id: "fix-request-sprint",
+    approval_status: "pending"
+  }));
+  const paymentData = paymentEventData(env, {
+    id: "payment-repair-sprint-no-target",
+    checkout_session_id: "dodo-repair-sprint-session-1",
+    fixRequestId: "fix-request-sprint",
+    metadata: {
+      product_key: "seofixkit_repair_sprint",
+      offer_key: "repair_sprint",
+      repair_issue_id: "",
+      repair_queue_item_id: "",
+      repair_title: ""
+    }
+  });
+  paymentData.product_cart = [{ product_id: "pdt_repair_sprint", quantity: 1 }];
+
+  const result = await processDodoPaymentWebhook(
+    env,
+    "payment.succeeded",
+    extractDodoPayment(paymentData),
+    "wh_repair_sprint_no_target"
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "repair_sprint_checkout_target_missing");
+  assert.equal(result.status, "error");
+  assert.equal(env.fixRequests[0].payment_id, "");
+  assert.equal(env.fixRequests[0].status, "checkout_created");
+});
+
+test("Dodo Repair Sprint payment still records when repair proposal storage is missing", async () => {
+  const env = await fakeBillingEnv();
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-sprint",
+    checkout_session_id: "dodo-repair-sprint-session-1",
+    product_id: "pdt_repair_sprint",
+    checkout_repair_json: JSON.stringify({
+      offerKey: "repair_sprint",
+      proposalIds: ["proposal-1"],
+      issueIds: ["issue-1"],
+      approved: 1,
+      executable: 1
+    })
+  }));
+  env.repairProposalsMissing = true;
+  const paymentData = paymentEventData(env, {
+    id: "payment-repair-sprint-no-table",
+    checkout_session_id: "dodo-repair-sprint-session-1",
+    fixRequestId: "fix-request-sprint",
+    metadata: {
+      product_key: "seofixkit_repair_sprint",
+      offer_key: "repair_sprint",
+      repair_issue_id: "",
+      repair_queue_item_id: "",
+      repair_title: ""
+    }
+  });
+  paymentData.product_cart = [{ product_id: "pdt_repair_sprint", quantity: 1 }];
+
+  const result = await processDodoPaymentWebhook(
+    env,
+    "payment.succeeded",
+    extractDodoPayment(paymentData),
+    "wh_repair_sprint_no_table"
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "processed");
+  assert.equal(env.fixRequests[0].status, "paid");
+  assert.equal(env.fixRequests[0].payment_id, "payment-repair-sprint-no-table");
+});
+
+test("repair proposals seed once per report and get adopted by a fix request", async () => {
+  const env = await fakeBillingEnv();
+  const reportRow = env.reports[0];
+  const report = JSON.parse(reportRow.report_json);
+
+  await seedRepairProposalsForReport(env, report, reportRow, "owner@example.com");
+  await seedRepairProposalsForReport(env, report, reportRow, "owner@example.com");
+
+  assert.equal(env.repairProposals.length, 1);
+  assert.equal(env.repairProposals[0].fix_request_id, "");
+  const seededProposalId = env.repairProposals[0].id;
+  env.repairProposals[0].approval_status = "approved";
+
+  env.fixRequests.push(checkoutFixRequest(env, {
+    id: "fix-request-adopt",
+    status: "paid",
+    payment_id: "payment-adopt",
+    paid_at: new Date().toISOString()
+  }));
+  const seed = await seedRepairProposalsForFixRequest(
+    env,
+    report,
+    env.fixRequests[0],
+    reportRow,
+    { ownerEmail: "owner@example.com" },
+    new Date().toISOString()
+  );
+
+  assert.equal(seed.status, "ready");
+  assert.equal(seed.created, 0);
+  assert.equal(seed.adopted, 1);
+  assert.equal(env.repairProposals.length, 1);
+  assert.equal(env.repairProposals[0].id, seededProposalId);
+  assert.equal(env.repairProposals[0].fix_request_id, "fix-request-adopt");
+  assert.equal(env.repairProposals[0].approval_status, "approved");
+
+  const reseed = await seedRepairProposalsForFixRequest(
+    env,
+    report,
+    env.fixRequests[0],
+    reportRow,
+    { ownerEmail: "owner@example.com" },
+    new Date().toISOString()
+  );
+  assert.equal(reseed.created, 0);
+  assert.equal(reseed.adopted, 0);
+  assert.equal(env.repairProposals.length, 1);
 });
 
 test("Dodo payment webhook rejects Repair Sprint when approved proposals no longer match", async () => {
@@ -3301,8 +3573,23 @@ function all(sql, values, env) {
     };
   }
   if (sql.includes("FROM repair_proposals")) {
-    const [fixRequestId] = values;
-    return { results: env.repairProposals.filter((row) => row.fix_request_id === fixRequestId) };
+    if (env.repairProposalsMissing) throw new Error("no such table: repair_proposals");
+    // Mirror the payment-validation window: it scopes to the fix request, its
+    // report and owner, and reads the same ordered 50 rows checkout selected.
+    const [fixRequestId, reportId, ownerEmail] = values;
+    return {
+      results: env.repairProposals
+        .filter((row) =>
+          row.fix_request_id === fixRequestId &&
+          (!reportId || row.report_id === reportId) &&
+          (!ownerEmail || row.owner_email === ownerEmail)
+        )
+        .sort((a, b) =>
+          Number(a.priority || 0) - Number(b.priority || 0) ||
+          String(b.updated_at || "").localeCompare(String(a.updated_at || ""))
+        )
+        .slice(0, 50)
+    };
   }
   if (sql.includes("FROM site_claims")) {
     const [ownerEmail] = values;
@@ -3488,7 +3775,11 @@ function run(sql, values, env) {
     return { meta: { changes: 1 } };
   }
   if (sql.includes("INSERT OR IGNORE INTO repair_proposals")) {
-    if (!env.repairProposals.some((row) => row.fix_request_id === values[1] && row.issue_id === values[4])) {
+    // Mirror migration 0026: the unique index skips rows without a
+    // fix_request_id, so unattached rows are never deduped by storage itself.
+    const conflicts = Boolean(values[1]) &&
+      env.repairProposals.some((row) => row.fix_request_id === values[1] && row.issue_id === values[4]);
+    if (!conflicts) {
       env.repairProposals.push({
         id: values[0],
         fix_request_id: values[1],
@@ -3515,6 +3806,20 @@ function run(sql, values, env) {
       return { meta: { changes: 1 } };
     }
     return { meta: { changes: 0 } };
+  }
+  if (sql.includes("UPDATE repair_proposals") && sql.includes("COALESCE(fix_request_id, '') = ''")) {
+    env.proposalAdoptWrites = Number(env.proposalAdoptWrites || 0) + 1;
+    const [fixRequestId, updatedAt, id, reportId, ownerEmail] = values;
+    const row = env.repairProposals.find((item) =>
+      item.id === id &&
+      item.report_id === reportId &&
+      item.owner_email === ownerEmail &&
+      !item.fix_request_id
+    );
+    if (!row) return { meta: { changes: 0 } };
+    row.fix_request_id = fixRequestId;
+    row.updated_at = updatedAt;
+    return { meta: { changes: 1 } };
   }
   if (sql.includes("UPDATE repair_proposals") && sql.includes("SET fix_request_id")) {
     env.proposalAttachWrites = Number(env.proposalAttachWrites || 0) + 1;

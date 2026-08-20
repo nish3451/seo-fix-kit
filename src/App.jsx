@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CRAWL_DEPTH_TIERS, DEFAULT_CRAWL_PAGES, SELF_SERVE_MAX_CRAWL_PAGES } from "../shared/crawl-depth.js";
 import { RENDERED_CRAWL_TARGETS } from "../shared/rendered-crawl-scale.js";
+import { repairSprintEligibilityFromProposals } from "../shared/offers.js";
 import { developerWebhookRequest } from "./developer-webhooks.js";
 import { deliveryReadinessLabel, deliveryReadinessText } from "./delivery-readiness-copy.js";
 import {
@@ -1493,7 +1494,8 @@ function ReportView({ report }) {
       }).format(new Date(report.retention.expiresAt))
     : "";
   const hasPriorityFixes = topFixes.length > 0;
-  const checkoutReturned = new URLSearchParams(window.location.search).get("checkout") === "return";
+  const checkoutParam = new URLSearchParams(window.location.search).get("checkout");
+  const checkoutReturned = checkoutParam === "return" || checkoutParam === "repair-sprint-return";
 
   return (
     <div className="report-layout">
@@ -3754,30 +3756,40 @@ function RepairProposalPanel({ reportId, initialProposals = [], repairSprint = n
   const [savingId, setSavingId] = useState("");
   const [sprintCheckoutStatus, setSprintCheckoutStatus] = useState("idle");
   const [message, setMessage] = useState("");
+  const [messageIsError, setMessageIsError] = useState(false);
 
   useEffect(() => {
     setProposals(initialProposals);
   }, [initialProposals]);
 
+  function showMessage(text, isError = false) {
+    setMessage(text);
+    setMessageIsError(isError);
+  }
+
   async function updateProposal(proposal, action) {
     setSavingId(proposal.id);
-    setMessage("");
+    showMessage("");
     const result = await patchRepairProposalApproval(reportId, proposal.id, { action });
     setSavingId("");
     if (!result.ok) {
-      setMessage(result.error || "Could not update repair proposal.");
+      showMessage(result.error || "Could not update repair proposal.", true);
       return;
     }
     setProposals((current) => current.map((item) => (item.id === proposal.id ? result.proposal : item)));
-    setMessage(action === "approve" ? "Repair approved." : "Repair dismissed.");
+    // A later success must clear the styling left by an earlier failed checkout.
+    setSprintCheckoutStatus("idle");
+    showMessage(action === "approve" ? "Repair approved." : "Repair dismissed.");
   }
 
   async function startRepairSprintCheckout() {
+    if (sprintCheckoutStatus === "submitting") return;
     setSprintCheckoutStatus("submitting");
-    setMessage("");
+    showMessage("");
     try {
       const response = await fetch("/api/beta/repair-sprint-checkout", {
         method: "POST",
+        credentials: "same-origin",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ reportId })
       });
@@ -3785,52 +3797,31 @@ function RepairProposalPanel({ reportId, initialProposals = [], repairSprint = n
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || payload.message || "Repair Sprint checkout is unavailable.");
       }
-      const outcome = monitoringCheckoutOutcome(payload);
+      const outcome = monitoringCheckoutOutcome(payload, { offerName: "Repair Sprint" });
       setSprintCheckoutStatus(outcome.status);
-      setMessage(outcome.message);
+      showMessage(outcome.message, outcome.status === "error" || outcome.status === "unavailable");
       if (outcome.checkoutUrl) window.location.assign(outcome.checkoutUrl);
     } catch (error) {
-      setSprintCheckoutStatus("error");
-      setMessage(error?.message || "Repair Sprint checkout is unavailable.");
+      const outcome = monitoringCheckoutErrorOutcome(error, { offerName: "Repair Sprint" });
+      setSprintCheckoutStatus(outcome.status);
+      showMessage(outcome.message, true);
     }
   }
 
-  const approvedCount = proposals.filter((proposal) => proposal.approvalStatus === "approved").length;
-  const executableCount = proposals.filter((proposal) => proposal.executionMode !== "unsupported").length;
-  const messageIsError =
-    sprintCheckoutStatus === "error" ||
-    message.includes("Could") ||
-    message.includes("unavailable") ||
-    message.includes("paused");
+  // The server counts approvals over executable proposals only, so the panel
+  // has to use the same rule or the checkout gate disagrees with the strip.
+  const executableProposals = proposals.filter((proposal) => proposal.executionMode !== "unsupported");
+  const executableCount = executableProposals.length;
+  const approvedCount = executableProposals.filter((proposal) => proposal.approvalStatus === "approved").length;
   const currentRepairSprint = repairSprint
-    ? (() => {
-        const checkoutReady = Boolean(repairSprint.checkoutReady || repairSprint.checkoutLive);
-        const status = executableCount
-          ? approvedCount
-            ? repairSprint.hasPaidRequest
-              ? "active"
-              : "approval_ready"
-            : "needs_owner_approval"
-          : "unsupported";
-        const checkoutLive = status === "approval_ready" && checkoutReady;
-        return {
-          ...repairSprint,
-          approved: approvedCount,
-          executable: executableCount,
-          checkoutReady,
-          checkoutLive,
-          status,
-          message: executableCount
-            ? approvedCount
-              ? repairSprint.hasPaidRequest
-                ? "Repair Sprint execution can use the paid Fix Pack fulfillment path for this report."
-                : checkoutLive
-                  ? repairSprint.message || "Repair Sprint checkout is available for this approved proposal queue."
-                  : "Proposal approval is ready; distinct Repair Sprint checkout remains gated until product billing is wired."
-              : "Approve at least one executable proposal before packaging this as a Repair Sprint."
-            : "This report does not have enough executable proposal proof for a Repair Sprint."
-        };
-      })()
+    ? {
+        ...repairSprint,
+        ...repairSprintEligibilityFromProposals(
+          proposals,
+          repairSprint.hasPaidRequest ? { status: "paid" } : null,
+          { checkoutReady: Boolean(repairSprint.checkoutReady || repairSprint.checkoutLive) }
+        )
+      }
     : null;
 
   return (

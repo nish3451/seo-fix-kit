@@ -36,7 +36,7 @@ It is not trying to replace Ahrefs or Semrush keyword and backlink databases. Th
 - Private implementation packs for owner-approved repair actions, with source proof, approved change text, mode-specific handoff steps, acceptance checks, rollback notes, and rerun-proof instructions.
 - Private repair proof receipts after fixed rerun proof, connecting the original issue, approved/applied change, and same-host rerun report without claiming SEOFixKit published or guaranteed the repair.
 - Account-level repair agent feed that ranks open repairs, drafted actions awaiting approval, applied repairs needing rerun proof, and monitor regressions across recent reports.
-- Repair proposal records tied to Fix Pack requests, with execution modes, owner approval, delivery state, final rerun proof references, and protected retention for paid proof.
+- Repair proposal records seeded when a saved report is viewed, owner-approvable before purchase, and attached to a fix request when checkout starts, with execution modes, delivery state, final rerun proof references, and protected retention for paid proof.
 - Server-owned offer catalog and entitlement scaffolding for Proof Monitoring, Repair Sprint, SEO/GEO Repair Agent, and Agency Workspace. Proof Monitoring has a config-gated Dodo subscription checkout path; Repair Sprint has a config-gated Dodo one-time checkout path for approved proposal queues; Repair Agent checkout and paid Agency Workspace checkout are not live yet.
 - Founder-friendly React interface.
 - Cloudflare Worker target using Workers Static Assets and Browser Run.
@@ -236,12 +236,12 @@ The private `/beta/billing` portal follows the BillingSDK self-serve billing pat
 
 For production rehearsals, the live audit batch runner can run a test-only Fix Pack webhook drill by setting `SEOFIXKIT_FIX_PACK_PROOF=1` and `SEOFIXKIT_FIX_PACK_WEBHOOK_DRILL=1`. The drill uses the admin token to create a founder-override proof session, creates only an `is_test` Fix Pack request, signs a Dodo-shaped webhook, and proves the Worker can process that test request without printing secrets, checkout URLs, or session ids. It does not prove a real card payment, Dodo-originated webhook delivery, or customer repair delivery.
 
-Cloudflare vars in `wrangler.jsonc` hold the public Dodo brand/product identifiers and environment mode:
+Cloudflare vars in `wrangler.jsonc` hold the public Dodo brand/product identifiers and environment mode. A product id for an offer whose Dodo product is not wired yet is added to `wrangler.jsonc` at that point; until it is present that offer's checkout stays gated and fails closed:
 
 - `DODO_SEOFIXKIT_BRAND_ID`
 - `DODO_SEOFIXKIT_PRODUCT_FIX_PACK_ID`
 - `DODO_SEOFIXKIT_PRODUCT_MONITORING_ID`
-- `DODO_SEOFIXKIT_PRODUCT_REPAIR_SPRINT_ID`
+- `DODO_SEOFIXKIT_PRODUCT_REPAIR_SPRINT_ID` (added to `wrangler.jsonc` when the Repair Sprint product is wired; Repair Sprint checkout stays gated until then)
 - `DODO_SEOFIXKIT_ENVIRONMENT`
 - `DODO_SEOFIXKIT_ADAPTIVE_CURRENCY_FEES_INCLUSIVE`
 
