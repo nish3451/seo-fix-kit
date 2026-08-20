@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   DODO_REFUND_SUCCESS_EVENTS,
   dodoCheckoutConfigStatus,
+  dodoRepairSprintCheckoutConfigStatus,
   dodoProductMatches,
   extractDodoPayment,
   hasDodoCheckoutConfig,
@@ -107,6 +108,16 @@ assert.equal(
 );
 assert.equal(dodoCheckoutConfigStatus({ DODO_SEOFIXKIT_ENVIRONMENT: "staging" }).environment, "");
 assert.equal(dodoCheckoutConfigStatus({ DODO_SEOFIXKIT_ENVIRONMENT: "staging" }).checkoutReady, false);
+assert.equal(
+  dodoRepairSprintCheckoutConfigStatus({
+    DODO_SEOFIXKIT_API_KEY: "key",
+    DODO_SEOFIXKIT_PRODUCT_REPAIR_SPRINT_ID: "pdt_repair_sprint",
+    DODO_SEOFIXKIT_BRAND_ID: "brnd",
+    DODO_SEOFIXKIT_ENVIRONMENT: "test",
+    DODO_SEOFIXKIT_WEBHOOK_SECRET: "secret"
+  }).checkoutReady,
+  true
+);
 assert.equal(normalizeFixRequestStatus("in_progress"), "in_progress");
 assert.equal(normalizeFixRequestStatus("nonsense"), "new");
 assert.equal(fixRequestStatusLabel("delivered"), "Delivered");
@@ -145,8 +156,30 @@ const notification = buildPaymentNotificationEmail({
   recipientType: "owner"
 });
 assert.equal(notification.subject.includes("example.com"), true);
+assert.equal(notification.subject.includes("SEO Fix Pack"), true);
 assert.equal(notification.text.includes("No ranking promises"), true);
+assert.equal(notification.text.includes("proven repair queue and one rerun after fixes"), true);
 assert.equal(notification.text.includes("USD 99.00"), true);
+
+const sprintNotification = buildPaymentNotificationEmail({
+  appOrigin: "https://seofixkit.com",
+  fixRequest: {
+    report_id: "report_123",
+    target_host: "example.com",
+    target_url: "https://example.com/"
+  },
+  report: {},
+  payment,
+  offerKey: OFFER_KEYS.REPAIR_SPRINT,
+  recipientType: "owner"
+});
+assert.equal(sprintNotification.subject.includes("Repair Sprint"), true);
+assert.equal(sprintNotification.subject.includes("Fix Pack"), false);
+assert.equal(sprintNotification.text.includes("Your Repair Sprint payment is confirmed."), true);
+assert.equal(sprintNotification.text.includes("Fix Pack"), false);
+assert.equal(sprintNotification.html.includes("Fix Pack"), false);
+assert.equal(sprintNotification.text.includes("approved repair proposals executed"), true);
+assert.equal(sprintNotification.text.includes("delivery proof"), true);
 
 const delivery = buildStatusNotificationEmail({
   appOrigin: "https://seofixkit.com",
@@ -234,6 +267,14 @@ assert.equal(
 assert.equal(
   repairSprintEligibilityFromProposals([{ executionMode: "generated_proposal", approvalStatus: "approved" }]).status,
   "approval_ready"
+);
+assert.equal(
+  repairSprintEligibilityFromProposals(
+    [{ executionMode: "generated_proposal", approvalStatus: "approved" }],
+    null,
+    { checkoutReady: true }
+  ).checkoutLive,
+  true
 );
 assert.equal(
   repairSprintEligibilityFromProposals([{ executionMode: "unsupported", approvalStatus: "approved" }]).status,

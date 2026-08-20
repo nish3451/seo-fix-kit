@@ -1,6 +1,8 @@
 import { issuePatternKey } from "../../shared/audit-engine.js";
 import { normalizeFixRequestStatus } from "../../shared/fulfillment.js";
+import { dodoRepairSprintCheckoutConfigStatus } from "../../shared/dodo.js";
 import { repairSprintEligibilityFromProposals } from "../../shared/offers.js";
+import { buildRepairProposalsFromReport } from "../../shared/repair-execution.js";
 import { buildRemediationBrief } from "../../shared/remediation-brief.js";
 import { betaAccessResponse, betaAccessStatus } from "../lib/auth.js";
 import { json, jsonNoStore } from "../lib/http.js";
@@ -199,11 +201,14 @@ async function updateRepairProposalApproval(request, env) {
        AND report_id = ?
        AND owner_email = ?
        AND delivery_status = 'draft'
-       AND EXISTS (
-         SELECT 1
-         FROM fix_requests
-         WHERE fix_requests.id = repair_proposals.fix_request_id
-           AND fix_requests.status IN ('paid', 'in_progress')
+       AND (
+         COALESCE(fix_request_id, '') = ''
+         OR EXISTS (
+           SELECT 1
+           FROM fix_requests
+           WHERE fix_requests.id = repair_proposals.fix_request_id
+             AND fix_requests.status IN ('paid', 'in_progress')
+         )
        )`
   )
     .bind(
@@ -220,7 +225,7 @@ async function updateRepairProposalApproval(request, env) {
     .run();
   if (Number(updateResult?.meta?.changes || 0) !== 1) {
     return jsonNoStore(
-      { error: "Repair approval can only be changed while the Fix Pack request is paid or in progress." },
+      { error: "Repair approval can only be changed before delivery starts or while the paid request is active." },
       409
     );
   }
@@ -442,7 +447,7 @@ async function getSavedReport(request, env) {
   }
 
   const row = await env.WAITLIST_DB.prepare(
-    `SELECT report_json, owner_email, owner_invite_id, expires_at FROM audit_reports WHERE id = ? LIMIT 1`
+    `SELECT id, url, target_host, report_json, owner_email, owner_invite_id, expires_at FROM audit_reports WHERE id = ? LIMIT 1`
   )
     .bind(id)
     .first();
@@ -508,8 +513,11 @@ async function getSavedReport(request, env) {
       report.fixRequest.finalReportPath = `/beta/reports/${encodeURIComponent(fixRequest.final_report_id)}`;
     }
   }
+  await seedRepairProposalsForReport(env, report, row, access.ownerEmail);
   report.repairProposals = await repairProposalsForReport(env, id, access.ownerEmail);
-  report.repairSprint = repairSprintEligibilityFromProposals(report.repairProposals, report.fixRequest || null);
+  report.repairSprint = repairSprintEligibilityFromProposals(report.repairProposals, report.fixRequest || null, {
+    checkoutReady: dodoRepairSprintCheckoutConfigStatus(env).checkoutReady
+  });
   report.agencyWorkspace = await agencyWorkspaceAccessForOwner(env, access.ownerEmail);
 
   report.remediationBrief = buildRemediationBrief(report);
@@ -532,6 +540,89 @@ async function repairProposalsForReport(env, reportId, ownerEmail) {
   } catch {
     return [];
   }
+}
+
+async function seedRepairProposalsForReport(env, report, reportRow, ownerEmail) {
+  if (!env.WAITLIST_DB || !report?.url || !reportRow?.id || !ownerEmail) return;
+  const proposals = buildRepairProposalsFromReport(report, {
+    ownerEmail,
+    reportId: reportRow.id,
+    targetUrl: reportRow.url || report.url,
+    targetHost: reportRow.target_host || "",
+    limit: 25
+  });
+  if (!proposals.length) return;
+  try {
+    // Every saved row for this report counts as already-seeded, attached or
+    // not; a windowed read here would silently re-insert the rows it missed.
+    const saved = await env.WAITLIST_DB.prepare(
+      `SELECT issue_id
+       FROM repair_proposals
+       WHERE report_id = ?
+         AND owner_email = ?`
+    )
+      .bind(reportRow.id, ownerEmail)
+      .all();
+    const existingIssueIds = new Set((saved.results || []).map((row) => row.issue_id).filter(Boolean));
+    const now = new Date().toISOString();
+    for (const proposal of proposals) {
+      if (existingIssueIds.has(proposal.issueId)) continue;
+      await env.WAITLIST_DB.prepare(
+        `INSERT OR IGNORE INTO repair_proposals
+          (id, fix_request_id, report_id, owner_email, issue_id, issue_title, target_url, target_host,
+           severity, source, priority, execution_mode, approval_status, delivery_status, generated_title,
+           generated_summary, proof_json, proposal_json, acceptance_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+        .bind(
+          crypto.randomUUID(),
+          "",
+          reportRow.id,
+          ownerEmail,
+          proposal.issueId,
+          proposal.issueTitle,
+          proposal.targetUrl || reportRow.url,
+          proposal.targetHost || reportRow.target_host || "",
+          proposal.severity,
+          proposal.source,
+          proposal.priority,
+          proposal.executionMode,
+          proposal.approvalStatus,
+          proposal.deliveryStatus,
+          proposal.generatedTitle,
+          proposal.generatedSummary,
+          jsonForStorage(proposal.proof || {}, 4000, {}),
+          jsonForStorage(proposal.proposal || {}, 4000, { truncated: true }),
+          jsonForStorage(proposal.acceptance || [], 2000, []),
+          now,
+          now
+        )
+        .run();
+      existingIssueIds.add(proposal.issueId);
+    }
+  } catch {
+    // Report loading should stay available; health surfaces proposal schema issues.
+  }
+}
+
+function jsonForStorage(value, max = 4000, fallback = {}) {
+  const json = JSON.stringify(value ?? fallback);
+  if (json.length <= max) return json;
+  const compactJson = JSON.stringify(compactJsonValue(value, Math.max(120, Math.floor(max / 4))));
+  if (compactJson.length <= max) return compactJson;
+  return JSON.stringify(fallback);
+}
+
+function compactJsonValue(value, stringMax) {
+  if (typeof value === "string") return cleanText(value, stringMax);
+  if (Array.isArray(value)) return value.slice(0, 10).map((item) => compactJsonValue(item, stringMax));
+  if (!value || typeof value !== "object") return value;
+  const compact = {};
+  for (const [key, child] of Object.entries(value).slice(0, 20)) {
+    compact[key] = compactJsonValue(child, stringMax);
+  }
+  compact.truncated = true;
+  return compact;
 }
 
 function summarizeIssuePatterns(rows) {
@@ -572,6 +663,7 @@ export {
   revokeTeamMember,
   repairProposalsForReport,
   repairProposalApprovalWindowStatus,
+  seedRepairProposalsForReport,
   saveIssueCollaborations,
   saveReportCollaboration,
   summarizeIssuePatterns,

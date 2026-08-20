@@ -6,7 +6,8 @@ const INTERNAL_EMAIL_TAGS = new Set([
   "fix-pack-payment",
   "fix-pack-status",
   "ops-alert",
-  "ops-digest"
+  "ops-digest",
+  "repair-sprint-payment"
 ]);
 
 function emailDomain(value) {

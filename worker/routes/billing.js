@@ -19,6 +19,8 @@ import {
   dodoMonitoringProductId,
   dodoProductId,
   dodoProductMatches,
+  dodoRepairSprintCheckoutConfigStatus,
+  dodoRepairSprintProductId,
   dodoWebhookSecret,
   extractDodoPayment,
   extractDodoSubscription,
@@ -48,7 +50,7 @@ import { sha256Hex } from "../lib/security.js";
 import { billingFixRequestResponse, fixRequestResponse } from "../lib/serializers.js";
 import { cleanQueueStatus } from "../../shared/repair-queue.js";
 import { selectFixPackRepair } from "../../shared/fix-pack-repair-selection.js";
-import { OFFER_KEYS } from "../../shared/offers.js";
+import { OFFER_KEYS, repairSprintEligibilityFromProposals } from "../../shared/offers.js";
 import {
   cleanText,
   cleanReportDomain,
@@ -73,6 +75,13 @@ const MONITORING_OFFER = {
   description: "Weekly proof monitoring, report deltas, and change alerts for verified sites."
 };
 
+const REPAIR_SPRINT_OFFER = {
+  name: "Repair Sprint",
+  productKey: "seofixkit_repair_sprint",
+  offerKey: OFFER_KEYS.REPAIR_SPRINT,
+  description: "A scoped repair queue, owner approval, delivery notes, and final rerun proof."
+};
+
 const FIX_PACK_DUE_DAYS = 5;
 
 const FIX_PACK_NEXT_UPDATE_DAYS = 2;
@@ -81,7 +90,19 @@ const PAID_LIKE_FIX_REQUEST_STATUSES = new Set(["paid", "in_progress", "delivere
 
 const REBUY_BLOCKED_FIX_REQUEST_STATUSES = new Set(["refunded", "refund_failed", "disputed"]);
 
+const REPAIR_SPRINT_BLOCKED_FIX_REQUEST_STATUSES = new Set(REBUY_BLOCKED_FIX_REQUEST_STATUSES);
+
 const CHECKOUT_URL_TTL_HOURS = 24;
+
+// Identity rejections that mean Dodo took real money the Worker can never
+// attribute: the paid product contradicts the stored checkout, so no retry or
+// later webhook fixes it. These land in dodo_webhook_events as 'error' so the
+// admin webhook-error alert sees them, while Dodo still gets a 200 and stops
+// retrying.
+const UNATTRIBUTABLE_PAYMENT_IDENTITY_REASONS = new Set([
+  "checkout_product_mismatch",
+  "repair_sprint_checkout_target_missing"
+]);
 
 async function requestFixPack(request, env) {
   const access = await betaAccessStatus(request, env);
@@ -284,6 +305,197 @@ async function requestFixPack(request, env) {
   });
 }
 
+async function requestRepairSprintCheckout(request, env) {
+  const access = await betaAccessStatus(request, env);
+  if (!access.ok) return betaAccessResponse(access);
+  if (!env.WAITLIST_DB) return json({ error: "Repair Sprint storage is not configured." }, 503);
+
+  const body = await request.json().catch(() => ({}));
+  const reportId = cleanText(body.reportId || "", 140);
+  if (!isSafeReportId(reportId)) return json({ error: "Report not found." }, 404);
+
+  const row = await env.WAITLIST_DB.prepare(
+    `SELECT id, url, target_host, owner_email, owner_invite_id, score, summary_json, report_json, expires_at
+     FROM audit_reports
+     WHERE id = ?
+     LIMIT 1`
+  )
+    .bind(reportId)
+    .first();
+  if (!row?.id || row.owner_email !== access.ownerEmail) return json({ error: "Report not found." }, 404);
+  if (
+    row.owner_invite_id &&
+    access.accessMode !== "founder-override" &&
+    row.owner_invite_id !== access.inviteId
+  ) {
+    return json({ error: "Report not found." }, 404);
+  }
+  if (row.expires_at && row.expires_at <= new Date().toISOString()) return json({ error: "Report expired." }, 404);
+
+  const now = new Date().toISOString();
+  const existingFixRequest = await latestFixRequestForReport(env, row.id, access.ownerEmail);
+  if (REPAIR_SPRINT_BLOCKED_FIX_REQUEST_STATUSES.has(existingFixRequest?.status)) {
+    const blockedEligibility = repairSprintEligibilityFromProposals([], existingFixRequest, {
+      checkoutReady: false
+    });
+    return repairSprintCheckoutErrorResponse({
+      status: 409,
+      code: "REPAIR_SPRINT_REBUY_BLOCKED",
+      error: "This report has a refunded or disputed payment state. Email support@seofixkit.com to restart a Repair Sprint.",
+      repairSprint: {
+        ...blockedEligibility,
+        status: "blocked",
+        message: "This report has a refunded or disputed payment state. Email support@seofixkit.com to restart a Repair Sprint."
+      },
+      proposalSummary: repairSprintProposalSummary([]),
+      request: fixRequestWithProposalSummary(existingFixRequest, repairSprintProposalSummary([]), now)
+    });
+  }
+  let proposals;
+  try {
+    proposals = await repairSprintProposalsForCheckout(env, row.id, access.ownerEmail);
+  } catch (error) {
+    return repairSprintCheckoutErrorResponse({
+      status: 503,
+      code: "REPAIR_SPRINT_PROPOSAL_STORAGE_UNAVAILABLE",
+      error: "Repair Sprint proposal storage is not ready. Retry after the repair proposal migration is applied.",
+      repairSprint: repairSprintEligibilityFromProposals([], existingFixRequest, { checkoutReady: false }),
+      proposalSummary: { status: "unavailable", total: 0, executable: 0, approved: 0, approvedExecutable: 0, delivered: 0 },
+      request: existingFixRequest ? fixRequestWithProposalSummary(existingFixRequest, null, now) : null
+    });
+  }
+  const proposalSummary = repairSprintProposalSummary(proposals);
+  const config = dodoRepairSprintCheckoutConfigStatus(env);
+  const eligibility = repairSprintEligibilityFromProposals(proposals, existingFixRequest, {
+    checkoutReady: config.checkoutReady
+  });
+
+  if (eligibility.status !== "approval_ready") {
+    return repairSprintCheckoutErrorResponse({
+      status: eligibility.status === "active" ? 409 : 422,
+      code: eligibility.status === "active" ? "REPAIR_SPRINT_ALREADY_PAID" : "REPAIR_SPRINT_NOT_READY",
+      error: eligibility.message,
+      repairSprint: eligibility,
+      proposalSummary,
+      request: existingFixRequest ? fixRequestWithProposalSummary(existingFixRequest, proposalSummary, now) : null
+    });
+  }
+
+  if (!config.checkoutReady) {
+    return repairSprintCheckoutErrorResponse({
+      status: 503,
+      code: "REPAIR_SPRINT_CHECKOUT_NOT_CONFIGURED",
+      error: "Repair Sprint checkout is paused until the Dodo product and webhook config are ready.",
+      missing: dodoConfigMissing(config),
+      repairSprint: eligibility,
+      proposalSummary,
+      request: existingFixRequest ? fixRequestWithProposalSummary(existingFixRequest, proposalSummary, now) : null
+    });
+  }
+
+  const schema = await fixPackCheckoutSchemaStatus(env);
+  if (!schema.ok) {
+    return repairSprintCheckoutErrorResponse({
+      status: 503,
+      code: "REPAIR_SPRINT_CHECKOUT_SCHEMA_MISSING",
+      error: "Repair Sprint checkout storage is not ready. Retry after the checkout metadata migration is applied.",
+      repairSprint: eligibility,
+      proposalSummary,
+      request: existingFixRequest ? fixRequestWithProposalSummary(existingFixRequest, proposalSummary, now) : null
+    });
+  }
+
+  const report = parseJson(await reportJsonForRow(env, row), {});
+  const summary = parseJson(row.summary_json, report.summary || {});
+  const note = cleanText(body.note || "", 1000);
+  const isTest = Boolean(body.testMode || body.isTest) && access.accessMode === "founder-override";
+  const fixRequest = existingFixRequest || await getOrCreateFixRequest(env, row, access, summary, note, now, {
+    isTest
+  });
+
+  const checkoutTarget = checkoutRepairSprintTarget(proposals);
+  const cachedCheckoutFresh =
+    fixRequest.status === "checkout_created" &&
+    fixRequest.product_id === dodoRepairSprintProductId(env) &&
+    fixRequest.checkout_url &&
+    fixRequest.checkout_session_id &&
+    fixRequest.checkout_created_at &&
+    fixRequest.checkout_created_at > isoSecondsFromNow(-CHECKOUT_URL_TTL_HOURS * 60 * 60) &&
+    checkoutRepairSprintTargetMatches(fixRequest, checkoutTarget);
+  if (cachedCheckoutFresh) {
+    return jsonNoStore({
+      ok: true,
+      mode: "checkout",
+      checkoutUrl: fixRequest.checkout_url,
+      request: fixRequestWithProposalSummary(fixRequest, proposalSummary, now),
+      offer: REPAIR_SPRINT_OFFER,
+      repairSprint: {
+        ...eligibility,
+        checkoutLive: true
+      },
+      proposalSummary
+    });
+  }
+  // Attaching proposals narrows the owner approval window to the paid states, so
+  // it only happens once Dodo actually returned a checkout. A failed checkout
+  // must leave the queue unattached and freely approvable.
+  let checkout;
+  try {
+    checkout = await createDodoRepairSprintCheckout(request, env, row, fixRequest, access, checkoutTarget);
+  } catch (error) {
+    return repairSprintCheckoutErrorResponse({
+      status: 503,
+      code: error?.code || "DODO_REPAIR_SPRINT_CHECKOUT_ERROR",
+      error: error?.message || "Dodo Repair Sprint checkout could not be created.",
+      repairSprint: eligibility,
+      proposalSummary,
+      request: fixRequestWithProposalSummary(fixRequest, proposalSummary, now)
+    });
+  }
+  const checkoutCreatedAt = new Date().toISOString();
+  await env.WAITLIST_DB.prepare(
+    `UPDATE fix_requests
+     SET status = 'checkout_created',
+         checkout_session_id = ?,
+         checkout_url = ?,
+         checkout_created_at = ?,
+         product_id = ?,
+         checkout_repair_json = ?,
+         updated_at = ?
+     WHERE id = ?`
+  )
+    .bind(
+      checkout.checkoutSessionId,
+      checkout.checkoutUrl,
+      checkoutCreatedAt,
+      dodoRepairSprintProductId(env),
+      JSON.stringify(checkoutTarget),
+      checkoutCreatedAt,
+      fixRequest.id
+    )
+    .run();
+  await attachRepairSprintProposalsToFixRequest(env, fixRequest, proposals, now);
+
+  return jsonNoStore({
+    ok: true,
+    mode: "checkout",
+    checkoutUrl: checkout.checkoutUrl,
+    request: {
+      ...fixRequestWithProposalSummary(fixRequest, proposalSummary, checkoutCreatedAt),
+      status: "checkout_created",
+      checkoutSessionId: checkout.checkoutSessionId,
+      offer: REPAIR_SPRINT_OFFER,
+      checkoutCreatedAt
+    },
+    offer: REPAIR_SPRINT_OFFER,
+    repairSprint: {
+      ...eligibility,
+      checkoutLive: true
+    },
+    proposalSummary
+  });
+}
+
 async function requestMonitoringCheckout(request, env) {
   const access = await betaAccessStatus(request, env);
   if (!access.ok) return betaAccessResponse(access);
@@ -455,6 +667,7 @@ async function getBillingSummary(request, env) {
   const now = new Date().toISOString();
   const dodoConfig = dodoCheckoutConfigStatus(env);
   const monitoringConfig = dodoMonitoringCheckoutConfigStatus(env);
+  const repairSprintConfig = dodoRepairSprintCheckoutConfigStatus(env);
   const [monitoringEntitlementSchema, activeMonitorCount, monitoringEligibility] = await Promise.all([
     monitoringEntitlementSchemaStatus(env),
     activeAuditScheduleCount(env, access.ownerEmail),
@@ -469,7 +682,8 @@ async function getBillingSummary(request, env) {
   const pricing = await billingPricingState(request, env, access, dodoConfig);
   const offers = await offerCatalogForOwner(env, access.ownerEmail, {
     fixPackCheckoutReady: dodoConfig.checkoutReady,
-    monitoringCheckoutReady
+    monitoringCheckoutReady,
+    repairSprintCheckoutReady: repairSprintConfig.checkoutReady
   });
   const rows = await env.WAITLIST_DB.prepare(
     `SELECT *
@@ -505,6 +719,8 @@ async function getBillingSummary(request, env) {
       missing: dodoConfigMissing(dodoConfig),
       monitoringCheckoutReady,
       monitoringMissing: dodoConfigMissing(monitoringConfig),
+      repairSprintCheckoutReady: repairSprintConfig.checkoutReady,
+      repairSprintMissing: dodoConfigMissing(repairSprintConfig),
       monitoringEntitlementSchemaReady: monitoringEntitlementSchema.ok
     },
     billingLayer: {
@@ -848,6 +1064,7 @@ function checkoutRepairTargetFromJson(value = "") {
   if (!value) return null;
   const parsed = parseJson(value, null);
   if (!parsed || typeof parsed !== "object") return null;
+  if (parsed.offerKey === OFFER_KEYS.REPAIR_SPRINT) return null;
   return checkoutRepairTarget(parsed);
 }
 
@@ -858,6 +1075,121 @@ function checkoutRepairTargetMatches(fixRequest = {}, selectedRepair = null) {
   return stored.queueItemId === current.queueItemId &&
     stored.issueId === current.issueId &&
     stored.status === current.status;
+}
+
+function checkoutRepairSprintTarget(proposals = []) {
+  const approved = (proposals || [])
+    .filter((proposal) => proposal.approval_status === "approved" && proposal.execution_mode !== "unsupported")
+    .slice(0, 25);
+  return {
+    offerKey: OFFER_KEYS.REPAIR_SPRINT,
+    proposalIds: approved.map((proposal) => cleanText(proposal.id || "", 160)).filter(Boolean).sort(),
+    issueIds: approved.map((proposal) => cleanText(proposal.issue_id || "", 160)).filter(Boolean).sort(),
+    approved: approved.length,
+    executable: (proposals || []).filter((proposal) => proposal.execution_mode !== "unsupported").length
+  };
+}
+
+function checkoutRepairSprintTargetFromJson(value = "") {
+  if (!value) return null;
+  const parsed = parseJson(value, null);
+  if (!parsed || typeof parsed !== "object" || parsed.offerKey !== OFFER_KEYS.REPAIR_SPRINT) return null;
+  return {
+    offerKey: OFFER_KEYS.REPAIR_SPRINT,
+    proposalIds: Array.isArray(parsed.proposalIds)
+      ? parsed.proposalIds.map((id) => cleanText(id, 160)).filter(Boolean).sort()
+      : [],
+    issueIds: Array.isArray(parsed.issueIds)
+      ? parsed.issueIds.map((id) => cleanText(id, 160)).filter(Boolean).sort()
+      : [],
+    approved: Number(parsed.approved || 0),
+    executable: Number(parsed.executable || 0)
+  };
+}
+
+function checkoutRepairSprintTargetMatches(fixRequest = {}, current = {}) {
+  const stored = checkoutRepairSprintTargetFromJson(fixRequest.checkout_repair_json || "");
+  if (!stored) return false;
+  return stored.approved === current.approved &&
+    stored.executable === current.executable &&
+    stored.proposalIds.join(",") === (current.proposalIds || []).join(",") &&
+    stored.issueIds.join(",") === (current.issueIds || []).join(",");
+}
+
+async function repairSprintProposalsForCheckout(env, reportId, ownerEmail) {
+  const rows = await env.WAITLIST_DB.prepare(
+    `SELECT id, issue_id, approval_status, execution_mode, delivery_status, report_id, owner_email, fix_request_id
+     FROM repair_proposals
+     WHERE report_id = ?
+       AND owner_email = ?
+     ORDER BY priority ASC, updated_at DESC
+     LIMIT 50`
+  )
+    .bind(reportId, ownerEmail)
+    .all();
+  return rows.results || [];
+}
+
+function repairSprintProposalSummary(proposals = []) {
+  const executable = (proposals || []).filter((proposal) => proposal.execution_mode !== "unsupported");
+  const approved = executable.filter((proposal) => proposal.approval_status === "approved");
+  const delivered = executable.filter((proposal) => proposal.delivery_status === "delivered");
+  return {
+    status: "ready",
+    total: proposals.length,
+    executable: executable.length,
+    approved: approved.length,
+    approvedExecutable: approved.length,
+    delivered: delivered.length
+  };
+}
+
+async function attachRepairSprintProposalsToFixRequest(env, fixRequest = {}, proposals = [], now = new Date().toISOString()) {
+  const ids = (proposals || [])
+    .filter((proposal) => proposal.approval_status === "approved" && proposal.execution_mode !== "unsupported")
+    .map((proposal) => proposal.id)
+    .filter(Boolean);
+  for (const id of ids) {
+    await env.WAITLIST_DB.prepare(
+      `UPDATE repair_proposals
+       SET fix_request_id = COALESCE(NULLIF(fix_request_id, ''), ?),
+           updated_at = ?
+       WHERE id = ?
+         AND report_id = ?
+         AND owner_email = ?
+         AND approval_status = 'approved'
+         AND execution_mode != 'unsupported'`
+    )
+      .bind(fixRequest.id, now, id, fixRequest.report_id, fixRequest.owner_email)
+      .run();
+  }
+}
+
+function repairSprintCheckoutErrorResponse({
+  status = 400,
+  code,
+  error,
+  message = "",
+  repairSprint = null,
+  proposalSummary = null,
+  request = null,
+  missing = undefined
+} = {}) {
+  return jsonNoStore(
+    {
+      ok: false,
+      code,
+      error,
+      message: message || error,
+      checkoutAvailable: false,
+      offer: REPAIR_SPRINT_OFFER,
+      repairSprint,
+      proposalSummary,
+      request,
+      ...(missing ? { missing } : {})
+    },
+    status
+  );
 }
 
 async function seedRepairProposalsForFixRequest(env, report, fixRequest, reportRow, access, now) {
@@ -875,17 +1207,46 @@ async function seedRepairProposalsForFixRequest(env, report, fixRequest, reportR
   if (!proposals.length) return { status: "ready", total: 0, created: 0, executable: 0 };
 
   try {
+    // Reports seed their own proposals with an empty fix_request_id, so the
+    // report+owner window is the only one that sees them. Rows already sitting
+    // there get adopted with their owner approval intact instead of copied.
     const existing = await env.WAITLIST_DB.prepare(
-      `SELECT issue_id
+      `SELECT id, issue_id, fix_request_id
        FROM repair_proposals
-       WHERE fix_request_id = ?`
+       WHERE report_id = ?
+         AND owner_email = ?`
     )
-      .bind(fixRequest.id)
+      .bind(reportRow.id, access.ownerEmail)
       .all();
-    const existingIssueIds = new Set((existing.results || []).map((row) => row.issue_id));
+    const existingIssueIds = new Set();
+    const adoptableProposalIds = new Map();
+    for (const row of existing.results || []) {
+      if (!row.issue_id) continue;
+      if (row.fix_request_id === fixRequest.id) existingIssueIds.add(row.issue_id);
+      else if (!row.fix_request_id && !adoptableProposalIds.has(row.issue_id)) {
+        adoptableProposalIds.set(row.issue_id, row.id);
+      }
+    }
     let created = 0;
+    let adopted = 0;
     for (const proposal of proposals) {
       if (existingIssueIds.has(proposal.issueId)) continue;
+      const adoptableId = adoptableProposalIds.get(proposal.issueId);
+      if (adoptableId) {
+        const adoptResult = await env.WAITLIST_DB.prepare(
+          `UPDATE repair_proposals
+           SET fix_request_id = ?,
+               updated_at = ?
+           WHERE id = ?
+             AND report_id = ?
+             AND owner_email = ?
+             AND COALESCE(fix_request_id, '') = ''`
+        )
+          .bind(fixRequest.id, now, adoptableId, reportRow.id, access.ownerEmail)
+          .run();
+        adopted += Number(adoptResult?.meta?.changes || 0);
+        continue;
+      }
       const result = await env.WAITLIST_DB.prepare(
         `INSERT OR IGNORE INTO repair_proposals
           (id, fix_request_id, report_id, owner_email, issue_id, issue_title, target_url, target_host,
@@ -923,6 +1284,7 @@ async function seedRepairProposalsForFixRequest(env, report, fixRequest, reportR
       status: "ready",
       total: proposals.length,
       created,
+      adopted,
       executable: proposals.filter((proposal) => proposal.executionMode !== "unsupported").length
     };
   } catch {
@@ -1234,6 +1596,61 @@ async function createDodoMonitoringCheckout(request, env, access, context) {
   };
 }
 
+async function createDodoRepairSprintCheckout(request, env, reportRow, fixRequest, access, sprintTarget = {}) {
+  const returnUrl = new URL(request.url);
+  returnUrl.pathname = `/beta/reports/${reportRow.id}`;
+  returnUrl.search = "";
+  returnUrl.searchParams.set("checkout", "repair-sprint-return");
+  returnUrl.searchParams.set("fixRequestId", fixRequest.id);
+
+  const body = {
+    product_cart: [{ product_id: dodoRepairSprintProductId(env), quantity: 1 }],
+    return_url: returnUrl.toString(),
+    adaptive_currency_fees_inclusive: dodoAdaptiveCurrencyFeesInclusive(env),
+    customer: { email: access.ownerEmail },
+    metadata: {
+      product_key: REPAIR_SPRINT_OFFER.productKey,
+      offer_key: OFFER_KEYS.REPAIR_SPRINT,
+      fix_request_id: fixRequest.id,
+      report_id: reportRow.id,
+      owner_email: access.ownerEmail,
+      target_host: reportRow.target_host || safeHostname(reportRow.url),
+      approved_proposal_count: String(sprintTarget.approved || 0),
+      executable_proposal_count: String(sprintTarget.executable || 0)
+    }
+  };
+  const country = dodoCountryFromRequest(request);
+  if (country) body.billing_address = { country };
+
+  const { response, payload } = await fetchDodoJson(`${dodoBaseUrl(env)}/checkouts`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${dodoApiKey(env)}`
+    },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const message =
+      payload?.code === "MERCHANT_NOT_LIVE"
+        ? "Dodo live payments are not enabled for this merchant yet."
+        : payload?.message || "Dodo Repair Sprint checkout could not be created.";
+    return Promise.reject(Object.assign(new Error(message), { status: response.status, code: payload?.code || "" }));
+  }
+
+  const rawCheckoutUrl = payload.checkout_url || payload.payment_link || "";
+  const checkoutUrl = safeDodoCheckoutUrl(rawCheckoutUrl, env);
+  if (!checkoutUrl) {
+    throw Object.assign(new Error(rawCheckoutUrl ? "Dodo returned an invalid checkout URL." : "Dodo did not return a checkout URL."), {
+      code: "DODO_CHECKOUT_URL_INVALID"
+    });
+  }
+  return {
+    checkoutUrl,
+    checkoutSessionId: payload.session_id || payload.checkout_session_id || payload.id || ""
+  };
+}
+
 async function monitoringEntitlementSchemaStatus(env) {
   try {
     const entitlementStatement = env.WAITLIST_DB.prepare(
@@ -1416,9 +1833,17 @@ async function handleDodoWebhook(request, env, ctx) {
     const result = isSubscriptionEvent
       ? await processDodoSubscriptionWebhook(env, eventType, subscription, webhookId)
       : await processDodoPaymentWebhook(env, eventType, payment, webhookId);
-    await markDodoWebhookProcessed(env, webhookId, result.status || "processed", "", result.fixRequestId || payment.metadataFixRequestId || "");
+    await markDodoWebhookProcessed(
+      env,
+      webhookId,
+      result.status || "processed",
+      result.alertReason ? `payment_identity_rejected: ${result.alertReason}` : "",
+      result.fixRequestId || payment.metadataFixRequestId || ""
+    );
     if (result.paymentNotification?.fixRequest) {
-      const notification = notifyPaymentSucceeded(env, result.paymentNotification.fixRequest, payment);
+      const notification = notifyPaymentSucceeded(env, result.paymentNotification.fixRequest, payment, {
+        offerKey: result.paymentNotification.offerKey || result.offerKey || OFFER_KEYS.FIX_PACK
+      });
       if (ctx?.waitUntil) ctx.waitUntil(notification);
       else await notification;
     }
@@ -1519,7 +1944,16 @@ async function processDodoPaymentWebhook(env, eventType, payment, webhookId = ""
       reason: identity.reason,
       detail: { eventType, paymentId: payment.paymentId, webhookId }
     });
-    return { ok: false, ignored: true, status: "ignored", reason: identity.reason, fixRequestId: fixRequest.id };
+    const unattributable =
+      DODO_PAYMENT_SUCCESS_EVENTS.has(eventType) && UNATTRIBUTABLE_PAYMENT_IDENTITY_REASONS.has(identity.reason);
+    return {
+      ok: false,
+      ignored: true,
+      status: unattributable ? "error" : "ignored",
+      alertReason: unattributable ? identity.reason : "",
+      reason: identity.reason,
+      fixRequestId: fixRequest.id
+    };
   }
 
   if (DODO_PAYMENT_SUCCESS_EVENTS.has(eventType)) {
@@ -1597,7 +2031,7 @@ async function processDodoPaymentWebhook(env, eventType, payment, webhookId = ""
       status: "processed",
       paid: true,
       fixRequestId: fixRequest.id,
-      paymentNotification: { fixRequest: updated || fixRequest }
+      paymentNotification: { fixRequest: updated || fixRequest, offerKey: identity.offerKey || OFFER_KEYS.FIX_PACK }
     };
   }
 
@@ -2092,11 +2526,15 @@ async function dodoPaymentIdentityStatus(env, eventType, payment, fixRequest) {
     return { ok: true };
   }
 
-  if (payment.metadataProductKey !== FIX_PACK_OFFER.productKey) {
+  const expectedPaymentProduct = dodoPaymentProductForKey(env, payment.metadataProductKey);
+  if (!expectedPaymentProduct.productId) {
     return { ok: false, reason: payment.metadataProductKey ? "product_key_mismatch" : "missing_product_key" };
   }
-  if (!dodoProductMatches(payment, dodoProductId(env))) {
+  if (!dodoProductMatches(payment, expectedPaymentProduct.productId)) {
     return { ok: false, reason: payment.productIds.length ? "product_mismatch" : "missing_product_cart" };
+  }
+  if (fixRequest.product_id && fixRequest.product_id !== expectedPaymentProduct.productId) {
+    return { ok: false, reason: "checkout_product_mismatch" };
   }
   if (payment.productQuantity !== 1) {
     return { ok: false, reason: "product_quantity_mismatch" };
@@ -2124,8 +2562,19 @@ async function dodoPaymentIdentityStatus(env, eventType, payment, fixRequest) {
     checkoutSessionState = "superseded";
   }
   let repairTargetState = null;
-  const repairTarget = checkoutRepairTargetFromJson(fixRequest.checkout_repair_json || "");
-  if (repairTarget) {
+  const sprintTarget = checkoutRepairSprintTargetFromJson(fixRequest.checkout_repair_json || "");
+  const repairTarget = sprintTarget ? null : checkoutRepairTargetFromJson(fixRequest.checkout_repair_json || "");
+  if (sprintTarget) {
+    if (expectedPaymentProduct.offerKey !== OFFER_KEYS.REPAIR_SPRINT) {
+      return { ok: false, reason: "checkout_offer_mismatch" };
+    }
+    const nextRepairTargetState = await checkoutRepairSprintFulfillmentState(env, fixRequest, sprintTarget);
+    if (!nextRepairTargetState.ok) return nextRepairTargetState;
+    repairTargetState = nextRepairTargetState;
+  } else if (repairTarget) {
+    if (expectedPaymentProduct.offerKey !== OFFER_KEYS.FIX_PACK) {
+      return { ok: false, reason: "checkout_offer_mismatch" };
+    }
     if (cleanText(payment.metadataRepairQueueItemId || "", 160) !== repairTarget.queueItemId) {
       return { ok: false, reason: "repair_target_mismatch" };
     }
@@ -2135,6 +2584,10 @@ async function dodoPaymentIdentityStatus(env, eventType, payment, fixRequest) {
     const nextRepairTargetState = await checkoutRepairTargetFulfillmentState(env, fixRequest, repairTarget);
     if (!nextRepairTargetState.ok) return nextRepairTargetState;
     repairTargetState = nextRepairTargetState;
+  } else if (expectedPaymentProduct.offerKey === OFFER_KEYS.REPAIR_SPRINT) {
+    // A Repair Sprint is only ever sold against a stored approved-proposal
+    // snapshot; without one there is nothing to verify approval against.
+    return { ok: false, reason: "repair_sprint_checkout_target_missing" };
   }
   if (payment.customerEmail && normalizeEmail(payment.customerEmail) !== fixRequest.owner_email) {
     return { ok: false, reason: "customer_email_mismatch" };
@@ -2144,10 +2597,27 @@ async function dodoPaymentIdentityStatus(env, eventType, payment, fixRequest) {
   }
   return {
     ok: true,
+    offerKey: expectedPaymentProduct.offerKey,
     checkoutSessionState,
     repairTargetState: repairTargetState?.state || "",
     repairTargetStatus: repairTargetState?.status || ""
   };
+}
+
+function dodoPaymentProductForKey(env, productKey = "") {
+  if (productKey === FIX_PACK_OFFER.productKey) {
+    return {
+      offerKey: OFFER_KEYS.FIX_PACK,
+      productId: dodoProductId(env)
+    };
+  }
+  if (productKey === REPAIR_SPRINT_OFFER.productKey) {
+    return {
+      offerKey: OFFER_KEYS.REPAIR_SPRINT,
+      productId: dodoRepairSprintProductId(env)
+    };
+  }
+  return { offerKey: "", productId: "" };
 }
 
 async function checkoutRepairTargetFulfillmentState(env, fixRequest = {}, repairTarget = {}) {
@@ -2175,6 +2645,37 @@ async function checkoutRepairTargetFulfillmentState(env, fixRequest = {}, repair
   return { ok: true, state: "active", status };
 }
 
+async function checkoutRepairSprintFulfillmentState(env, fixRequest = {}, sprintTarget = {}) {
+  try {
+    const rows = await env.WAITLIST_DB.prepare(
+      `SELECT id, issue_id, approval_status, execution_mode
+       FROM repair_proposals
+       WHERE fix_request_id = ?
+         AND report_id = ?
+         AND owner_email = ?
+       ORDER BY priority ASC, updated_at DESC
+       LIMIT 50`
+    )
+      .bind(fixRequest.id, fixRequest.report_id, fixRequest.owner_email)
+      .all();
+    const proposals = rows.results || [];
+    const approved = proposals.filter(
+      (proposal) => proposal.approval_status === "approved" && proposal.execution_mode !== "unsupported"
+    );
+    const proposalIds = approved.map((proposal) => cleanText(proposal.id || "", 160)).filter(Boolean).sort();
+    if (!approved.length || approved.length < Number(sprintTarget.approved || 0)) {
+      return { ok: false, reason: "repair_sprint_approval_missing" };
+    }
+    if ((sprintTarget.proposalIds || []).some((id) => !proposalIds.includes(id))) {
+      return { ok: false, reason: "repair_sprint_approval_mismatch" };
+    }
+    return { ok: true, state: "active", status: "approved" };
+  } catch (error) {
+    if (isRepairTablesMissingError(error)) return { ok: true, state: "unavailable", status: "" };
+    throw error;
+  }
+}
+
 async function markDodoWebhookProcessed(env, webhookId, status, error = "", fixRequestId = "") {
   const now = new Date().toISOString();
   await env.WAITLIST_DB.prepare(
@@ -2186,9 +2687,10 @@ async function markDodoWebhookProcessed(env, webhookId, status, error = "", fixR
     .run();
 }
 
-async function notifyPaymentSucceeded(env, fixRequest, payment) {
+async function notifyPaymentSucceeded(env, fixRequest, payment, options = {}) {
   const appOrigin = String(env.SEOFIXKIT_APP_ORIGIN || "https://seofixkit.com").replace(/\/+$/, "");
   const report = await reportForNotification(env, fixRequest.report_id);
+  const offerKey = options.offerKey || OFFER_KEYS.FIX_PACK;
   const recipients = [
     { type: "owner", email: normalizeEmail(fixRequest.owner_email) },
     { type: "admin", email: adminNotificationEmail(env) }
@@ -2203,6 +2705,7 @@ async function notifyPaymentSucceeded(env, fixRequest, payment) {
         fixRequest,
         report,
         payment,
+        offerKey,
         recipientType: recipient.type,
         recipientEmail: recipient.email
       })
@@ -2232,6 +2735,7 @@ async function sendFixPackPaymentEmail({
   fixRequest,
   report,
   payment,
+  offerKey = OFFER_KEYS.FIX_PACK,
   recipientType,
   recipientEmail
 }) {
@@ -2270,9 +2774,10 @@ async function sendFixPackPaymentEmail({
     fixRequest,
     report,
     payment,
+    offerKey,
     recipientType
   });
-  const tag = "fix-pack-payment";
+  const tag = offerKey === OFFER_KEYS.REPAIR_SPRINT ? "repair-sprint-payment" : "fix-pack-payment";
   if (shouldSkipOwnedInternalEmail(env, { to: recipientEmail, tag })) {
     await logFixRequestNotification(env, {
       fixRequestId: fixRequest.id,
@@ -2601,6 +3106,7 @@ export {
   reportForNotification,
   requestFixPack,
   requestMonitoringCheckout,
+  requestRepairSprintCheckout,
   reserveDodoWebhookEvent,
   safeDodoCheckoutUrl,
   sendFixPackPaymentEmail,

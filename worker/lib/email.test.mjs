@@ -29,6 +29,15 @@ test("same-domain fix pack admin emails are skipped at the source", async () => 
   }), true);
 });
 
+test("same-domain repair sprint admin emails are skipped at the source", async () => {
+  const { env } = fakeEmailEnv();
+
+  assert.equal(shouldSkipOwnedInternalEmail(env, {
+    to: "support@seofixkit.com",
+    tag: "repair-sprint-payment"
+  }), true);
+});
+
 test("cross-owned ops emails are skipped at the source", async () => {
   const { env } = fakeEmailEnv({
     INTERNAL_EMAIL_DOMAINS: "seofixkit.com,tinystudio.io"

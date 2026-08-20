@@ -208,6 +208,8 @@ test("machine-readable public surfaces list proof pages and limits", () => {
   assert.match(llms, /Does not provide live AI-engine visibility tracking/);
   assert.match(llms, /Proof Monitoring checkout is config-gated/);
   assert.match(llms, /Does not claim paid Proof Monitoring is active/);
+  assert.match(llms, /Repair Sprint checkout is config-gated/);
+  assert.match(llms, /Does not claim Repair Sprint checkout is active/);
   assert.match(llms, /Does not auto-publish growth content/);
   assert.match(llms, /implementation packs and repair proof receipts are private handoff\/proof documents/i);
   assert.match(llms, /does not publish CMS changes/i);
