@@ -98,6 +98,35 @@ still absent from this box and its policy allowlist remains empty, so every
 venue stays manual-only; the account owner's exact resume path is the
 2026-08-11 execution ledger below.
 
+Re-verified 2026-08-20 (lane-1 packet run): no venue state changed since the
+2026-08-14 ledger. Direct probes re-run live 2026-08-20: SaaSHub
+`/seo-fix-kit` HTTP 404 (absent); Directree `/seo-fix-kit` HTTP 404 (absent);
+SaaS Hive `/seo-fix-kit` HTTP 200 with the generic homepage title ("The SaaS
+launch and discovery platform built for AI search engines…"), zero
+`seofixkit` / `SEO Fix Kit` strings in the body — still a soft-404 to the
+homepage, no listing; AlternativeTo and Product Hunt remain bot-walled
+(HTTP 403 to plain curl; prior Camoufox receipts stand); GeoIndex
+80-vendor directory fetched live 2026-08-20
+(`https://www.geodes.ai/geo-aeo-and-ai-search-vendor-directory`) still has
+zero `seofixkit` / `SEO Fix Kit` entries (GeoIndex submission remains
+pending review). `venue-claim check` is now runnable on this box
+(/home/nish/.local/bin/venue-claim is present again); every venue still
+returns `policy disposition … unknown (not reviewed)` (Product Hunt remains
+`prohibited` per `venue-policy.json` producthunt.com entry), and the policy
+allowlist is still empty, so `venue-claim claim` stays blocked and every
+venue stays manual-only. No new venue packets landed in
+`agent-state/growth-loop/packets/seo-fix-kit/` since 2026-08-13 (the
+2026-08-13 `intent-pages-machine-readable-proof-20260813.md` remains the
+most recent), and `venues.json` still has zero active claims, so no listing
+exists anywhere and no submission can be claimed as live. All canonical
+product surfaces re-verified live 2026-08-20 (`/llms.txt`, `/packages`,
+`/demo`, `/methodology`, `/check`, `/api/health` all HTTP 200);
+`/packages` still states the $99.00 one-time beta Fix Pack ("$99.00",
+"one proof-backed repair pass", "One proof-backed repair pass", "one rerun",
+"one-time", "No ranking or traffic guarantee" — all confirmed on the live
+page), so the approved copy inputs remain current. The account owner's
+exact resume path is still the 2026-08-11 execution ledger below.
+
 ---
 
 ## 2026-08-11 execution ledger (verified outcomes)
