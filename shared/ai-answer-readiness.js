@@ -36,6 +36,13 @@ export function buildAiAnswerReadiness(report = {}, options = {}) {
   }
 
   const llmsTxt = normalizeDiscoveryFile(options.llmsTxt || report.llmsTxt || report.llms_txt);
+  const trafficIndex = buildTrafficIndex(
+    options.keywordRows ||
+      options.keywordRankRows ||
+      report.keywordRankAudit?.rows ||
+      report.keyword_rank_audit?.rows ||
+      []
+  );
   const checks = {
     contentDepth: contentDepthCheck(pages),
     structuredData: structuredDataCheck(pages),
@@ -43,9 +50,9 @@ export function buildAiAnswerReadiness(report = {}, options = {}) {
     answerStructure: answerStructureCheck(pages),
     discoveryFiles: discoveryFilesCheck(report.crawlInventory || report.crawl_inventory, llmsTxt)
   };
-  const repairOpportunities = aiReadinessRepairOpportunities(checks);
+  const repairOpportunities = aiReadinessRepairOpportunities(checks, trafficIndex);
   const findings = repairOpportunities.map(repairToFinding);
-  const summary = aiReadinessSummary(pages, checks, repairOpportunities);
+  const summary = aiReadinessSummary(pages, checks, repairOpportunities, trafficIndex);
 
   return {
     status: "ready",
@@ -70,6 +77,9 @@ export function aiAnswerReadinessBriefLines(audit = {}) {
     `Pages with helpful schema: ${summary.pagesWithHelpfulSchema || 0}`,
     `Pages with question-led structure: ${summary.pagesWithQuestionStructure || 0}`,
     `Optional llms.txt: ${summary.llmsTxtStatus || "unknown"}`,
+    summary.trafficRanked
+      ? `Prioritization: imported Search Console traffic (${summary.trafficRowsUsed || 0} rows). Faults with more clicks and impressions on the affected pages come first.`
+      : "Prioritization: proof order. Import Search Console rows to rank faults by the traffic behind them.",
     ""
   ];
 
@@ -93,10 +103,13 @@ export function aiAnswerReadinessSummaryCopy(audit = {}) {
   if (audit.status !== "ready") return "";
   const summary = audit.summary || {};
   const repairCount = summary.repairOpportunityCount || audit.repairOpportunities?.length || 0;
+  const trafficNote = summary.trafficRanked
+    ? " Faults are ranked by imported Search Console clicks and impressions on the affected pages."
+    : " Faults stay in proof order until Search Console rows are imported.";
   if (!repairCount) {
-    return `The rendered pages show enough extractable content, canonical clarity, helpful structure, and optional discovery context for this proof pass. This is not an AI visibility score.`;
+    return `The rendered pages show enough extractable content, canonical clarity, helpful structure, and optional discovery context for this proof pass. This is not an AI visibility score.${trafficNote}`;
   }
-  return `${repairCount} proof-derived readiness ${repairCount === 1 ? "repair" : "repairs"} found across ${summary.pagesChecked || 0} rendered ${summary.pagesChecked === 1 ? "page" : "pages"}. This is not live answer-engine sampling or citation monitoring.`;
+  return `${repairCount} proof-derived readiness ${repairCount === 1 ? "repair" : "repairs"} found across ${summary.pagesChecked || 0} rendered ${summary.pagesChecked === 1 ? "page" : "pages"}. This is not live answer-engine sampling or citation monitoring.${trafficNote}`;
 }
 
 function pageEvidenceRows(pages = []) {
@@ -222,28 +235,35 @@ function discoveryFilesCheck(inventory = {}, llmsTxt = {}) {
   };
 }
 
-function aiReadinessRepairOpportunities(checks = {}) {
+function aiReadinessRepairOpportunities(checks = {}, trafficIndex = emptyTrafficIndex()) {
   const items = [];
   const add = (item) => {
+    const affectedPages = sortPagesByTraffic(item.affectedPages || [], trafficIndex);
+    const lead = affectedPages[0] || {};
     items.push({
       priority: items.length + 1,
       confidence: item.confidence || "needs-review",
       estimatedEffort: item.estimatedEffort || "30-90 min",
       workType: item.workType || "content",
       source: "ai-answer-readiness-proof",
-      ...item
+      ...item,
+      affectedPages,
+      pageUrl: item.pageUrl || lead.url || "",
+      pageLabel: item.pageLabel || lead.label || ""
     });
   };
 
   if (checks.contentDepth?.lowContentPages?.length) {
-    const first = checks.contentDepth.lowContentPages[0];
+    const pages = checks.contentDepth.lowContentPages;
+    const lead = sortPagesByTraffic(pages, trafficIndex)[0] || pages[0];
     add({
       issueId: "ai-answer-readiness-content-depth",
       severity: "warning",
       title: "AI Answer Readiness: rendered pages lack extractable detail",
-      pageUrl: first.url,
-      pageLabel: first.label,
-      proof: `${checks.contentDepth.lowContentPages.length} rendered ${checks.contentDepth.lowContentPages.length === 1 ? "page has" : "pages have"} fewer than 250 words, led by ${first.label} with ${first.wordCount} words.`,
+      affectedPages: pages,
+      pageUrl: lead.url,
+      pageLabel: lead.label,
+      proof: `${pages.length} rendered ${pages.length === 1 ? "page has" : "pages have"} fewer than 250 words, led by ${lead.label} with ${lead.wordCount} words.`,
       why: "Answer systems and search crawlers need visible, page-specific text they can parse, summarize, and cite. This is a readiness heuristic, not a ranking rule.",
       fix: "Add visible page-specific explanation, proof, examples, FAQs, comparisons, and next steps before relying on structured data or metadata alone.",
       acceptance: "Rerun the audit and confirm the page has at least 250 rendered words with visible, page-specific detail.",
@@ -252,10 +272,12 @@ function aiReadinessRepairOpportunities(checks = {}) {
   }
 
   if (checks.structuredData?.status === "needs_review") {
+    const pages = checks.structuredData.missingPages || [];
     add({
       issueId: "ai-answer-readiness-structured-data",
       severity: "notice",
       title: "AI Answer Readiness: helpful structured data was not proven",
+      affectedPages: pages,
       proof: "No rendered page exposed FAQPage, Article, Product, Service, Organization, LocalBusiness, SoftwareApplication, HowTo, or BreadcrumbList schema.",
       why: "Truthful schema can clarify page entities, relationships, products, services, and FAQs for search features and machine readers.",
       fix: "Add JSON-LD that matches visible content. Start with Organization/Service for service pages, Product for product pages, FAQPage for visible FAQs, and BreadcrumbList for hierarchical pages.",
@@ -265,15 +287,15 @@ function aiReadinessRepairOpportunities(checks = {}) {
   }
 
   if (checks.sourceClarity?.status === "needs_repair") {
-    const firstCanonical = checks.sourceClarity.missingCanonicalPages?.[0];
-    const firstIsolated = checks.sourceClarity.isolatedPages?.[0];
-    const first = firstCanonical || firstIsolated || {};
+    const pages = uniquePages([
+      ...(checks.sourceClarity.missingCanonicalPages || []),
+      ...(checks.sourceClarity.isolatedPages || [])
+    ]);
     add({
       issueId: "ai-answer-readiness-source-clarity",
-      severity: firstCanonical ? "warning" : "notice",
+      severity: (checks.sourceClarity.missingCanonicalPages || []).length ? "warning" : "notice",
       title: "AI Answer Readiness: preferred source pages are unclear",
-      pageUrl: first.url || "",
-      pageLabel: first.label || "",
+      affectedPages: pages,
       proof: [
         checks.sourceClarity.missingCanonicalPages?.length
           ? `${checks.sourceClarity.missingCanonicalPages.length} page${checks.sourceClarity.missingCanonicalPages.length === 1 ? "" : "s"} lacked rendered canonical URLs.`
@@ -294,6 +316,7 @@ function aiReadinessRepairOpportunities(checks = {}) {
       issueId: "ai-answer-readiness-answer-structure",
       severity: "notice",
       title: "AI Answer Readiness: question-led sections are missing",
+      affectedPages: checks.answerStructure.missingPages || [],
       proof: "The rendered crawl did not prove FAQ, HowTo, question-style headings, or enough section structure to expose direct answers.",
       why: "Question-led headings and clearly sectioned answers make it easier for users, search snippets, and machine readers to extract specific answers.",
       fix: "Add visible sections that answer common buyer questions, objections, pricing/fit questions, and use-case questions. Add FAQ schema only after the FAQ is visible.",
@@ -307,6 +330,7 @@ function aiReadinessRepairOpportunities(checks = {}) {
       issueId: "ai-answer-readiness-llms-txt",
       severity: "notice",
       title: "AI Answer Readiness: optional llms.txt is not reachable",
+      affectedPages: [],
       proof: `GET /llms.txt returned ${checks.discoveryFiles.llmsTxt.status || checks.discoveryFiles.llmsTxt.error || "no usable text"}. This is advisory only; it is not a ranking, visibility, or citation failure.`,
       why: "An llms.txt file can give AI agents a concise public map of useful product pages and boundaries, but it is optional and not proof of AI visibility.",
       fix: "Publish a concise /llms.txt that links to current public docs, product pages, support, pricing/package pages, and explicit product limits.",
@@ -316,7 +340,7 @@ function aiReadinessRepairOpportunities(checks = {}) {
     });
   }
 
-  return items;
+  return prioritizeReadinessRepairs(items, trafficIndex);
 }
 
 function repairToFinding(item = {}, index = 0) {
@@ -332,17 +356,21 @@ function repairToFinding(item = {}, index = 0) {
     confidence: item.confidence || "needs-review",
     source: item.source || "ai-answer-readiness-proof",
     pageUrl: item.pageUrl || null,
-    pageLabel: item.pageLabel || null
+    pageLabel: item.pageLabel || null,
+    trafficRanked: Boolean(item.trafficRanked),
+    trafficClicks: Number(item.trafficClicks || 0),
+    trafficImpressions: Number(item.trafficImpressions || 0)
   };
 }
 
-function aiReadinessSummary(pages = [], checks = {}, repairs = []) {
+function aiReadinessSummary(pages = [], checks = {}, repairs = [], trafficIndex = emptyTrafficIndex()) {
   const penalty =
     (checks.contentDepth?.lowContentPages?.length ? 28 : 0) +
     (checks.structuredData?.status === "needs_review" ? 16 : 0) +
     (checks.sourceClarity?.status === "needs_repair" ? 18 : 0) +
     (checks.answerStructure?.status === "needs_review" ? 10 : 0) +
     (checks.discoveryFiles?.llmsTxt && !checks.discoveryFiles.llmsTxt.ok ? 4 : 0);
+  const trafficRanked = Boolean(trafficIndex.rowCount);
   return {
     method: "proof-derived-readiness-v1",
     pagesChecked: pages.length,
@@ -358,7 +386,10 @@ function aiReadinessSummary(pages = [], checks = {}, repairs = []) {
     pagesWithQuestionStructure: checks.answerStructure?.pagesWithQuestionStructure || 0,
     sitemapReady: Boolean(checks.discoveryFiles?.sitemapReady),
     sitemapUrlsDiscovered: checks.discoveryFiles?.sitemapUrlsDiscovered || 0,
-    llmsTxtStatus: checks.discoveryFiles?.llmsTxt?.ok ? "reachable" : "not_reachable"
+    llmsTxtStatus: checks.discoveryFiles?.llmsTxt?.ok ? "reachable" : "not_reachable",
+    trafficRanked,
+    trafficRowsUsed: trafficIndex.rowCount || 0,
+    prioritization: trafficRanked ? "imported-search-console-traffic" : "proof-order"
   };
 }
 
@@ -429,4 +460,149 @@ function cleanText(input = "", maxLength = 500) {
 
 function byteLength(value = "") {
   return new TextEncoder().encode(String(value || "")).length;
+}
+
+function emptyTrafficIndex() {
+  return { rowCount: 0, byUrl: new Map() };
+}
+
+function buildTrafficIndex(rows = []) {
+  const byUrl = new Map();
+  let rowCount = 0;
+  for (const row of rows || []) {
+    const pageUrl =
+      row.pageUrl ||
+      row.page_url ||
+      row.page ||
+      row.url ||
+      row.landingPage ||
+      row.landing_page ||
+      "";
+    const key = normalizePageKey(pageUrl);
+    if (!key) continue;
+    const clicks = positiveMetric(row.clicks ?? row.currentClicks ?? row.current_clicks);
+    const impressions = positiveMetric(row.impressions ?? row.currentImpressions ?? row.current_impressions);
+    const current = byUrl.get(key) || { clicks: 0, impressions: 0, rows: 0 };
+    current.clicks += clicks;
+    current.impressions += impressions;
+    current.rows += 1;
+    byUrl.set(key, current);
+    rowCount += 1;
+  }
+  return { rowCount, byUrl };
+}
+
+function pageTraffic(page = {}, trafficIndex = emptyTrafficIndex()) {
+  const key = normalizePageKey(page.url || page.pageUrl || "");
+  if (!key) return { clicks: 0, impressions: 0, rows: 0 };
+  return trafficIndex.byUrl.get(key) || { clicks: 0, impressions: 0, rows: 0 };
+}
+
+function sumPageTraffic(pages = [], trafficIndex = emptyTrafficIndex()) {
+  const seen = new Set();
+  const total = { clicks: 0, impressions: 0, rows: 0 };
+  for (const page of pages || []) {
+    const key = normalizePageKey(page.url || page.pageUrl || "");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const traffic = trafficIndex.byUrl.get(key);
+    if (!traffic) continue;
+    total.clicks += traffic.clicks;
+    total.impressions += traffic.impressions;
+    total.rows += traffic.rows;
+  }
+  return total;
+}
+
+function sortPagesByTraffic(pages = [], trafficIndex = emptyTrafficIndex()) {
+  return [...(pages || [])].sort((left, right) => {
+    const a = pageTraffic(left, trafficIndex);
+    const b = pageTraffic(right, trafficIndex);
+    if (b.clicks !== a.clicks) return b.clicks - a.clicks;
+    if (b.impressions !== a.impressions) return b.impressions - a.impressions;
+    return 0;
+  });
+}
+
+function uniquePages(pages = []) {
+  const seen = new Set();
+  const unique = [];
+  for (const page of pages || []) {
+    const key = normalizePageKey(page.url || page.pageUrl || "") || `${page.label || ""}|${unique.length}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(page);
+  }
+  return unique;
+}
+
+function prioritizeReadinessRepairs(items = [], trafficIndex = emptyTrafficIndex()) {
+  const trafficRanked = Boolean(trafficIndex.rowCount);
+  const scored = items.map((item, index) => ({
+    item,
+    index,
+    traffic: sumPageTraffic(item.affectedPages || [], trafficIndex)
+  }));
+  if (trafficRanked) {
+    scored.sort((left, right) => {
+      if (right.traffic.clicks !== left.traffic.clicks) return right.traffic.clicks - left.traffic.clicks;
+      if (right.traffic.impressions !== left.traffic.impressions) return right.traffic.impressions - left.traffic.impressions;
+      return left.index - right.index;
+    });
+  }
+  return scored.map((entry, index) => {
+    const proof = trafficRanked ? trafficProofSuffix(entry.traffic) : "";
+    return {
+      ...entry.item,
+      priority: index + 1,
+      trafficRanked,
+      trafficClicks: entry.traffic.clicks,
+      trafficImpressions: entry.traffic.impressions,
+      proof: proof ? `${entry.item.proof} ${proof}` : entry.item.proof
+    };
+  });
+}
+
+function trafficProofSuffix(traffic = {}) {
+  const clicks = Number(traffic.clicks || 0);
+  const impressions = Number(traffic.impressions || 0);
+  if (clicks || impressions) {
+    return `Imported Search Console rows show ${formatCount(clicks)} clicks and ${formatCount(impressions)} impressions on the affected pages.`;
+  }
+  return "No imported Search Console rows matched these pages.";
+}
+
+function normalizePageKey(value = "") {
+  try {
+    const url = new URL(String(value || "").trim());
+    url.hash = "";
+    url.hostname = url.hostname.replace(/^www\./i, "").toLowerCase();
+    const defaultPort = (url.protocol === "http:" && "80") || (url.protocol === "https:" && "443") || "";
+    if (url.port === defaultPort) url.port = "";
+    let path = url.pathname || "/";
+    if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
+    const port = url.port ? `:${url.port}` : "";
+    // Return a canonical host+path key WITHOUT the scheme so that imported
+    // http:// rows still match pages whose rendered evidence is https:// after
+    // a redirect (scheme is not part of page identity for traffic matching).
+    return `${url.hostname}${port}${path}`;
+  } catch {
+    return String(value || "")
+      .split("#")[0]
+      .replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//i, "")
+      .replace(/^www\./i, "")
+      .replace(/\/$/, "")
+      .trim()
+      .toLowerCase();
+  }
+}
+
+function positiveMetric(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return 0;
+  return number;
+}
+
+function formatCount(value) {
+  return Math.round(positiveMetric(value)).toLocaleString("en-US");
 }
