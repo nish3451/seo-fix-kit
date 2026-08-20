@@ -225,6 +225,9 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "no live answer-engine sampling", match: "No live answer-engine sampling" },
         { reason: "no AI citation monitoring", match: "No AI citation monitoring" },
         { reason: "llms.txt stays optional", match: "llms.txt stays optional" },
+        { reason: "names CrawlRaven comparison", match: "Compared with CrawlRaven" },
+        { reason: "names imported traffic ranking", match: "ranked by the clicks and impressions on the affected pages" },
+        { reason: "names no auto-join gap", match: "does not connect to Search Console or GA4 automatically" },
         { reason: "no-overclaim section", match: "What this page does not claim" },
         { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
         ...landingPageLdExpectations("/ai-answer-readiness", "AI Answer Readiness Check")
