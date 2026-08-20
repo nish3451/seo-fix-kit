@@ -28,7 +28,7 @@ Live product claims:
 - Verified sessions can supply local business details, keywords, and citation URLs for local SEO proof and repair actions.
 - Verified sessions can import Search Console or rank-tracker keyword rows for low-CTR, page-two, decline, cannibalization, intent-match, uncrawled landing-page repair actions, and rank observation history.
 - Reports include rendered WordPress and ecommerce platform proof for Product schema, breadcrumbs, faceted links, archives, and plugin resource impact.
-- Reports include proof-derived AI Answer Readiness checks for rendered content depth, helpful schema, canonical/internal-link clarity, question-led structure, sitemap context, and optional llms.txt reachability.
+- Reports include proof-derived AI Answer Readiness checks for rendered content depth, helpful schema, canonical/internal-link clarity, question-led structure, sitemap context, and optional llms.txt reachability. When imported Search Console rows are present, those faults are ranked by clicks and impressions on the affected pages.
 - Intent-matching landing pages at ${origin}/small-business-seo-audit, ${origin}/rendered-vs-static-seo-audit, and ${origin}/ai-answer-readiness describe the proof-backed small-business audit, rendered-vs-static proof loop, and site-proof AI Answer Readiness boundary; none claim live answer-engine sampling or AI citation monitoring.
 - Reports include draft-only growth briefs from verified keyword, competitor, AI-readiness, and crawl gaps.
 - Reports include a private repair queue with proof, acceptance checks, status, safe draft action records, approval state, owner-approved implementation packs, and proof receipts after fixed rerun proof.
@@ -497,11 +497,11 @@ function aiAnswerReadinessHtml(origin) {
     origin,
     path: "/ai-answer-readiness",
     title: "AI Answer Readiness Check",
-    description: "A site-proof AI Answer Readiness check: rendered content depth, helpful schema, canonical and internal-link clarity, question-led structure, sitemap context, and optional llms.txt reachability — no live citation monitoring.",
+    description: "A site-proof AI Answer Readiness check with optional traffic-ranked faults from imported Search Console rows — no live citation monitoring, no auto-join to GA4.",
     eyebrow: "AI Answer Readiness",
     heading: "A site-proof AI readiness check, not a citation tracker.",
-    lead: "AI search visibility starts with content and markup answer engines can actually use. SEO Fix Kit derives AI Answer Readiness from your rendered pages, schema, links, sitemap context, and optional llms.txt — it does not sample live answer engines or monitor citations.",
-    softwareDescription: "Private-beta SEO repair software with proof-derived AI Answer Readiness checks built from rendered content, schema, canonical and internal-link clarity, sitemap context, and optional llms.txt reachability.",
+    lead: "AI search visibility starts with content and markup answer engines can actually use. SEO Fix Kit derives AI Answer Readiness from your rendered pages, schema, links, sitemap context, and optional llms.txt. When you import Search Console rows, those proof-derived faults are ranked by the traffic behind them. It does not sample live answer engines or monitor citations.",
+    softwareDescription: "Private-beta SEO repair software with proof-derived AI Answer Readiness checks built from rendered content, schema, canonical and internal-link clarity, sitemap context, and optional llms.txt reachability. Imported Search Console rows rank those faults by clicks and impressions on the affected pages.",
     body: `
       <section class="band">
         <h2>What the readiness check measures</h2>
@@ -511,6 +511,16 @@ function aiAnswerReadinessHtml(origin) {
           <li>Canonical and internal-link clarity: one canonical per URL and a link graph an engine can follow.</li>
           <li>Question-led structure: headings and copy that answer the questions searchers and answer engines ask.</li>
           <li>Sitemap context and coverage, plus optional llms.txt reachability when present.</li>
+          <li>Traffic-ranked prioritization: when Search Console or rank-tracker rows are imported, faults on pages with more clicks and impressions come first.</li>
+        </ul>
+      </section>
+      <section class="band">
+        <h2>Compared with CrawlRaven</h2>
+        <p>CrawlRaven defines AI search readiness auditors as tools that find the technical reasons you are not cited, and it sells a one-time readiness audit that joins Search Console and GA4 so faults are ranked by the traffic behind them. SEO Fix Kit's AI Answer Readiness wedge is the same job: prove why a rendered page is hard for an answer engine to use.</p>
+        <ul class="check-list">
+          <li>When you import Search Console or rank-tracker rows, SEO Fix Kit ranks proof-derived readiness faults by the clicks and impressions on the affected pages.</li>
+          <li>SEO Fix Kit does not connect to Search Console or GA4 automatically, and it does not sample ChatGPT, Perplexity, Google AI Overviews, or other engines.</li>
+          <li>Proof without traffic is still useful: a tracker can say a page is invisible, while a readiness check says why the rendered page is thin, unclear, or missing schema. Traffic ranking then puts the proven faults that sit on pages with search demand first.</li>
         </ul>
       </section>
       <section class="grid two" aria-label="Readiness boundaries">
@@ -523,13 +533,13 @@ function aiAnswerReadinessHtml(origin) {
         <h2>How to get the check</h2>
         <ul class="check-list">
           <li>Free: paste a public URL at ${origin}/check for rendered proof, guarded false positives, and actionable findings when present — no account and nothing stored.</li>
-          <li>Private reports for verified sites include proof-derived AI Answer Readiness checks beside the rendered crawl evidence.</li>
+          <li>Private reports for verified sites include proof-derived AI Answer Readiness checks beside the rendered crawl evidence. Import Search Console rows on the same audit to rank those faults by traffic.</li>
           <li>Read the exact boundaries on ${origin}/methodology before relying on any readiness signal.</li>
         </ul>
       </section>
       <section class="band">
         <h2>What this page does not claim</h2>
-        <p>This page is a landing page, not a readiness report for your site. AI Answer Readiness does not guarantee rankings, traffic, AI citations, or revenue, and it does not replace live AI visibility tracking, which is not part of the product.</p>
+        <p>This page is a landing page, not a readiness report for your site. SEO Fix Kit does not provide live AI citation monitoring or answer-engine sampling, does not auto-join Search Console or GA4, and does not guarantee rankings, traffic, AI citations, or revenue.</p>
       </section>
       <section class="band">
         <h2>Start with proof</h2>
@@ -539,6 +549,7 @@ function aiAnswerReadinessHtml(origin) {
     `,
     faq: [
       { q: "Is AI Answer Readiness the same as monitoring citations in ChatGPT or Perplexity?", a: "No. Readiness is site-proof: it evaluates what your rendered pages, schema, links, sitemap context, and optional llms.txt allow an answer engine to understand. Live answer-engine sampling, AI citation monitoring, and AI visibility score tracking are not live." },
+      { q: "Does SEO Fix Kit rank AI readiness faults by traffic like CrawlRaven?", a: "When you import Search Console or rank-tracker rows, yes: readiness faults are ranked by the clicks and impressions on the affected pages. SEO Fix Kit does not auto-join Search Console or GA4, and it does not provide live AI citation monitoring or answer-engine sampling." },
       { q: "Do I need an llms.txt file to pass the check?", a: "No. llms.txt reachability is an optional signal. SEO Fix Kit does not claim llms.txt is required for Google Search or generative search surfaces." },
       { q: "Can I check my site's AI readiness for free?", a: "The anonymous one-page check at /check renders one public URL and returns proof fields and findings when present. Full proof-derived AI Answer Readiness checks appear in private reports for verified sites." },
       { q: "Does a good readiness signal guarantee AI visibility?", a: "No. Readiness is a site-proof diagnostic, and rankings, traffic, AI citations, and revenue are never guaranteed." }
