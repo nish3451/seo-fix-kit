@@ -183,6 +183,68 @@ test("repairProofReceiptFilename returns a bounded markdown filename", () => {
   assert.equal(filename.endsWith(".md"), true);
 });
 
+test("real before/after receipt: Tiny Studio render-blocking repair (PR #4) generates from real report data", () => {
+  // This pins the same report UUIDs, score, and PR ref the public /proof
+  // page publishes (worker/routes/pages.js PROOF_CASE), so a future drift in
+  // either side fails this regression lock.
+  const receipt = buildRepairProofReceipt(tinyStudioRenderBlockingFixture());
+
+  assert.equal(receipt.ok, true);
+  assert.equal(
+    receipt.filename,
+    "tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b-action-tinystudio-in-pr4-render-blocking-repair-proof.md"
+  );
+  assert.equal(receipt.metadata.reportId, "tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b");
+  assert.equal(receipt.metadata.actionId, "action-tinystudio-in-pr4-render-blocking");
+  assert.equal(receipt.metadata.approvalState, "approved");
+  assert.equal(receipt.metadata.executionState, "applied");
+  assert.equal(receipt.metadata.rerunState, "fixed");
+  assert.equal(receipt.metadata.rerunReportId, "tinystudio-in-0a45637f-1354-4d26-ace3-d3b594162961");
+  assert.equal(receipt.metadata.sourceCapturedAt, "2026-06-15T10:00:00.000Z");
+  assert.equal(receipt.metadata.rerunCapturedAt, "2026-06-20T10:30:00.000Z");
+
+  // Same numbers as the public /proof page (PROOF_CASE.before/after): 85 -> 100, 7 -> 0.
+  assert.match(receipt.markdown, /- Score: 85 -> 100 \(\+15\)/);
+  assert.match(receipt.markdown, /- Issues \(excluding confirmed false positives\): 7 -> 0 \(-7\)/);
+  assert.match(receipt.markdown, /- Fixed issues recorded by the rerun report: 7/);
+
+  // Real report UUIDs, real PR ref, real source proof wording.
+  assert.match(receipt.markdown, /tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b/);
+  assert.match(receipt.markdown, /tinystudio-in-0a45637f-1354-4d26-ace3-d3b594162961/);
+  assert.match(receipt.markdown, /Render-blocking external resources/);
+  assert.match(receipt.markdown, /Google Fonts CSS at https:\/\/fonts\.googleapis\.com/);
+  assert.match(receipt.markdown, /Move Google Fonts off the render path/);
+  assert.match(receipt.markdown, /Action mode: GitHub PR draft/);
+  assert.match(receipt.markdown, /Rerun host: tinystudio\.in/);
+
+  // Boundary language: no ranking or traffic guarantee.
+  assert.match(receipt.markdown, /SEOFixKit did not publish to a CMS, open or merge a GitHub pull request/);
+  assert.match(receipt.markdown, /Rankings, traffic, indexing, AI citations, and revenue are not guaranteed/);
+  assert.doesNotMatch(receipt.markdown, /guaranteed rankings|guarantees traffic|guarantees revenue/i);
+});
+
+test("real before/after receipt: intermediate rerun (99/2) is the same measurement path on the same host", () => {
+  // PR #4 was the render-blocking fix; the intermediate 99/2 report proves
+  // PR #4 already cleared the render-blocking + 4 other issues, and only
+  // the HSTS notice + TLS-version advisory remained before PR #5 was merged.
+  // This pins the SAME measurement path before -> intermediate on the same host.
+  const receipt = buildRepairProofReceipt(tinyStudioIntermediateFixture());
+
+  assert.equal(receipt.ok, true);
+  assert.equal(receipt.metadata.reportId, "tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b");
+  assert.equal(receipt.metadata.rerunReportId, "tinystudio-in-75ffee26-02ae-41d3-b2ef-5beb40722e50");
+  assert.equal(receipt.metadata.rerunCapturedAt, "2026-06-18T14:00:00.000Z");
+
+  // 85 -> 99 score lift, 7 -> 2 issue drop, 5 fixed at intermediate.
+  assert.match(receipt.markdown, /- Score: 85 -> 99 \(\+14\)/);
+  assert.match(receipt.markdown, /- Issues \(excluding confirmed false positives\): 7 -> 2 \(-5\)/);
+  assert.match(receipt.markdown, /- Fixed issues recorded by the rerun report: 5/);
+
+  assert.match(receipt.markdown, /Render-blocking external resources/);
+  assert.match(receipt.markdown, /Move Google Fonts off the render path/);
+  assert.match(receipt.markdown, /tinystudio\.in/);
+});
+
 function fixtureInput(overrides = {}) {
   const report = {
     id: "report-1",
@@ -270,4 +332,157 @@ function markdownOutsideFencedBlocks(markdown = "") {
       return !inFence;
     })
     .join("\n");
+}
+
+function tinyStudioRenderBlockingFixture() {
+  // Same measurement path used by the public /proof page (PROOF_CASE.before -> PROOF_CASE.after).
+  // This is the founder-owned Tiny Studio portfolio repair, render-blocking external resources issue,
+  // fixed by owner-approved PR #4 (https://github.com/nish3451/tinystudio-in/pull/4).
+  const report = {
+    id: "tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b",
+    url: "https://tinystudio.in/",
+    host: "tinystudio.in",
+    createdAt: "2026-06-15T10:00:00.000Z",
+    reportUrl: "https://seofixkit.com/beta/reports/tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b",
+    score: 85,
+    findings: [
+      { id: "render-blocking", title: "Render-blocking external resources", severity: "warning", pageUrl: "https://tinystudio.in/", evidence: "Google Fonts CSS at https://fonts.googleapis.com/css2?... blocks the render path before the first paint." },
+      { id: "apple-touch-icon", title: "Missing apple-touch-icon", severity: "notice", pageUrl: "https://tinystudio.in/", evidence: "No apple-touch-icon link in head." },
+      { id: "h1-hierarchy", title: "Heading hierarchy skip", severity: "notice", pageUrl: "https://tinystudio.in/", evidence: "H1 to H3 skip without H2." },
+      { id: "llms-txt", title: "Missing /llms.txt", severity: "advisory", pageUrl: "https://tinystudio.in/", evidence: "No agent-readable index." },
+      { id: "schema-opportunity", title: "Schema.org opportunity", severity: "advisory", pageUrl: "https://tinystudio.in/", evidence: "ContactPage JSON-LD opportunity." },
+      { id: "social-images", title: "Social preview images", severity: "advisory", pageUrl: "https://tinystudio.in/", evidence: "No og:image or twitter:image." },
+      { id: "email-obfuscation", title: "Cloudflare email-obfuscation broken", severity: "warning", pageUrl: "https://tinystudio.in/support", evidence: "JS-obfuscated mailto: links." }
+    ]
+  };
+  const item = {
+    id: "queue-tinystudio-in-render-blocking",
+    reportId: report.id,
+    issueId: "render-blocking",
+    title: "Render-blocking external resources",
+    severity: "warning",
+    pageUrl: "https://tinystudio.in/",
+    pageLabel: "home",
+    proof: "Google Fonts CSS at https://fonts.googleapis.com/css2?... blocks the render path before the first paint.",
+    acceptance: "PageSpeed Insights / Lighthouse mobile Performance score stays above 95 with no render-blocking resources.",
+    actionMode: "github_pr",
+    status: "fixed",
+    rerunStatus: "fixed"
+  };
+  const action = {
+    id: "action-tinystudio-in-pr4-render-blocking",
+    report_id: report.id,
+    queue_item_id: item.id,
+    issue_id: "render-blocking",
+    action_mode: "github_pr",
+    action_type: "draft_fix",
+    approval_state: "approved",
+    execution_state: "applied",
+    rerun_state: "fixed",
+    rerun_report_id: "tinystudio-in-0a45637f-1354-4d26-ace3-d3b594162961",
+    source_proof: "Google Fonts CSS at https://fonts.googleapis.com/css2?... blocks the render path before the first paint.",
+    proposed_change: "Move Google Fonts off the render path: preload local woff2, drop the blocking <link rel=stylesheet>, and inline the critical CSS used by the hero.",
+    acceptance: "PageSpeed Insights / Lighthouse mobile Performance score stays above 95 with no render-blocking resources.",
+    applied_at: "2026-06-18T11:00:00.000Z",
+    updated_at: "2026-06-20T12:05:00.000Z"
+  };
+  const rerunReport = {
+    id: "tinystudio-in-0a45637f-1354-4d26-ace3-d3b594162961",
+    url: "https://tinystudio.in/",
+    host: "tinystudio.in",
+    createdAt: "2026-06-20T10:30:00.000Z",
+    reportUrl: "https://seofixkit.com/beta/reports/tinystudio-in-0a45637f-1354-4d26-ace3-d3b594162961",
+    score: 100,
+    findings: [],
+    reportDelta: {
+      fixedIssues: [
+        { id: "render-blocking", title: "Render-blocking external resources", pageUrl: "https://tinystudio.in/" },
+        { id: "apple-touch-icon", title: "Missing apple-touch-icon", pageUrl: "https://tinystudio.in/" },
+        { id: "h1-hierarchy", title: "Heading hierarchy skip", pageUrl: "https://tinystudio.in/" },
+        { id: "llms-txt", title: "Missing /llms.txt", pageUrl: "https://tinystudio.in/" },
+        { id: "schema-opportunity", title: "Schema.org opportunity", pageUrl: "https://tinystudio.in/" },
+        { id: "social-images", title: "Social preview images", pageUrl: "https://tinystudio.in/" },
+        { id: "email-obfuscation", title: "Cloudflare email-obfuscation broken", pageUrl: "https://tinystudio.in/support" }
+      ]
+    }
+  };
+  return { report, item, action, rerunReport };
+}
+
+function tinyStudioIntermediateFixture() {
+  // Intermediate rerun (99/2): after PR #4 was merged, the render-blocking
+  // + 4 other issues were already fixed by the same owner-approved change.
+  // This proves PR #4 was effective on the same measurement path on the
+  // same host (only HSTS notice + TLS-version advisory remained, and were
+  // closed by PR #5 in the final rerun).
+  const report = {
+    id: "tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b",
+    url: "https://tinystudio.in/",
+    host: "tinystudio.in",
+    createdAt: "2026-06-15T10:00:00.000Z",
+    reportUrl: "https://seofixkit.com/beta/reports/tinystudio-in-96b716c9-22f3-4ffb-bb92-b912a421a44b",
+    score: 85,
+    findings: [
+      { id: "render-blocking", title: "Render-blocking external resources", severity: "warning", pageUrl: "https://tinystudio.in/", evidence: "Google Fonts CSS at https://fonts.googleapis.com/css2?... blocks the render path before the first paint." },
+      { id: "apple-touch-icon", title: "Missing apple-touch-icon", severity: "notice", pageUrl: "https://tinystudio.in/", evidence: "No apple-touch-icon link in head." },
+      { id: "h1-hierarchy", title: "Heading hierarchy skip", severity: "notice", pageUrl: "https://tinystudio.in/", evidence: "H1 to H3 skip without H2." },
+      { id: "llms-txt", title: "Missing /llms.txt", severity: "advisory", pageUrl: "https://tinystudio.in/", evidence: "No agent-readable index." },
+      { id: "schema-opportunity", title: "Schema.org opportunity", severity: "advisory", pageUrl: "https://tinystudio.in/", evidence: "ContactPage JSON-LD opportunity." },
+      { id: "social-images", title: "Social preview images", severity: "advisory", pageUrl: "https://tinystudio.in/", evidence: "No og:image or twitter:image." },
+      { id: "email-obfuscation", title: "Cloudflare email-obfuscation broken", severity: "warning", pageUrl: "https://tinystudio.in/support", evidence: "JS-obfuscated mailto: links." }
+    ]
+  };
+  const item = {
+    id: "queue-tinystudio-in-render-blocking",
+    reportId: report.id,
+    issueId: "render-blocking",
+    title: "Render-blocking external resources",
+    severity: "warning",
+    pageUrl: "https://tinystudio.in/",
+    pageLabel: "home",
+    proof: "Google Fonts CSS at https://fonts.googleapis.com/css2?... blocks the render path before the first paint.",
+    acceptance: "PageSpeed Insights / Lighthouse mobile Performance score stays above 95 with no render-blocking resources.",
+    actionMode: "github_pr",
+    status: "fixed",
+    rerunStatus: "fixed"
+  };
+  const action = {
+    id: "action-tinystudio-in-pr4-render-blocking",
+    report_id: report.id,
+    queue_item_id: item.id,
+    issue_id: "render-blocking",
+    action_mode: "github_pr",
+    action_type: "draft_fix",
+    approval_state: "approved",
+    execution_state: "applied",
+    rerun_state: "fixed",
+    rerun_report_id: "tinystudio-in-75ffee26-02ae-41d3-b2ef-5beb40722e50",
+    source_proof: "Google Fonts CSS at https://fonts.googleapis.com/css2?... blocks the render path before the first paint.",
+    proposed_change: "Move Google Fonts off the render path: preload local woff2, drop the blocking <link rel=stylesheet>, and inline the critical CSS used by the hero.",
+    acceptance: "PageSpeed Insights / Lighthouse mobile Performance score stays above 95 with no render-blocking resources.",
+    applied_at: "2026-06-18T11:00:00.000Z",
+    updated_at: "2026-06-18T15:00:00.000Z"
+  };
+  const rerunReport = {
+    id: "tinystudio-in-75ffee26-02ae-41d3-b2ef-5beb40722e50",
+    url: "https://tinystudio.in/",
+    host: "tinystudio.in",
+    createdAt: "2026-06-18T14:00:00.000Z",
+    reportUrl: "https://seofixkit.com/beta/reports/tinystudio-in-75ffee26-02ae-41d3-b2ef-5beb40722e50",
+    score: 99,
+    findings: [
+      { id: "hsts-header", title: "Strict-Transport-Security header missing", severity: "notice", pageUrl: "https://tinystudio.in/", evidence: "Strict-Transport-Security header is missing on the apex host." },
+      { id: "tls-version-advisory", title: "TLS version advisory", severity: "advisory", pageUrl: "https://tinystudio.in/", evidence: "Consider TLS 1.3 only." }
+    ],
+    reportDelta: {
+      fixedIssues: [
+        { id: "render-blocking", title: "Render-blocking external resources", pageUrl: "https://tinystudio.in/" },
+        { id: "apple-touch-icon", title: "Missing apple-touch-icon", pageUrl: "https://tinystudio.in/" },
+        { id: "h1-hierarchy", title: "Heading hierarchy skip", pageUrl: "https://tinystudio.in/" },
+        { id: "llms-txt", title: "Missing /llms.txt", pageUrl: "https://tinystudio.in/" },
+        { id: "schema-opportunity", title: "Schema.org opportunity", pageUrl: "https://tinystudio.in/" }
+      ]
+    }
+  };
+  return { report, item, action, rerunReport };
 }
