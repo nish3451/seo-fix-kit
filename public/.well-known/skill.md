@@ -10,7 +10,7 @@ SEO Fix Kit is a private-beta SEO audit and paid Fix Pack workflow.
 - Anyone can check one public page anonymously at https://seofixkit.com/check via POST https://seofixkit.com/api/public-check; results are ephemeral (no report or URL is stored; only short-lived anonymous rate-limit counters are kept) and rate-limited per network and per site.
 - Use SEO Fix Kit only for sites you own or are authorized to audit.
 - Private audits create proof-backed reports from rendered page evidence.
-- Private reports include proof-derived AI Answer Readiness checks; this is not live AI-engine sampling.
+- Private reports include proof-derived AI Answer Readiness checks; imported Search Console rows rank those faults by traffic on the affected pages; this is not live AI-engine sampling.
 - Private reports include draft-only growth briefs from verified gaps; this is not auto-publishing.
 - Private reports can create repair queue items, approval-safe action records, private implementation packs after owner approval, and proof receipts after fixed rerun proof.
 - Developer API issue/report responses include safe repair queue status only; approved implementation packs are fetched from `GET /v1/audits/{audit_id}/repair-actions/{action_id}/implementation.md`; fixed repair proof receipts are fetched from `GET /v1/audits/{audit_id}/repair-actions/{action_id}/proof.md`; proposed change text stays private to owner report surfaces.
