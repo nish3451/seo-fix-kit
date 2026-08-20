@@ -294,7 +294,10 @@ export function createAuditEngine({
 
     const aiAnswerReadiness = buildAiAnswerReadiness(report, {
       llmsTxt: report.llmsTxt,
-      keywordRows: report.keywordRankAudit?.rows || options.keywordRows || options.keywordRankRows || []
+      // Prefer the complete imported rows over the capped keywordRankAudit rows
+      // so readiness prioritization does not silently drop traffic beyond the
+      // keyword audit's row cap.
+      keywordRows: options.keywordRows || options.keywordRankRows || report.keywordRankAudit?.rows || []
     });
     if (aiAnswerReadiness.status === "ready") {
       report.aiAnswerReadiness = aiAnswerReadiness;

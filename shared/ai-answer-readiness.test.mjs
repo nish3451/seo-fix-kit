@@ -177,6 +177,41 @@ test("the highest-traffic thin page leads the content-depth repair", () => {
   assert.equal(contentItem.trafficClicks, 405);
 });
 
+test("imported http:// rows match pages whose rendered evidence is https:// after a redirect", () => {
+  const audit = buildAiAnswerReadiness(trafficRankFixtureReport(), {
+    keywordRows: [
+      { query: "example pricing", pageUrl: "http://www.example.com/pricing", clicks: 900, impressions: 12000 }
+    ]
+  });
+  const sourceItem = audit.repairOpportunities.find((item) => item.issueId === "ai-answer-readiness-source-clarity");
+
+  assert.equal(audit.summary.trafficRanked, true);
+  assert.equal(sourceItem.priority, 1);
+  assert.equal(sourceItem.pageUrl, "https://example.com/pricing");
+  assert.equal(sourceItem.trafficClicks, 900);
+  assert.match(sourceItem.proof, /900 clicks/);
+});
+
+test("complete imported rows win over capped keywordRankAudit rows for readiness prioritization", () => {
+  const report = trafficRankFixtureReport();
+  report.keywordRankAudit = {
+    rows: [{ query: "truncated", pageUrl: "https://example.com/pricing", clicks: 1, impressions: 2 }]
+  };
+  const completeRows = Array.from({ length: 300 }, (_, i) => ({
+    query: `kw ${i}`,
+    pageUrl: i === 0 ? "https://example.com/pricing" : `https://example.com/unrelated-${i}`,
+    clicks: i === 0 ? 900 : 1,
+    impressions: i === 0 ? 12000 : 2
+  }));
+  const audit = buildAiAnswerReadiness(report, { keywordRows: completeRows });
+  const sourceItem = audit.repairOpportunities.find((item) => item.issueId === "ai-answer-readiness-source-clarity");
+
+  assert.equal(audit.summary.trafficRanked, true);
+  assert.equal(audit.summary.trafficRowsUsed, 300);
+  assert.equal(sourceItem.trafficClicks, 900);
+  assert.match(sourceItem.proof, /900 clicks and 12,000 impressions/);
+});
+
 function thinAppShellReport() {
   return {
     url: "https://example.com/",

@@ -577,16 +577,20 @@ function normalizePageKey(value = "") {
     const url = new URL(String(value || "").trim());
     url.hash = "";
     url.hostname = url.hostname.replace(/^www\./i, "").toLowerCase();
-    if ((url.protocol === "http:" && url.port === "80") || (url.protocol === "https:" && url.port === "443")) {
-      url.port = "";
-    }
+    const defaultPort = (url.protocol === "http:" && "80") || (url.protocol === "https:" && "443") || "";
+    if (url.port === defaultPort) url.port = "";
     let path = url.pathname || "/";
     if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
-    url.pathname = path;
-    return url.href;
+    const port = url.port ? `:${url.port}` : "";
+    // Return a canonical host+path key WITHOUT the scheme so that imported
+    // http:// rows still match pages whose rendered evidence is https:// after
+    // a redirect (scheme is not part of page identity for traffic matching).
+    return `${url.hostname}${port}${path}`;
   } catch {
     return String(value || "")
       .split("#")[0]
+      .replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//i, "")
+      .replace(/^www\./i, "")
       .replace(/\/$/, "")
       .trim()
       .toLowerCase();
