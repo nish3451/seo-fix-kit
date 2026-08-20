@@ -46,9 +46,12 @@ their `clientWidth + 1`.
 | 180 | 180 | 180 | 0px | 0 |
 | 160 | 160 | 160 | 0px | 9 (residual, paragraph-level min-content) |
 
-The 320/280/240/200/180px sweep matches the original PR #146 evidence
-table and the 2026-08-17 re-verification exactly: `scrollWidth ==
-clientWidth` and zero overflowing elements. Below ~180px the residual
+The 280/240/200/180px portion of the sweep matches the original PR
+#146 evidence table (which started at 280px) and the 2026-08-17
+re-verification exactly: `scrollWidth == clientWidth` and zero
+overflowing elements. The added 320px row is a new measurement that
+confirms the floor is also absent at the smallest common mobile
+viewport. Below ~180px the residual
 overflow is bounded and comes from paragraph-level min-content sizing
 (the URL placeholder `https://example.com/about` and long inline URLs
 in the snippet and lede); real-world browsers do not ship below 320
