@@ -1246,13 +1246,24 @@ test("repair action webhook delivers lifecycle transitions without private draft
     "repair_action.regressed"
   ]);
   assert.equal(sentPayloads.length, 5);
-  assert.equal(sentPayloads[0].data.repair_action.approval_state, "drafted");
-  assert.equal(sentPayloads[1].data.repair_action.approval_state, "approved");
-  assert.equal(sentPayloads[2].data.repair_action.execution_state, "applied");
-  assert.equal(sentPayloads[3].data.repair_action.rerun_state, "fixed");
-  assert.equal(sentPayloads[3].data.repair_action.rerun_report_id, "rerun-fixed-report-1");
-  assert.equal(sentPayloads[4].data.repair_action.rerun_state, "regressed");
-  assert.equal(sentPayloads[4].data.repair_action.rerun_report_id, "rerun-regressed-report-1");
+  const payloadsByEvent = new Map(sentPayloads.map((payload) => [payload.event, payload]));
+  assert.deepEqual(
+    [...payloadsByEvent.keys()].sort(),
+    [
+      "repair_action.applied",
+      "repair_action.approved",
+      "repair_action.drafted",
+      "repair_action.fixed",
+      "repair_action.regressed"
+    ]
+  );
+  assert.equal(payloadsByEvent.get("repair_action.drafted").data.repair_action.approval_state, "drafted");
+  assert.equal(payloadsByEvent.get("repair_action.approved").data.repair_action.approval_state, "approved");
+  assert.equal(payloadsByEvent.get("repair_action.applied").data.repair_action.execution_state, "applied");
+  assert.equal(payloadsByEvent.get("repair_action.fixed").data.repair_action.rerun_state, "fixed");
+  assert.equal(payloadsByEvent.get("repair_action.fixed").data.repair_action.rerun_report_id, "rerun-fixed-report-1");
+  assert.equal(payloadsByEvent.get("repair_action.regressed").data.repair_action.rerun_state, "regressed");
+  assert.equal(payloadsByEvent.get("repair_action.regressed").data.repair_action.rerun_report_id, "rerun-regressed-report-1");
   assert.doesNotMatch(JSON.stringify(sentPayloads), /Private draft title copy|source_proof|proposed_change/i);
   assert.equal(env.webhooks[0].last_delivery_status, "delivered");
 });
