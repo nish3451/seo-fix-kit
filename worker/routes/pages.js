@@ -537,6 +537,16 @@ function aiAnswerReadinessHtml(origin) {
           <li>Proof without traffic is still useful: a tracker can say a page is invisible, while a readiness check says why the rendered page is thin, unclear, or missing schema. Traffic ranking then puts the proven faults that sit on pages with search demand first.</li>
         </ul>
       </section>
+      <section class="band">
+        <h2>On "technical readiness predicts nothing (r=0.009)"</h2>
+        <p>getaisearchscore.com's own study — 441 domains, Perplexity-only citations, cross-sectional — found its original 26-check aggregate score did not predict citations (r=0.009), and it rebuilt its product around content relevance. That null is real, and it matches our boundary rather than refuting it:</p>
+        <ul class="check-list">
+          <li>The null is on one vendor's aggregate score, not on individual technical faults. A site that blocks AI crawlers is invisible; a site with an app-shell render is empty to an extractor. getaisearchscore.com itself calls AI-crawler access "the only structural factor with an unambiguous effect."</li>
+          <li>The study could not see content that only appears after JavaScript renders. SEO Fix Kit judges readiness on the rendered page — the DOM an answer engine would actually parse — not on a static crawl.</li>
+          <li>"Not sufficient" is not "predicts nothing." The vendor's own Readiness Paradox (low-scoring established brands cited at 38.8%) is a domain-authority confound, not a proof that technical faults do not matter.</li>
+        </ul>
+        <p>SEO Fix Kit's AI Answer Readiness is proof-derived from the rendered page and never claims to predict citations. Readiness is a diagnostic, not a citation guarantee. Content relevance is the citation driver; technical health is the hygiene floor that keeps content retrievable at all. We agree with getaisearchscore.com on both halves.</p>
+      </section>
       <section class="grid two" aria-label="Readiness boundaries">
         <article class="panel"><strong>No live answer-engine sampling</strong><p>SEO Fix Kit does not query ChatGPT, Perplexity, Google AI Overview, or other engines to see what they answer about your site.</p></article>
         <article class="panel"><strong>No AI citation monitoring</strong><p>There is no live tracking of citations, mentions, or visibility scores across AI engines.</p></article>
