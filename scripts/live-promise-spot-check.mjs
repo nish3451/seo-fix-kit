@@ -182,6 +182,9 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "Proof Monitoring is config-gated", match: "Config-gated subscription" },
         { reason: "Proof Monitoring checkout gated, offer visible", match: "Checkout only opens when the Dodo subscription product and webhook entitlement sync are configured" },
         { reason: "roadmap packages marked", match: "Roadmap" },
+        { reason: "names the GEO Auditor agent-fix comparison", match: "Compared with GEO Auditor" },
+        { reason: "names the $29 Agent Fix Mode tier", match: "Agent Fix Mode" },
+        { reason: "approval-first wedge answer present", match: "approval-first repair queue" },
         { reason: "link to terms", match: `href="${baseUrl}/terms"` },
         { reason: "link to privacy", match: `href="${baseUrl}/privacy"` }
       ]
