@@ -354,6 +354,9 @@ test("README AI Answer Readiness claim ranks faults by imported Search Console t
   assert.match(aiReadinessSource, /Prioritization: imported Search Console traffic/);
   assert.match(pagesSource, /Compared with CrawlRaven/);
   assert.match(pagesSource, /does not connect to Search Console or GA4 automatically/);
+  assert.match(pagesSource, /On "technical readiness predicts nothing \(r=0\.009\)"/);
+  assert.match(pagesSource, /never claims to predict citations/);
+  assert.match(pagesSource, /Content relevance is the citation driver; technical health is the hygiene floor/);
 });
 
 test("README AI readiness derivation signals match the checks that compute them", () => {
