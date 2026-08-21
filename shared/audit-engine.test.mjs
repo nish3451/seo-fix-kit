@@ -359,6 +359,135 @@ test("social snippet uses the verified live og:image URL when one exists", async
   assert.doesNotMatch(socialPreview.snippet, /og-image\.png/);
 });
 
+// Regression: the apple-touch-icon check was presence-only and its published
+// snippet hard-coded ${origin}/apple-touch-icon.png. A site could declare an
+// icon that 404s and be reported clean, and a site with no icon was handed a
+// tag pointing at a file it does not serve.
+test("a declared apple-touch-icon that does not load as an image is reported", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser("https://public.example/", {
+        appleTouchIcon: "https://public.example/icons/apple-touch-icon.png"
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      if (url === "https://public.example/icons/apple-touch-icon.png") {
+        return new Response("not really an image", { status: 404, headers: { "content-type": "text/html" } });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const broken = report.findings.find((finding) => /Apple touch icon is not loadable/.test(finding.title));
+  assert.ok(broken, "a declared-but-dead apple-touch-icon must be reported");
+  assert.match(
+    broken.evidence,
+    /apple-touch-icon \(https:\/\/public\.example\/icons\/apple-touch-icon\.png\): returned 404 with content-type text\/html/
+  );
+  assert.equal(broken.confidence, "needs-review");
+  assert.equal(
+    report.findings.some((finding) => /Apple touch icon missing/.test(finding.title)),
+    false,
+    "a page that declares an icon must not also be told the tag is missing"
+  );
+});
+
+test("a declared apple-touch-icon that loads as an image is not reported", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser("https://public.example/", {
+        appleTouchIcon: "https://public.example/icons/apple-touch-icon.png"
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      if (url === "https://public.example/icons/apple-touch-icon.png") {
+        return new Response("fake png bytes", { status: 200, headers: { "content-type": "image/png" } });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  assert.equal(
+    report.findings.some((finding) => /Apple touch icon (is not loadable|missing)/.test(finding.title)),
+    false,
+    "a live apple-touch-icon must not be reported at all"
+  );
+});
+
+test("apple touch icon snippet flags the placeholder path when no icon file exists", async () => {
+  const requested = [];
+  const engine = createAuditEngine({
+    launchBrowser: async () => fakeBrowser("https://public.example/", { appleTouchIcon: null }),
+    fetchImpl: async (url) => {
+      requested.push(url);
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const missing = report.findings.find((finding) => /Apple touch icon missing/.test(finding.title));
+  assert.ok(missing, "a missing apple-touch-icon must still be reported");
+  assert.equal(
+    requested.includes("https://public.example/apple-touch-icon.png"),
+    true,
+    "the engine must probe the conventional icon path before publishing it in a snippet"
+  );
+  assert.match(
+    missing.snippet,
+    /No icon file loaded at https:\/\/public\.example\/apple-touch-icon\.png during this audit\./,
+    "the snippet must say the guessed path is a placeholder the customer has to create"
+  );
+  assert.doesNotMatch(missing.snippet, /href="\/apple-touch-icon\.png"/, "the snippet must not ship a bare hard-coded path");
+  assert.doesNotMatch(missing.snippet, /sizes=/, "the audit does not measure icon dimensions, so it must not claim them");
+});
+
+test("apple touch icon snippet uses the conventional path once it is verified to load", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () => fakeBrowser("https://public.example/", { appleTouchIcon: null }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      if (url === "https://public.example/apple-touch-icon.png") {
+        return new Response("fake png bytes", { status: 200, headers: { "content-type": "image/png" } });
+      }
+      return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const missing = report.findings.find((finding) => /Apple touch icon missing/.test(finding.title));
+  assert.ok(missing, "an undeclared icon is still a missing tag even when the file exists");
+  assert.match(missing.snippet, /href="https:\/\/public\.example\/apple-touch-icon\.png"/);
+  assert.match(missing.snippet, /was verified to load as an image during this audit/);
+  assert.doesNotMatch(missing.snippet, /No icon file loaded/);
+});
+
 test("rendered audit navigation rechecks private DNS before browser goto", async () => {
   const gotoUrls = [];
   let staticPageFetched = false;
