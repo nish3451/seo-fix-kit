@@ -105,9 +105,9 @@ export async function spotCheckPublicPages({
         failures.push(reason);
       }
     }
-    if (check.isPage && failures.length > 0 && isSpaFallback(text, contentType)) {
+    if (check.isPage && failures.length > 0 && isAssetFallback(text, contentType)) {
       failures.push(
-        `deployed Worker is stale: ${check.path} was served by the static-asset SPA fallback instead of the ` +
+        `deployed Worker is stale: ${check.path} was served by the static-asset fallback instead of the ` +
           `Worker route (deploy main, then rerun)`
       );
     }
@@ -504,15 +504,17 @@ function hasContent(text, match) {
 }
 
 // Worker-rendered promise pages are served as `text/html; charset=utf-8` with
-// their own body copy. The static-asset SPA fallback serves index.html
-// instead: `text/html` without a charset and a `<div id="root">` root element.
-// A promise page that comes back as the SPA shell means the deployed Worker
-// predates the route the README promises — a deploy gap, not a copy drift.
-function isSpaFallback(text, contentType) {
-  const html = /text\/html/i.test(contentType);
-  const withoutCharset = !/charset/i.test(contentType);
-  const hasSpaRoot = text.includes('<div id="root"');
-  return html && withoutCharset && hasSpaRoot;
+// their own body copy. When the deployed Worker predates a promised route, the
+// static-asset layer answers instead — either the SPA `index.html` shell
+// (`text/html` without a charset and a `<div id="root">` root element) for
+// paths the Worker used to serve, or the asset-layer 404 page (`text/html`
+// without a charset and the 404 "Nothing to fix here." body) for paths the
+// Worker never served. Both mean a deploy gap, not copy drift.
+function isAssetFallback(text, contentType) {
+  if (!/text\/html/i.test(contentType) || /charset/i.test(contentType)) {
+    return false;
+  }
+  return text.includes('<div id="root"') || text.includes("Nothing to fix here.");
 }
 
 async function fetchWithTimeout(url, options, timeoutMs, fetcher = fetch) {

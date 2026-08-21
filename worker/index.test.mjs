@@ -428,6 +428,39 @@ test("Deploy surface serves a real 404 page instead of the single-page-applicati
   assert.match(notFoundPage, /<title>Page not found - SEO Fix Kit<\/title>/);
   assert.match(notFoundPage, /noindex/);
   assert.match(notFoundPage, /https:\/\/seofixkit\.com\//);
+  assert.doesNotMatch(notFoundPage, /min-width:\s*320px/, "the 404 page must not ship the 320px floor");
+});
+
+test("404 page reflows at narrow viewports without horizontal overflow", async () => {
+  const { chromium } = await import("playwright");
+  const notFoundPage = readFileSync(new URL("../public/404.html", import.meta.url), "utf8");
+
+  const browser = await chromium.launch({ headless: true });
+  try {
+    for (const width of [390, 320, 300, 280, 240]) {
+      const page = await browser.newPage({ viewport: { width, height: 844 }, isMobile: true });
+      await page.setContent(notFoundPage, { waitUntil: "domcontentloaded" });
+      const measured = await page.evaluate(() => {
+        const root = document.documentElement;
+        return {
+          scrollWidth: root.scrollWidth,
+          clientWidth: root.clientWidth,
+          bodyMinWidth: getComputedStyle(document.body).minWidth,
+          wideCount: [...document.querySelectorAll("*")]
+            .filter((el) => el.getBoundingClientRect().right > root.clientWidth + 1).length
+        };
+      });
+      assert.equal(measured.bodyMinWidth, "0px", `404 page must not keep the 320px floor at ${width}px`);
+      assert.ok(
+        measured.scrollWidth <= measured.clientWidth,
+        `404 page overflow at ${width}px: scrollWidth=${measured.scrollWidth}/clientWidth=${measured.clientWidth}`
+      );
+      assert.equal(measured.wideCount, 0, `404 page has ${measured.wideCount} elements wider than the viewport at ${width}px`);
+      await page.close();
+    }
+  } finally {
+    await browser.close();
+  }
 });
 
 test("Worker dispatch creates admin-only beta proof sessions without exposing tokens", async () => {
