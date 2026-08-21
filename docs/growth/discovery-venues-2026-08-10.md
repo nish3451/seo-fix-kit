@@ -98,6 +98,49 @@ still absent from this box and its policy allowlist remains empty, so every
 venue stays manual-only; the account owner's exact resume path is the
 2026-08-11 execution ledger below.
 
+Re-verified 2026-08-21 (lane-1 packet run — SEO Tech List venue on-boarded):
+the new venue **SEO Tech List** (`https://seotechlist.com`) was folded into
+this ledger as venue #18. Direct probes re-run live 2026-08-21:
+`https://seotechlist.com/` HTTP 200 (homepage);
+`https://seotechlist.com/submit-seo-tool` HTTP 200 (free submit page);
+`https://seotechlist.com/editorial-policy` HTTP 200 (reviewed 26 July 2026,
+live JSON-LD `dateModified: 2026-07-26`); `https://seotechlist.com/tools`
+HTTP 200 (directory); `https://seotechlist.com/categories/ai-visibility`
+HTTP 200; `https://seotechlist.com/categories/technical-seo` HTTP 200;
+`https://seotechlist.com/products/seo-fix-kit` HTTP 404 (absent — no listing
+yet); `https://seotechlist.com/api/search?q=seofixkit` returns
+`{"results":[]}` (no existing entry). GeoIndex 80-vendor directory
+re-fetched live 2026-08-21 — still no `seofixkit` / `SEO Fix Kit` entry
+(GeoIndex submission remains pending review). SaaSHub `/seo-fix-kit` still
+HTTP 404; Directree `/seo-fix-kit` still HTTP 404; SaaS Hive `/seo-fix-kit`
+still soft-404s to the generic homepage; AlternativeTo and Product Hunt
+remain bot-walled (HTTP 403 to plain curl; prior Camoufox receipts stand).
+All canonical product surfaces re-verified live 2026-08-21 (`/llms.txt`,
+`/packages`, `/demo`, `/methodology`, `/check` all HTTP 200; `/proof` still
+HTTP 404 — the deploy chain stall is the rank-1 backlog item, so the
+on-boarded seotechlist copy must NOT claim `/proof` is live until that
+deploy lands); `/packages` still states the $99.00 one-time beta Fix Pack
+("one proof-backed repair pass" + "one rerun"), so the approved copy inputs
+remain current. `venue-claim` is still absent from this box and its policy
+allowlist remains empty (seotechlist.com resolves to "unknown (not
+reviewed)" under the current policy), so the new venue stays manual-only;
+the account owner's exact resume path is the new 2026-08-21 ledger entry
+below.
+
+---
+
+## 2026-08-21 execution ledger (SEO Tech List venue on-boarded — manual-only)
+
+Held to the same contract as the 2026-08-11 ledger: the fleet `venue-claim`
+allowlist is empty; venue-claim is still absent from this box; this lane
+does not perform unattended account creation, browser submission, or
+payments. The agent-completable half — live-verified absence, dated
+ledger, approved copy, exact resume path — was completed this run.
+
+| Venue | 2026-08-21 outcome | Exact next step |
+| --- | --- | --- |
+| SEO Tech List (seotechlist.com) | **NEEDS_NISH_STEP** — free Community plan submission via the maker form at `https://seotechlist.com/submit` (or `?plan=free`). Community plan is free, no payment details required, 2–6 week standard queue; Premium $39 (24h + launch date + homepage promo) — paid tier stays NEEDS_NISH per the backlog acceptance. | Nish (or a founder-approved sender) signs in at `/owner/login` or submits via the form, enters the approved copy with links to `/demo` and `/methodology`, picks AI visibility / Technical SEO categories, and submits under the Community plan. Record listing URL + indexed title/description when accepted. |
+
 ---
 
 ## 2026-08-11 execution ledger (verified outcomes)
@@ -156,6 +199,7 @@ activity was involved.
 | 15 | GeoIndex (Geodes) | 80-vendor GEO/AEO/AI-search directory fetched live 2026-08-11 (`https://www.geodes.ai/geo-aeo-and-ai-search-vendor-directory`): no SEO Fix Kit entry | Official "Add a vendor or request an edit" page (`https://www.geodes.ai/geo-index-listing`, live 2026-08-11) exposes a contact form plus email/WhatsApp ("Reach us directly"); ToS (live, 2026-08-11) grants no unattended-automation permission — submissions are evaluated/accepted/declined at Geodes' sole discretion (§4 "Inquiries and Services") | unknown (not reviewed) → manual-only | Manual vendor submission via the contact form/email with copy file; record listing URL + indexed title/description when accepted |
 | 16 | Primary Position GEO tools list | Editorial list fetched live 2026-08-11 (`https://primaryposition.com/blog/geo-visibility-tools/`): no SEO Fix Kit entry | Editorial blog post by an SEO agency (David Quaid, 2026-02-27); no submission route, no "add your tool" path, no vendor form | unknown → **not applicable as a listing venue** (editorial coverage, not a directory) | Optional manual editorial outreach via the site's contact form; treat as buyer-discovery evidence, not a submission target |
 | 17 | Directree | Directory + search fetched live 2026-08-12 (`https://www.directree.io/saas-directory`): no SEO Fix Kit entry; direct product probe `/seo-fix-kit` → HTTP 404 | Official directory page (live 2026-08-12): "Free to submit and claim", "No pay-to-rank", "No sponsored slots"; listings label every fact "Observed, AI-inferred, or Founder-edited"; verified listings earn a do-follow backlink; official submit page (`https://www.directree.io/submit`, live 2026-08-12): "You just need a free account first", ~30-second AI listing or full claim editor; terms `https://www.directree.io/terms` (July 2026): "Any user may submit a tool URL", anti-scraping clause only (no automation permission) | reviewed (unknown) → manual-only (ambiguous; no unattended-automation permission) | Manual "Add Listing" with free account by the account owner using copy file; record listing URL + indexed title/description + do-follow receipt when accepted |
+| 18 | SEO Tech List | Directory + search fetched live 2026-08-21 (`https://seotechlist.com/tools`, categories `/categories/ai-visibility` and `/categories/technical-seo`): no SEO Fix Kit entry; direct product probe `/products/seo-fix-kit` → HTTP 404; `/api/search?q=seofixkit` returns `{"results":[]}` | Official submit page (`https://seotechlist.com/submit-seo-tool`, live 2026-08-21): "Submit your SEO tool, AI search product, MCP server, Agent Skill or open-source project for a permanent, searchable listing"; Community plan is free, no payment details, 2–6 week standard queue, permanent URL, Product of the Day rotation, owner analytics, verified badge; Premium $39 (24h publication + launch date + homepage promo); editorial policy (`https://seotechlist.com/editorial-policy`, reviewed 26 July 2026, live JSON-LD `dateModified: 2026-07-26`): "Listings may combine information supplied by makers with public first-party sources"; "automated refreshes may update stars, releases, licence information" (their own automation of public repo data, NOT permission for us to automate submissions); "We do not promise 'link juice', domain-rating increases, search rankings or inclusion in AI answers"; "A normal product profile includes an editorial link to the official website and, where relevant, a separate public repository link"; "Premium... does not purchase a different permanent product link"; verification via GitHub permissions, DNS, temporary website badge or work-email review; operator Wojciech Skrzek (WebMoose, Poland) | unknown (not reviewed) → manual-only (no unattended-automation permission; absence of a rule is not permission) | Manual free Community submission via the maker form at `/submit` (or `?plan=free`) by the account owner using the copy file; record listing URL + indexed title/description + verification route (GitHub/DNS/work-email) when accepted; Premium tier ($39) stays NEEDS-NISH per the backlog acceptance |
 
 Prior fleet packets for this product already cover #1, #2, and #13 in detail and
 are incorporated here by reference (do not duplicate submissions):
@@ -210,7 +254,9 @@ Every venue above is manual-only this run:
    email, "Suggest new application"), SaaSHub (submit form), SaaS Hive (founder
    signup + launch), GeoIndex (contact-form vendor request, no account — done
    2026-08-11, pending review), Directree (free "Add Listing" — requires a free
-   account first, verified live 2026-08-12; added 2026-08-12),
+   account first, verified live 2026-08-12; added 2026-08-12), SEO Tech List
+   (free Community plan via the maker form at `/submit`; 2–6 week standard
+   queue; permanent URL; verified badge; added 2026-08-21),
    G2/Capterra/GetApp (vendor profile via G2 Digital Markets with
    business-email validation), Product Hunt (only as a real founder-led
    launch — manual, never automated; PH ToS bars crawling/scraping). Use the
@@ -249,6 +295,9 @@ Every venue above is manual-only this run:
 
 2026-08-11 update: GeoIndex is submitted (pending review); this order now
 applies to the remaining account-owner steps in the execution ledger above.
+2026-08-21 update: SEO Tech List (seotechlist.com) is on-boarded as venue #18
+(free Community plan, 2–6 week standard queue, permanent URL, verified badge;
+premium tier stays NEEDS-NISH) and folded into the suggested order below.
 
 1. AlternativeTo (review backlog — submit first, it is the slowest gate).
 2. SaaSHub (free submit flow).
@@ -259,10 +308,14 @@ applies to the remaining account-owner steps in the execution ledger above.
 5. Directree (free "Add Listing"; quick ~30-second AI listing or full claim
    editor; no pay-to-rank, fact-labelled listings and a do-follow backlink for
    verified listings — added 2026-08-12).
-6. G2 → Capterra → GetApp vendor profiles (business-email validation; one G2
+6. SEO Tech List (free Community plan via the maker form; permanent URL,
+   Product of the Day rotation, owner analytics, verified badge; 2–6 week
+   standard queue; AI visibility / Technical SEO categories fit the
+   site-proof AI Answer Readiness positioning; added 2026-08-21).
+7. G2 → Capterra → GetApp vendor profiles (business-email validation; one G2
    Digital Markets account covers all three).
-7. GitHub awesome-lists only after real-user evidence exists.
-8. Product Hunt only as a planned founder-led launch.
-9. Crunchbase / StackShare / Trustpilot: optional, low fit.
-10. Primary Position: editorial outreach only (optional, manual contact form).
-11. StartupSubmit and any paid boosts: NEEDS-NISH.
+8. GitHub awesome-lists only after real-user evidence exists.
+9. Product Hunt only as a planned founder-led launch.
+10. Crunchbase / StackShare / Trustpilot: optional, low fit.
+11. Primary Position: editorial outreach only (optional, manual contact form).
+12. StartupSubmit and any paid boosts: NEEDS-NISH.
