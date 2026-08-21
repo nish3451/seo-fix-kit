@@ -319,6 +319,16 @@ function methodologyHtml(origin) {
         <p>A repair is treated as proof-backed only when the report names the issue, shows source evidence, gives a concrete fix, and includes an acceptance check that can be rerun. Rankings, traffic, indexing, citations, and revenue are never guaranteed.</p>
       </section>
       <section class="band">
+        <h2>Why the repair queue exists</h2>
+        <p>The most consistent complaint about SEO audit tools in 2026 is not that audits miss issues. It is that audits find too many issues, prioritize none of them, and nobody owns the backlog after delivery. An eighty-page PDF where every line item is marked high priority is functionally the same as no audit at all.</p>
+        <div class="grid three">
+          <article class="panel"><strong>The complaint</strong><p>Audits end at the recommendation. The fixes never ship. Nobody owns the backlog after delivery, and every finding is marked high priority so none of them are.</p></article>
+          <article class="panel proof"><strong>The repair queue</strong><p>Every proven finding becomes a queue item with severity, source proof, a suggested action, approval state, and an acceptance check. The queue persists across saved reports — the backlog does not reset every time you scan.</p></article>
+          <article class="panel proof"><strong>The proof receipt</strong><p>After a fix ships, a rerun issues a receipt that says fixed, still-open, new, or regressed. Owner-approved implementation packs turn approved actions into private handoff documents with source proof.</p></article>
+        </div>
+        <p>The audit layer is commoditized — free tools now render pages and compare static HTML with the rendered DOM. What no free tool has is a persistent repair queue with approval state, proof receipts after fixed reruns, and hosted crawl scope at site scale. That is the part that turns a list of findings into a closed loop, and it is why the repair queue is the hero of this product, not a footnote.</p>
+      </section>
+      <section class="band">
         <h2>Why not just use a free AI SEO agent skill?</h2>
         <p>Free installable SEO agent skills are genuinely useful for quick, single-page checks: read a page, spot a missing title or description, draft a fix. Open-source SEO tooling is good at that, and you should keep using it. Those skills run per prompt, though, with no persisted state across a whole site.</p>
         <p>The hosted product earns its place by doing the parts that need infrastructure and persistence: rendered crawl scope at site scale (self-serve audits up to 1,000 pages, sitemap inventory up to 50,000 discovered URLs, and staged large rendered crawl jobs), a persistent repair queue with approval, acceptance checks, and fixed-rerun proof receipts, owner-approved implementation packs, and paid Fix Pack fulfillment with one rerun after fixes.</p>
