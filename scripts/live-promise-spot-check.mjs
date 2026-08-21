@@ -206,12 +206,15 @@ export function publicPageSpotChecks(baseUrl) {
     },
     {
       path: "/rendered-vs-static-seo-audit",
-      name: "rendered-vs-static landing page keeps the false-positive guard boundary",
+      name: "rendered-vs-static landing page keeps the false-positive guard and AI crawler visibility boundary",
       isPage: true,
       acceptStatuses: [200],
       expectations: [
-        { reason: "static-vs-rendered headline", match: "Static crawlers invent work. Rendered proof does not." },
+        { reason: "static-vs-rendered headline", match: "Static scanners invent work. AI crawlers miss content. Rendered proof handles both." },
         { reason: "static scanner vs rendered proof panels", match: "Rendered proof" },
+        { reason: "AI crawler visibility framing", match: "The same diff is your AI crawler visibility check" },
+        { reason: "names the JavaScript-blind AI crawlers", match: "GPTBot (OpenAI), ClaudeBot (Anthropic), PerplexityBot, and CCBot" },
+        { reason: "cites the SEJ-confirmed no-JavaScript behavior", match: "fetch raw HTML and do not execute JavaScript" },
         { reason: "no-overclaim section", match: "What this page does not claim" },
         { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
         { reason: "link to the proof sample", match: `href="${baseUrl}/demo"` },
