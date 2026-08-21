@@ -109,6 +109,24 @@ unfilled in the experiment log until the founder sends invitation #1. The resume
 the 2026-08-15 GREEN entry still applies: send invitation #1, then fill `window_start` and
 prospect-log row 1.
 
+Re-verified 2026-08-20 (lane-1 run, evidence in `.lane/reports/lane1-icp-precondition-regression-20260820.md`):
+**preconditions are NOT green today — do not start the seven-day window yet.** `npm run
+audit:live-promise` fails on 4 of 20 surfaces against the deployed site, all tied to the
+before/after repair receipt: `/proof` and `/proof.md` return 404, and `/llms.txt` +
+`/sitemap.xml` no longer list the receipt. The offline regression lock (`npm run
+test:live-promise-spot-check`) is 18/18 green on origin/main `994032f`, so the repo source
+is correct — this is the same stale-Worker deploy-machinery regression class as 2026-08-14,
+not copy drift. Root cause: the recorded live release (`release-state-seo-fix-kit.json`:
+sha `c53e28f`, marker `assets/index-9gz2OE-i.js`, deployment
+`9fd4664d-efe7-4706-8cb9-9afa5337bc61`) predates the `/proof` receipt publication (PRs #138
+/#151) and its spot-check pins; the live site still serves the older bundle without the
+`/proof` route or receipt lines in `/llms.txt`/`/sitemap.xml`. The founder should re-verify
+(`npm run audit:live-promise`) after the next fleet release that actually swaps the live
+Worker to a bundle containing the `/proof` route, before sending invitation #1. Evidence
+trail note: the 2026-08-17 entry's cited evidence file
+(`.lane/reports/lane1-icp-precondition-reverify-20260817.md`) is not tracked in the repo;
+this entry records today's live result as the current truth.
+
 ## Numeric gates (seven-day window)
 
 Window starts on the day the first invitation is sent. Record `window_start` and `window_end`
