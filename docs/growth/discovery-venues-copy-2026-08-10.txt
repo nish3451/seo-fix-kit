@@ -201,6 +201,61 @@ PER-VENUE FIELDS
 - Note: free account required; submission is manual-only (venue terms give no
   unattended-automation permission; anti-scraping clause is not a permission).
 
+--- SEO Tech List (free Community plan; added 2026-08-21) ---
+- Route: https://seotechlist.com/submit-seo-tool (or https://seotechlist.com/submit?plan=free).
+  Free Community plan, no payment details required, 2–6 week standard queue;
+  permanent URL; Product of the Day rotation; owner analytics; verified badge.
+  Premium $39 (24h publication + launch date + homepage promo) — paid tier
+  stays NEEDS-NISH per the backlog acceptance; the free Community plan is the
+  correct pickup here.
+- Operator: SEO Tech List is operated by Wojciech Skrzek, trading as WebMoose
+  (Poland).
+- Name: SEO Fix Kit
+- Tagline: Proof-backed SEO repair — see what is wrong, prove it, fix it.
+- One-line description: SEO Fix Kit is a proof-backed SEO repair tool for
+  sites that need clear fixes, not generic audit homework.
+- Description (full): use the Long description above verbatim. SEO Tech List
+  may combine maker-supplied copy with public first-party sources (official
+  site, llms.txt, repo); keep founder-edited statements to the canonical
+  copy only.
+- Links: https://seofixkit.com/demo, https://seofixkit.com/methodology,
+  https://seofixkit.com/check (free public entry). Optional GitHub repo:
+  https://github.com/nish3451/seo-fix-kit (the public repo is the
+  second-banner link the editorial policy expects where relevant).
+- Categories: AI visibility (https://seotechlist.com/categories/ai-visibility)
+  and Technical SEO (https://seotechlist.com/categories/technical-seo). SEO
+  Fix Kit fits the site-proof AI Answer Readiness side, NOT live AI-engine
+  citation monitoring.
+- Pricing (state accurately; Dodo checkout is authoritative):
+  Free beta audits at /check; verified beta sessions run rate-limited
+  multi-page audits with crawl-depth tiers up to 1,000 pages, sitemap
+  inventory up to 50,000 discovered URLs, saved reports, and a private
+  repair queue. Paid: SEO Fix Pack — one proof-backed repair pass tied to
+  one report, plus one rerun after fixes — $99.00 one-time during beta; the
+  visible checkout price is authoritative at payment time. Proof Monitoring
+  is a config-gated roadmap offer; do not present it as available.
+- Honesty lines to keep visible (matches the editorial policy's
+  "no link juice / no ranking / no AI answer inclusion" promise):
+  - "No ranking or traffic guarantee."
+  - "AI Answer Readiness is derived from your site's rendered content; SEO
+    Fix Kit does not monitor live AI-engine answers or citations."
+  - "Anonymous audits are one page only; full audits require private beta
+    access."
+- DO NOT claim — until the rank-1 deploy chain stall is resolved:
+  - "/proof is live" (DEPLOY-CHAIN PENDING — /proof returns 404 today; do
+    not promise a before/after repair receipt in the listing copy).
+  - Live AI-engine sampling or citation monitoring.
+  - Ranking, traffic, or AI-citation guarantees.
+  - Completed 50,000-page rendered validation.
+  - Live paid Agency Workspace or distinct Repair Sprint checkout.
+- Submission verification route afterwards (pick one): GitHub repo
+  permissions (nish3451/seo-fix-kit), DNS, temporary website badge, or
+  work-email review — recorded as the receipt in
+  `.lane/reports/lane1-seotechlist-listing-20260821.md`.
+- Note: free Community plan, no unattended-automation permission in the
+  editorial policy; absence of a rule is not permission; submission is
+  manual-only by the account owner.
+
 --- GitHub awesome lists (fork + PR, manual, only with track record) ---
 - Suganthan-Mohanadasan/awesome-seo-tools — section "Technical SEO and Site
   Auditing". Proposed entry:
