@@ -14,6 +14,20 @@ function llmsText(origin) {
 
 SEO Fix Kit is a private-beta, self-serve SEO audit and paid Fix Pack workflow.
 
+## Pages
+- [${origin}/](https://seofixkit.com/): Landing page with proof-backed SEO repair pitch and free one-page check entry.
+- [${origin}/check](https://seofixkit.com/check): Anonymous one-page browser-rendered SEO audit. No account, no stored report, no ranking promises.
+- [${origin}/demo](https://seofixkit.com/demo): Public sample report showing rendered-vs-static false-positive guards and repair briefs.
+- [${origin}/methodology](https://seofixkit.com/methodology): Proof standard, limits, and boundaries. No live AI-engine sampling, no citation monitoring, no ranking guarantees.
+- [${origin}/packages](https://seofixkit.com/packages): Package ladder with $99 one-time beta Fix Pack. Dodo checkout is the price source of truth.
+- [${origin}/proof](https://seofixkit.com/proof): Before/after repair proof receipt from a completed beta repair. Published with consent.
+- [${origin}/small-business-seo-audit](https://seofixkit.com/small-business-seo-audit): Proof-backed SEO audit for small businesses. Check one page free, pay only when real fixes exist.
+- [${origin}/rendered-vs-static-seo-audit](https://seofixkit.com/rendered-vs-static-seo-audit): Renders pages in a real browser to guard static-crawler false positives on JS-heavy sites.
+- [${origin}/ai-answer-readiness](https://seofixkit.com/ai-answer-readiness): Proof-derived AI Answer Readiness from rendered content, schema, links, sitemap context, and optional llms.txt. Site-proof, not citation monitoring.
+- [${origin}/support](https://seofixkit.com/support): Support and contact page.
+- [${origin}/privacy](https://seofixkit.com/privacy): Privacy note for access requests, private beta audits, payments, and fulfillment.
+- [${origin}/terms](https://seofixkit.com/terms): Terms of service.
+
 Live product claims:
 - Visitors can request a secure email access link.
 - Anyone can anonymously check one public page URL at /check and see rendered proof, guarded false positives, and actionable findings when present, with no account and no stored report.
