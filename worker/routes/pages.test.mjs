@@ -178,6 +178,29 @@ test("public proof pages expose methodology and package ladder without overclaim
   );
 });
 
+test("packages page names the GEO Auditor agent-fix parity trade-off without overclaims", () => {
+  const packages = packagesHtml(origin);
+  // The competitor and its price/delivery mode are named plainly (verified on
+  // geoauditor.app, 2026-08-21): free audit, $29 one-time report, Agent Fix Mode.
+  assert.match(packages, /Compared with GEO Auditor/);
+  assert.match(packages, /geoauditor\.app/);
+  assert.match(packages, /\$29 one-time full report/);
+  assert.match(packages, /Agent Fix Mode/);
+  assert.match(packages, /40\+ signals across 6 AI platforms/);
+  // The wedge answer must carry the three load-bearing halves: proof-backed
+  // snippets, approval-first queue, rerun proof.
+  assert.match(packages, /approval-first repair queue/);
+  assert.match(packages, /exact snippet when the engine can generate one/);
+  assert.match(packages, /proof receipt that says fixed, still-open, new, or regressed/);
+  // Fair-to-competitor guard: name the trade-off, do not disparage.
+  assert.match(packages, /reasonable choice/);
+  // No-overclaim guards: SEO Fix Kit must not claim it applies fixes itself,
+  // and the snippet qualifier must stay engine-capable.
+  assert.doesNotMatch(packages, /applies all fixes/);
+  assert.doesNotMatch(packages, /we apply your fixes/i);
+  assert.doesNotMatch(packages, /each with an exact snippet/);
+});
+
 test("machine-readable public surfaces list proof pages and limits", () => {
   const llms = llmsText(origin);
   const markdown = homeMarkdown(origin);
