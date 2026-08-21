@@ -119,6 +119,25 @@ test("public proof pages expose methodology and package ladder without overclaim
     new RegExp(`<a href="${origin}/check">${origin}/check</a>`),
     "the free-skill answer must keep a working link into the anonymous check"
   );
+  // SEOmator is named as a competitor on its own terms (39 free tools,
+  // 251-check JS-rendering audit, dedicated GEO audit) and the answer must
+  // stay inside the page's no-overclaim boundary: repair queue + rerun proof
+  // is the wedge, never an AI-visibility parity claim.
+  {
+    const seomator = (methodology.match(/<h2>Why not just use SEOmator's free audits\?<\/h2>[\s\S]*?<\/section>/) || [])[0];
+    assert.ok(seomator, "methodology must carry a dedicated SEOmator competitor answer");
+    assert.match(seomator, /39 free SEO tools/);
+    assert.match(seomator, /251-check rule engine/);
+    assert.match(seomator, /renders JavaScript/);
+    assert.match(seomator, /up to 50 pages/);
+    assert.match(seomator, /14 AI-specific crawlers including GPTBot, ClaudeBot, and PerplexityBot/);
+    assert.match(seomator, /<a href="https:\/\/seomator\.com\/free-tools"/);
+    assert.match(seomator, /<a href="https:\/\/seomator\.com\/free-seo-audit-tool"/);
+    assert.match(seomator, /<a href="https:\/\/seomator\.com\/geo-audit-tool"/);
+    assert.match(seomator, /repair queue plus rerun proof/);
+    assert.match(seomator, /No live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/);
+    assert.doesNotMatch(seomator, /AI visibility score tracking|AI citation monitoring (is|are) live/i);
+  }
   assert.match(packages, /Wondering why a hosted service at all, when free installable AI SEO agent skills exist\?/);
   assert.match(
     packages,
