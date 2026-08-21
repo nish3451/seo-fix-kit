@@ -77,7 +77,8 @@ export const DEMO_PROOF = {
       severity: "notice",
       title: "Apple touch icon missing on home",
       fix: "Add an Apple touch icon.",
-      snippet: `<link rel="apple-touch-icon" href="/apple-touch-icon.png" />`
+      snippet: `<!-- No icon file loaded at {ORIGIN}/apple-touch-icon.png during this audit. Create a square 180x180 PNG there, or point href at your real icon file, before shipping this tag. -->
+<link rel="apple-touch-icon" href="{ORIGIN}/apple-touch-icon.png" />`
     },
     {
       severity: "notice",
