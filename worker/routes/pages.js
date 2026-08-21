@@ -22,7 +22,7 @@ SEO Fix Kit is a private-beta, self-serve SEO audit and paid Fix Pack workflow.
 - [${origin}/packages](https://seofixkit.com/packages): Package ladder with $99 one-time beta Fix Pack. Dodo checkout is the price source of truth.
 - [${origin}/proof](https://seofixkit.com/proof): Before/after repair proof receipt from a completed beta repair. Published with consent.
 - [${origin}/small-business-seo-audit](https://seofixkit.com/small-business-seo-audit): Proof-backed SEO audit for small businesses. Check one page free, pay only when real fixes exist.
-- [${origin}/rendered-vs-static-seo-audit](https://seofixkit.com/rendered-vs-static-seo-audit): Renders pages in a real browser to guard static-crawler false positives on JS-heavy sites.
+- [${origin}/rendered-vs-static-seo-audit](https://seofixkit.com/rendered-vs-static-seo-audit): Renders pages in a real browser to compare raw HTML with the rendered DOM — guarding static-crawler false positives and showing AI crawler visibility for JavaScript-blind crawlers like GPTBot, ClaudeBot, PerplexityBot, and CCBot.
 - [${origin}/ai-answer-readiness](https://seofixkit.com/ai-answer-readiness): Proof-derived AI Answer Readiness from rendered content, schema, links, sitemap context, and optional llms.txt. Site-proof, not citation monitoring.
 - [${origin}/support](https://seofixkit.com/support): Support and contact page.
 - [${origin}/privacy](https://seofixkit.com/privacy): Privacy note for access requests, private beta audits, payments, and fulfillment.
@@ -43,7 +43,7 @@ Live product claims:
 - Verified sessions can import Search Console or rank-tracker keyword rows for low-CTR, page-two, decline, cannibalization, intent-match, uncrawled landing-page repair actions, and rank observation history.
 - Reports include rendered WordPress and ecommerce platform proof for Product schema, breadcrumbs, faceted links, archives, and plugin resource impact.
 - Reports include proof-derived AI Answer Readiness checks for rendered content depth, helpful schema, canonical/internal-link clarity, question-led structure, sitemap context, and optional llms.txt reachability. When imported Search Console rows are present, those faults are ranked by clicks and impressions on the affected pages.
-- Intent-matching landing pages at ${origin}/small-business-seo-audit, ${origin}/rendered-vs-static-seo-audit, and ${origin}/ai-answer-readiness describe the proof-backed small-business audit, rendered-vs-static proof loop, and site-proof AI Answer Readiness boundary; none claim live answer-engine sampling or AI citation monitoring.
+- Intent-matching landing pages at ${origin}/small-business-seo-audit, ${origin}/rendered-vs-static-seo-audit, and ${origin}/ai-answer-readiness describe the proof-backed small-business audit, the rendered-vs-static proof loop framed as AI crawler visibility (GPTBot, ClaudeBot, PerplexityBot, and CCBot read raw HTML without executing JavaScript), and the site-proof AI Answer Readiness boundary; none claim live answer-engine sampling or AI citation monitoring.
 - Reports include draft-only growth briefs from verified keyword, competitor, AI-readiness, and crawl gaps.
 - Reports include a private repair queue with proof, acceptance checks, status, safe draft action records, approval state, owner-approved implementation packs, and proof receipts after fixed rerun proof.
 - The account dashboard includes a repair-agent feed that ranks open repairs, drafted actions, applied items needing rerun proof, and monitor regressions.
@@ -478,11 +478,11 @@ function renderedVsStaticAuditHtml(origin) {
     origin,
     path: "/rendered-vs-static-seo-audit",
     title: "Rendered vs Static SEO Audit",
-    description: "Why static crawlers invent SEO problems on JavaScript-rendered pages, and how SEO Fix Kit compares raw HTML with the rendered DOM to keep false positives out of the repair queue.",
-    eyebrow: "Rendered vs static audit",
-    heading: "Static crawlers invent work. Rendered proof does not.",
-    lead: "JavaScript-heavy sites fail static scanners that read the raw app shell. SEO Fix Kit opens the page in a real browser, compares raw HTML with the rendered DOM, and only creates a repair when the browser-visible page is actually wrong.",
-    softwareDescription: "Private-beta SEO repair software that renders pages in a real browser to compare static HTML with the final DOM and guard static-crawler false positives.",
+    description: "GPTBot, ClaudeBot, PerplexityBot, and CCBot read raw HTML without executing JavaScript. SEO Fix Kit compares raw HTML with the rendered DOM to show your AI crawler visibility and keep false positives out of the repair queue.",
+    eyebrow: "AI crawler visibility · Rendered vs static audit",
+    heading: "Static scanners invent work. AI crawlers miss content. Rendered proof handles both.",
+    lead: "JavaScript-heavy sites fail static scanners that read the raw app shell, and AI crawlers never execute JavaScript at all. SEO Fix Kit opens the page in a real browser, compares raw HTML with the rendered DOM, shows exactly what a JavaScript-blind crawler can see, and only creates a repair when the browser-visible page is actually wrong.",
+    softwareDescription: "Private-beta SEO repair software that renders pages in a real browser to compare static HTML with the final DOM — measuring AI crawler visibility for JavaScript-blind crawlers and guarding static-crawler false positives.",
     body: `
       <section class="grid three" aria-label="Static scanner vs rendered proof">
         <article class="panel"><strong>Static scanner</strong><p>No H1. No internal links. Thin content. Needs cleanup.</p></article>
@@ -490,8 +490,12 @@ function renderedVsStaticAuditHtml(origin) {
         <article class="panel"><strong>Repair brief</strong><p>No duplicate H1. No fake internal links. No busywork. Keep monitoring and rerun after real content changes.</p></article>
       </section>
       <section class="band">
+        <h2>The same diff is your AI crawler visibility check</h2>
+        <p>Search Engine Journal confirms the major AI crawlers — GPTBot (OpenAI), ClaudeBot (Anthropic), PerplexityBot, and CCBot — fetch raw HTML and do not execute JavaScript. A page whose content appears only after a browser render hands those crawlers an empty shell: no headings, no internal links, no text to retrieve or cite. The rendered-vs-static comparison doubles as an AI crawler visibility check, because the raw-HTML side of the diff is precisely what those crawlers can read.</p>
+      </section>
+      <section class="band">
         <h2>Why this matters for repair work</h2>
-        <p>An agent that trusts a static crawl can make a site worse: if a scanner says "add an H1" when the rendered page already has one, the suggested repair is a duplicate heading, not a fix. Rendered-vs-static comparison separates a crawler limitation from a real customer problem, so the repair queue only receives proven findings.</p>
+        <p>An agent that trusts a static crawl can make a site worse: if a scanner says "add an H1" when the rendered page already has one, the suggested repair is a duplicate heading, not a fix. Rendered-vs-static comparison separates a crawler limitation from a real customer problem, so the repair queue only receives proven findings — and the same proof tells you which pages are invisible to AI crawlers until the content ships in the raw HTML.</p>
       </section>
       <section class="band">
         <h2>Where you can see it live</h2>
@@ -503,7 +507,7 @@ function renderedVsStaticAuditHtml(origin) {
       </section>
       <section class="band">
         <h2>What this page does not claim</h2>
-        <p>The one-page check covers a single public URL, not a full site audit. Full multi-page reports run inside the private beta. Rendered proof does not guarantee rankings, traffic, indexing, revenue, or AI citations, and SEO Fix Kit does not provide live answer-engine sampling or citation monitoring.</p>
+        <p>The one-page check covers a single public URL, not a full site audit. Full multi-page reports run inside the private beta. AI crawler visibility here means what a fetcher that does not execute JavaScript can retrieve from your raw HTML, based on public reporting about those crawlers — it is not live sampling of ChatGPT, Perplexity, or any answer engine, and SEO Fix Kit does not provide live AI citation monitoring or answer-engine sampling. Rendered proof does not guarantee rankings, traffic, indexing, revenue, or AI citations.</p>
       </section>
       <section class="band">
         <h2>Start with proof</h2>
@@ -513,6 +517,8 @@ function renderedVsStaticAuditHtml(origin) {
     `,
     faq: [
       { q: "Why does my static SEO tool report problems I cannot see in the browser?", a: "Static scanners read the raw HTML response and miss content rendered by JavaScript. SEO Fix Kit renders the page in a real browser and only reports what the final DOM actually shows." },
+      { q: "Which AI crawlers cannot see JavaScript-rendered content?", a: "Search Engine Journal confirms GPTBot, ClaudeBot, PerplexityBot, and CCBot fetch raw HTML without executing JavaScript. If your page's content exists only in the rendered DOM, those crawlers never see it — the rendered-vs-static diff shows exactly what they can." },
+      { q: "Is AI crawler visibility the same as sampling ChatGPT or Perplexity?", a: "No. SEO Fix Kit never queries AI engines. Visibility here is measured from your own pages: the raw HTML is what a JavaScript-blind crawler can retrieve, and the rendered DOM is what a browser user gets." },
       { q: "Can I see a rendered-vs-static example before signing up?", a: "Yes. The public sample at /demo shows a static scanner false positive against the rendered proof, and the free one-page check at /check runs the same proof loop on any public URL." },
       { q: "Does rendered proof mean guaranteed fixes or rankings?", a: "No. Every report is diagnostic and reflects what the crawl could observe at scan time. Rankings, traffic, indexing, revenue, and AI citations are never guaranteed." },
       { q: "How does the repair queue use rendered proof?", a: "Only proven findings become queue items. Each item keeps its source proof, suggested action, effort estimate, and an acceptance check that can be rerun after a change ships." }
