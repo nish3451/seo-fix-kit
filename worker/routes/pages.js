@@ -407,7 +407,21 @@ function packagesHtml(origin) {
         <p>The product is built to avoid audit noise and over-automation. The first paid step is a small, inspectable repair pass. Future packages only become live when proof, approval controls, billing, and provider safety are implemented.</p>
         <p>Wondering why a hosted service at all, when free installable AI SEO agent skills exist? The plain answer is on the <a href="${origin}/methodology">methodology page</a>: free skills are great for one-page checks, while hosted audits add site-scale rendered crawl scope, persistent repair state, and fulfillment.</p>
       </section>
-    `
+      <section class="band">
+        <h2>Compared with GEO Auditor</h2>
+        <p>GEO Auditor (geoauditor.app) runs a free AI-visibility audit — 40+ signals across 6 AI platforms, no signup, about 45 seconds — and sells a $29 one-time full report whose Agent Fix Mode gives you one Claude command for your local AI agent to apply the report's fixes to your project. That is genuine delivery speed at a third of the Fix Pack price, and it deserves a straight answer rather than a feature table.</p>
+        <ul class="check-list">
+          <li>The Fix Pack delivers suggested fixes with an exact snippet when the engine can generate one, inside an approval-first repair queue: every item carries source evidence and an acceptance check, nothing is applied until you approve it, and one rerun after fixes issues a proof receipt that says fixed, still-open, new, or regressed.</li>
+          <li>Automatic agent application optimizes for speed. It has no per-item approval gate and no re-measurement step, so if a finding was a false positive, an automated agent applies it anyway.</li>
+          <li>SEO Fix Kit's rendered-vs-static guards exist precisely so neither a human nor an agent "fixes" something the browser already renders correctly — the failure mode an automated fix loop cannot see.</li>
+          <li>If you want the fastest path and accept that trade-off, GEO Auditor's Agent Fix Mode is a reasonable choice. If you want owner approval before anything touches the site plus rerun proof, that inspection loop is what this ladder sells at ${FIX_PACK_PUBLIC_PRICE}.</li>
+        </ul>
+        <p>SEO Fix Kit does not auto-apply fixes to your site: implementation packs are handoff documents, and the full boundary is stated on the <a href="${origin}/methodology">methodology page</a>.</p>
+      </section>
+    `,
+    faq: [
+      { q: "Why pay more for a Fix Pack when GEO Auditor applies agent fixes at $29?", a: "GEO Auditor's Agent Fix Mode hands you one Claude command and your local AI agent applies the report's fixes automatically — fast, and fairly priced. The Fix Pack is the inspection-first alternative: proof-backed snippets from rendered evidence, an approval gate before anything is applied, and one rerun whose proof receipt records what actually changed. Dodo shows the final checkout price before payment." }
+    ]
   });
 }
 
