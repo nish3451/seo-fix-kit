@@ -67,5 +67,6 @@ was written.
 
 ## Outcome
 
-Branch `lane1/outreach-geo-listicles-b2-20260822` pushed to origin, PR
-opened: docs-only second-batch outreach preparation.
+Branch `lane1/outreach-geo-listicles-b2-20260822` pushed to origin.
+PR opened: https://github.com/nish3451/seo-fix-kit/pull/193 — docs-only
+second-batch outreach preparation.
