@@ -185,6 +185,38 @@ test("live spot-check flags a stale Worker serving the SPA fallback", async () =
   assert.deepEqual(demo.failures, [], "worker-rendered pages must not be flagged as stale");
 });
 
+test("live spot-check flags a stale Worker serving the 404-page asset fallback", async () => {
+  const notFoundPage =
+    '<!doctype html><html><head><title>Page not found - SEO Fix Kit</title></head>' +
+    '<body><main><h1>Nothing to fix here.</h1></main></body></html>';
+  const notFoundFetcher = async (rawUrl, options = {}) => {
+    const url = new URL(rawUrl);
+    const method = options.method || "GET";
+    if (method === "POST") {
+      return jsonBody({ error: "Enter a valid public website URL." }, 400);
+    }
+    if (url.pathname === "/proof") {
+      return new Response(notFoundPage, { status: 404, headers: { "content-type": "text/html" } });
+    }
+    if (url.pathname in surfaces) {
+      return surfaces[url.pathname]();
+    }
+    return htmlResponse(pages[url.pathname]);
+  };
+  const results = await spotCheckPublicPages({ baseUrl: origin, fetcher: notFoundFetcher });
+  const proof = results.find((result) => result.path === "/proof");
+  assert.ok(
+    proof.failures.some((failure) => failure.includes("deployed Worker is stale")),
+    "a promised page served by the asset-layer 404 page must be reported as a stale deploy, not copy drift"
+  );
+  assert.ok(
+    proof.failures.some((failure) => failure.includes("/proof")),
+    "the stale-deploy failure must name the affected route"
+  );
+  const demo = results.find((result) => result.path === "/demo");
+  assert.deepEqual(demo.failures, [], "worker-rendered pages must not be flagged as stale");
+});
+
 test("live spot-check flags a www host that stops redirecting to the apex", async () => {
   const noRedirectFetcher = async (rawUrl, options = {}) => {
     const url = new URL(rawUrl);
