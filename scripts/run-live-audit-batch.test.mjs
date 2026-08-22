@@ -1,12 +1,74 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
   audit,
   betaCookieFromResponse,
   createAdminBetaSession,
   proveFixPackForReport,
+  readFounderPassword,
   recommendOffer
 } from "./run-live-audit-batch.mjs";
+
+test("founder password prefers SEOFIXKIT_FOUNDER_PASSWORD over other sources", async () => {
+  await withEnv({ SEOFIXKIT_FOUNDER_PASSWORD: "  env-password  ", BETA_ACCESS_PASSWORD: "beta-password" }, async () => {
+    assert.equal(await readFounderPassword(), "env-password");
+  });
+});
+
+test("founder password falls back to BETA_ACCESS_PASSWORD", async () => {
+  await withEnv({ BETA_ACCESS_PASSWORD: "beta-password" }, async () => {
+    assert.equal(await readFounderPassword(), "beta-password");
+  });
+});
+
+test("founder password reads a trimmed value from SEOFIXKIT_FOUNDER_PASSWORD_FILE", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "sfk-founder-pw-"));
+  const passwordFile = path.join(dir, "founder-password");
+  await writeFile(passwordFile, "file-password\n");
+  try {
+    await withEnv({ SEOFIXKIT_FOUNDER_PASSWORD_FILE: passwordFile }, async () => {
+      assert.equal(await readFounderPassword(), "file-password");
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("founder password fails loud when the configured password file is unreadable", async () => {
+  const missingFile = path.join(tmpdir(), `sfk-missing-${Date.now()}`, "founder-password");
+  await withEnv({ SEOFIXKIT_FOUNDER_PASSWORD_FILE: missingFile }, async () => {
+    await assert.rejects(
+      () => readFounderPassword(),
+      (error) => {
+        assert.match(error.message, /SEOFIXKIT_FOUNDER_PASSWORD_FILE/);
+        assert.match(error.message, new RegExp(missingFile.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+        return true;
+      }
+    );
+  });
+});
+
+function withEnv(overrides, run) {
+  const saved = Object.fromEntries(
+    ["SEOFIXKIT_FOUNDER_PASSWORD", "BETA_ACCESS_PASSWORD", "SEOFIXKIT_FOUNDER_PASSWORD_FILE"].map(
+      (name) => [name, process.env[name]]
+    )
+  );
+  for (const [name, value] of Object.entries(overrides)) {
+    process.env[name] = value;
+  }
+  return Promise.resolve()
+    .then(run)
+    .finally(() => {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    });
+}
 
 test("audit polls queued job and returns completed report", async () => {
   const calls = [];
