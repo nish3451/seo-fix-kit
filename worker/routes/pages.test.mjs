@@ -141,6 +141,22 @@ test("public proof pages expose methodology and package ladder without overclaim
     assert.match(seomator, /No live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/);
     assert.doesNotMatch(seomator, /AI visibility score tracking|AI citation monitoring (is|are) live/i);
   }
+  // Agentic SEO auditor (SEO Automation Club) regression guard
+  {
+    const agentic = (methodology.match(/<h2>Why not just use an agentic SEO auditor that files its own GitHub issues\?<\/h2>[\s\S]*?<\/section>/) || [])[0];
+    assert.ok(agentic, "methodology must carry a dedicated agentic SEO auditor competitor answer");
+    assert.match(agentic, /SEO Automation Club/);
+    assert.match(agentic, /seoautomationclub\.com\/agentic-seo-autonomous-technical-audit-claude-code-github-issues/);
+    assert.match(agentic, /scheduled|twice a week|cadence/);
+    assert.match(agentic, /diff|previous run|baseline/);
+    assert.match(agentic, /GitHub issues/);
+    assert.match(agentic, /approval/);
+    assert.match(agentic, /proof receipt/);
+    assert.match(agentic, /rerun|re-measure/);
+    assert.match(agentic, /No live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/);
+    assert.match(agentic, /issue-filing|edit.*code|AST/i, "must distinguish issue-filers from code-editing agents");
+    assert.doesNotMatch(agentic, /73 issues|41 closed|6 days|guaranteed rankings|live AI-engine sampling is live|we apply your fixes/i);
+  }
   assert.match(packages, /Wondering why a hosted service at all, when free installable AI SEO agent skills exist\?/);
   assert.match(
     packages,
@@ -322,7 +338,7 @@ const PUBLIC_PAGE_RENDERERS = {
   ],
   "/demo": [{ file: "worker/routes/pages.js", lineStart: 156, lineEnd: 263 }],
   "/check": [{ file: "worker/routes/public-check.js", lineStart: 296, lineEnd: 800 }],
-  "/methodology": [{ file: "worker/routes/pages.js", lineStart: 265, lineEnd: 315 }],
+  "/methodology": [{ file: "worker/routes/pages.js", lineStart: 265, lineEnd: 351 }],
   "/packages": [{ file: "worker/routes/pages.js", lineStart: 317, lineEnd: 398 }],
   "/small-business-seo-audit": [
     { file: "worker/routes/pages.js", lineStart: 444, lineEnd: 491 },
