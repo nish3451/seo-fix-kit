@@ -137,6 +137,21 @@ test("live spot-check passes against the shipped public page copy", async () => 
   }
 });
 
+test("live spot-check flags a rendered-vs-static page that lost the free-checker comparison", async () => {
+  const overrides = {
+    "/rendered-vs-static-seo-audit": pages["/rendered-vs-static-seo-audit"].replace(
+      "Compared with free static-vs-rendered checkers",
+      "Compared with other scanners"
+    )
+  };
+  const results = await spotCheckPublicPages({ baseUrl: origin, fetcher: pageFetcher(overrides) });
+  const landing = results.find((result) => result.path === "/rendered-vs-static-seo-audit");
+  assert.ok(
+    landing.failures.includes("names free static-vs-rendered checkers"),
+    "a rendered-vs-static page without the free-checker comparison heading must be reported"
+  );
+});
+
 test("live spot-check flags a page that lost its package price", async () => {
   const overrides = { "/packages": pages["/packages"].split("$99.00 one-time").join("price hidden") };
   const results = await spotCheckPublicPages({ baseUrl: origin, fetcher: pageFetcher(overrides) });
