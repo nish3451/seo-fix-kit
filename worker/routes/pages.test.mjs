@@ -426,24 +426,24 @@ const PUBLIC_PAGE_RENDERERS = {
   ],
   "/demo": [{ file: "worker/routes/pages.js", lineStart: 156, lineEnd: 263 }],
   "/check": [{ file: "worker/routes/public-check.js", lineStart: 296, lineEnd: 800 }],
-  "/methodology": [{ file: "worker/routes/pages.js", lineStart: 265, lineEnd: 363 }],
-  "/packages": [{ file: "worker/routes/pages.js", lineStart: 366, lineEnd: 460 }],
+  "/methodology": [{ file: "worker/routes/pages.js", lineStart: 265, lineEnd: 369 }],
+  "/packages": [{ file: "worker/routes/pages.js", lineStart: 372, lineEnd: 466 }],
   "/small-business-seo-audit": [
-    { file: "worker/routes/pages.js", lineStart: 463, lineEnd: 510 },
-    { file: "worker/routes/pages.js", lineStart: 666, lineEnd: 808 }
+    { file: "worker/routes/pages.js", lineStart: 469, lineEnd: 516 },
+    { file: "worker/routes/pages.js", lineStart: 672, lineEnd: 814 }
   ],
   "/rendered-vs-static-seo-audit": [
-    { file: "worker/routes/pages.js", lineStart: 511, lineEnd: 574 },
-    { file: "worker/routes/pages.js", lineStart: 666, lineEnd: 808 }
+    { file: "worker/routes/pages.js", lineStart: 517, lineEnd: 580 },
+    { file: "worker/routes/pages.js", lineStart: 672, lineEnd: 814 }
   ],
   "/ai-answer-readiness": [
-    { file: "worker/routes/pages.js", lineStart: 575, lineEnd: 665 },
-    { file: "worker/routes/pages.js", lineStart: 666, lineEnd: 808 }
+    { file: "worker/routes/pages.js", lineStart: 581, lineEnd: 671 },
+    { file: "worker/routes/pages.js", lineStart: 672, lineEnd: 814 }
   ],
-  "/proof": [{ file: "worker/routes/pages.js", lineStart: 727, lineEnd: 853 }],
-  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 899, lineEnd: 938 }],
-  "/support": [{ file: "worker/routes/pages.js", lineStart: 940, lineEnd: 973 }],
-  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1057, lineEnd: 1107 }]
+  "/proof": [{ file: "worker/routes/pages.js", lineStart: 733, lineEnd: 859 }],
+  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 905, lineEnd: 944 }],
+  "/support": [{ file: "worker/routes/pages.js", lineStart: 946, lineEnd: 979 }],
+  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1063, lineEnd: 1113 }]
 };
 
 function latestCommitIsoIst(renderer) {
