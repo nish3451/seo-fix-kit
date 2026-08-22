@@ -164,3 +164,48 @@ Both are one-time, copy-paste steps that materially accelerate the outcome:
 - `worker/routes/pages.test.mjs` (freshness discipline pin +
   `PUBLIC_PAGE_RENDERERS` map)
 - `docs/growth/search-index-coverage-2026-08-20.md` (this file)
+
+## Re-verified 2026-08-22 (lane-1 run) — CI gate repaired, lastmods re-aligned to git truth
+
+PR #174 sat red since 2026-08-22 02:32 UTC: its own freshness-discipline
+test reported every one of the twelve paths stale against a single
+timestamp (`2026-08-22T08:01:54 IST`) that equaled the branch-head merge
+commit's author time. Root cause was environmental, not data drift:
+`.github/workflows/pr-check.yml` used `actions/checkout@v4` defaults,
+which is a **depth-1 shallow clone**. Under depth 1, `git log -L` can
+only see the head commit, so every renderer range resolves to "last
+touched by the head commit itself" — newer than any committed lastmod by
+construction. The gate was unwinnable on CI while main stayed green only
+because the test ships in this PR, not on main.
+
+Fixes on the branch (still PR #174, no new PR):
+
+- `.github/workflows/pr-check.yml` checkout step now sets
+  `fetch-depth: 0`, so the discipline test sees real renderer history.
+  Job name, triggers, and pins unchanged.
+- With full history restored, two stored values were ahead of their
+  true renderer commits (left over from conflict-resolution merges) and
+  were aligned down to what `git log -L` actually reports:
+  `/methodology` → `2026-08-13T03:48:58Z`,
+  `/rendered-vs-static-seo-audit` → `2026-08-21T05:10:13Z`; mirrored in
+  `public/sitemap.xml`. All ten other values verified exact.
+- Local verification at branch tip with full history:
+  `node --test worker/routes/pages.test.mjs` → 17 pass / 0 fail
+  (freshness discipline included); `npm run test:audit-engine` → 38
+  pass / 0 fail; `npm run test:indexnow` → 8 pass / 0 fail.
+
+Live-state receipts (2026-08-22, this run):
+
+- `https://seofixkit.com/sitemap.xml` still loc-only, zero `<lastmod>`
+  (production predates #157's release).
+- Both IndexNow key-file paths return HTTP 404 HTML (proper SPA 404
+  page now, not the old SPA-fallback 200): the deployed Worker build
+  predates the key-file routes. `node scripts/submit-indexnow.mjs`
+  would exit 2 (key file not live) — submission remains correctly
+  blocked until the next production deploy of merged main.
+- Bing/DDG presence therefore unchanged; Google leg unchanged
+  (Search Console is owner-only).
+
+Resume path after #174 merges and the release deploys: unchanged from
+the 2026-08-20 packet — confirm key file + lastmods live, then
+`node scripts/submit-indexnow.mjs` for the real Bing/IndexNow POST.
