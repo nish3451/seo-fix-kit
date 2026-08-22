@@ -598,6 +598,18 @@ function aiAnswerReadinessHtml(origin) {
         </ul>
       </section>
       <section class="band">
+        <h2>Compared with free AI visibility checkers</h2>
+        <p>Free tools such as these check whether AI engines cite or mention your site. That is AI citation tracking. SEO Fix Kit does not check AI-engine citations or visibility scores.</p>
+        <ul class="check-list">
+          <li><a href="https://definiteseo.com/ai-visibility-checker" rel="nofollow noopener" target="_blank">DefiniteSEO</a> is a free AI visibility checker that sees whether ChatGPT and Google AI Overviews cite your site.</li>
+          <li><a href="https://revsurgedigital.com/free-tools/geo-audit" rel="nofollow noopener" target="_blank">RevSurge Digital</a> is a free GEO audit that checks whether AI answer engines can read, understand, and cite your website.</li>
+          <li><a href="https://answervisibilitylab.com/geo-audit-tool" rel="nofollow noopener" target="_blank">Answer Visibility Lab</a> is a free GEO audit tool that checks brand mentions and owned-URL citations across ChatGPT, Perplexity, Gemini, Claude, and Google AI Overviews.</li>
+          <li><a href="https://websiteaeogeochecker.com" rel="nofollow noopener" target="_blank">Website AEO GEO Checker</a> is a free AEO and GEO checker for AI search that shows how ChatGPT, Perplexity, Gemini, Claude AI, and Bing AI read your site.</li>
+        </ul>
+        <p>If you only need that visibility score, those tools are a fair choice. SEO Fix Kit stays on the site-proof side: readiness here is derived from your rendered pages, schema, links, sitemap context, and optional llms.txt, and only proven findings reach the persistent repair queue with a rerun proof receipt.</p>
+        <p>No live AI-engine sampling, no AI citation monitoring, and no ranking guarantees.</p>
+      </section>
+      <section class="band">
         <h2>On "technical readiness predicts nothing (r=0.009)"</h2>
         <p>getaisearchscore.com's own study — 441 domains, Perplexity-only citations, cross-sectional — found its original 26-check aggregate score did not predict citations (r=0.009), and it rebuilt its product around content relevance. That null is real, and it matches our boundary rather than refuting it:</p>
         <ul class="check-list">

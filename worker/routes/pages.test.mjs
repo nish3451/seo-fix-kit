@@ -369,20 +369,20 @@ const PUBLIC_PAGE_RENDERERS = {
   "/packages": [{ file: "worker/routes/pages.js", lineStart: 360, lineEnd: 454 }],
   "/small-business-seo-audit": [
     { file: "worker/routes/pages.js", lineStart: 457, lineEnd: 504 },
-    { file: "worker/routes/pages.js", lineStart: 648, lineEnd: 790 }
+    { file: "worker/routes/pages.js", lineStart: 660, lineEnd: 802 }
   ],
   "/rendered-vs-static-seo-audit": [
     { file: "worker/routes/pages.js", lineStart: 505, lineEnd: 568 },
-    { file: "worker/routes/pages.js", lineStart: 648, lineEnd: 790 }
+    { file: "worker/routes/pages.js", lineStart: 660, lineEnd: 802 }
   ],
   "/ai-answer-readiness": [
-    { file: "worker/routes/pages.js", lineStart: 569, lineEnd: 647 },
-    { file: "worker/routes/pages.js", lineStart: 648, lineEnd: 790 }
+    { file: "worker/routes/pages.js", lineStart: 569, lineEnd: 659 },
+    { file: "worker/routes/pages.js", lineStart: 660, lineEnd: 802 }
   ],
-  "/proof": [{ file: "worker/routes/pages.js", lineStart: 709, lineEnd: 835 }],
-  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 881, lineEnd: 920 }],
-  "/support": [{ file: "worker/routes/pages.js", lineStart: 922, lineEnd: 955 }],
-  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1039, lineEnd: 1089 }]
+  "/proof": [{ file: "worker/routes/pages.js", lineStart: 721, lineEnd: 847 }],
+  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 893, lineEnd: 932 }],
+  "/support": [{ file: "worker/routes/pages.js", lineStart: 934, lineEnd: 967 }],
+  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1051, lineEnd: 1101 }]
 };
 
 function latestCommitIsoIst(renderer) {
@@ -494,6 +494,12 @@ test("intent-matching landing pages carry unique, truthful, machine-readable pro
   assert.match(pages[2].html, /ranked by the clicks and impressions on the affected pages/);
   assert.match(pages[2].html, /does not connect to Search Console or GA4 automatically/);
   assert.match(pages[2].html, /Does SEO Fix Kit rank AI readiness faults by traffic like CrawlRaven\?/);
+  assert.match(pages[2].html, /Compared with free AI visibility checkers/);
+  assert.match(pages[2].html, /SEO Fix Kit does not check AI-engine citations or visibility scores\./);
+  assert.match(pages[2].html, /DefiniteSEO/);
+  assert.match(pages[2].html, /RevSurge Digital/);
+  assert.match(pages[2].html, /Answer Visibility Lab/);
+  assert.match(pages[2].html, /Website AEO GEO Checker/);
   // Direct challenge to the getaisearchscore.com r=0.009 headline stays truth-safe:
   // the null is real, but it does not refute proof-derived readiness.
   assert.match(pages[2].html, /On "technical readiness predicts nothing \(r=0\.009\)"/);
