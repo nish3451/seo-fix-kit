@@ -122,6 +122,25 @@ test("public proof pages expose methodology and package ladder without overclaim
     new RegExp(`<a href="${origin}/check">${origin}/check</a>`),
     "the free-skill answer must keep a working link into the anonymous check"
   );
+  // SEOmator is named as a competitor on its own terms (39 free tools,
+  // 251-check JS-rendering audit, dedicated GEO audit) and the answer must
+  // stay inside the page's no-overclaim boundary: repair queue + rerun proof
+  // is the wedge, never an AI-visibility parity claim.
+  {
+    const seomator = (methodology.match(/<h2>Why not just use SEOmator's free audits\?<\/h2>[\s\S]*?<\/section>/) || [])[0];
+    assert.ok(seomator, "methodology must carry a dedicated SEOmator competitor answer");
+    assert.match(seomator, /39 free SEO tools/);
+    assert.match(seomator, /251-check rule engine/);
+    assert.match(seomator, /renders JavaScript/);
+    assert.match(seomator, /up to 50 pages/);
+    assert.match(seomator, /14 AI-specific crawlers including GPTBot, ClaudeBot, and PerplexityBot/);
+    assert.match(seomator, /<a href="https:\/\/seomator\.com\/free-tools"/);
+    assert.match(seomator, /<a href="https:\/\/seomator\.com\/free-seo-audit-tool"/);
+    assert.match(seomator, /<a href="https:\/\/seomator\.com\/geo-audit-tool"/);
+    assert.match(seomator, /repair queue plus rerun proof/);
+    assert.match(seomator, /No live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/);
+    assert.doesNotMatch(seomator, /AI visibility score tracking|AI citation monitoring (is|are) live/i);
+  }
   assert.match(packages, /Wondering why a hosted service at all, when free installable AI SEO agent skills exist\?/);
   assert.match(
     packages,
@@ -179,6 +198,29 @@ test("public proof pages expose methodology and package ladder without overclaim
     /Checkout only opens when the Dodo subscription product and webhook entitlement sync are configured; until then it stays a config-gated offer in private billing/,
     "packages must keep the config-gated checkout boundary"
   );
+});
+
+test("packages page names the GEO Auditor agent-fix parity trade-off without overclaims", () => {
+  const packages = packagesHtml(origin);
+  // The competitor and its price/delivery mode are named plainly (verified on
+  // geoauditor.app, 2026-08-21): free audit, $29 one-time report, Agent Fix Mode.
+  assert.match(packages, /Compared with GEO Auditor/);
+  assert.match(packages, /geoauditor\.app/);
+  assert.match(packages, /\$29 one-time full report/);
+  assert.match(packages, /Agent Fix Mode/);
+  assert.match(packages, /40\+ signals across 6 AI platforms/);
+  // The wedge answer must carry the three load-bearing halves: proof-backed
+  // snippets, approval-first queue, rerun proof.
+  assert.match(packages, /approval-first repair queue/);
+  assert.match(packages, /exact snippet when the engine can generate one/);
+  assert.match(packages, /proof receipt that says fixed, still-open, new, or regressed/);
+  // Fair-to-competitor guard: name the trade-off, do not disparage.
+  assert.match(packages, /reasonable choice/);
+  // No-overclaim guards: SEO Fix Kit must not claim it applies fixes itself,
+  // and the snippet qualifier must stay engine-capable.
+  assert.doesNotMatch(packages, /applies all fixes/);
+  assert.doesNotMatch(packages, /we apply your fixes/i);
+  assert.doesNotMatch(packages, /each with an exact snippet/);
 });
 
 test("machine-readable public surfaces list proof pages and limits", () => {
@@ -382,6 +424,18 @@ test("intent-matching landing pages carry unique, truthful, machine-readable pro
   assert.match(pages[2].html, /No AI citation monitoring/);
   assert.match(pages[2].html, /llms\.txt stays optional/);
   assert.match(pages[2].html, /does not sample live answer engines or monitor citations/);
+  assert.match(pages[2].html, /Compared with CrawlRaven/);
+  assert.match(pages[2].html, /ranked by the clicks and impressions on the affected pages/);
+  assert.match(pages[2].html, /does not connect to Search Console or GA4 automatically/);
+  assert.match(pages[2].html, /Does SEO Fix Kit rank AI readiness faults by traffic like CrawlRaven\?/);
+  // Direct challenge to the getaisearchscore.com r=0.009 headline stays truth-safe:
+  // the null is real, but it does not refute proof-derived readiness.
+  assert.match(pages[2].html, /On "technical readiness predicts nothing \(r=0\.009\)"/);
+  assert.match(pages[2].html, /441 domains, Perplexity-only citations, cross-sectional/);
+  assert.match(pages[2].html, /not on individual technical faults/);
+  assert.match(pages[2].html, /judges readiness on the rendered page/);
+  assert.match(pages[2].html, /never claims to predict citations/);
+  assert.match(pages[2].html, /Content relevance is the citation driver; technical health is the hygiene floor/);
   assert.doesNotMatch(pages[2].html, /live AI citation monitoring is live/i);
 });
 
@@ -705,7 +759,7 @@ test("Cloudflare asset routing sends public proof pages through the Worker", () 
   );
   if (Array.isArray(runWorkerFirst)) {
     const covered = new Set(runWorkerFirst);
-    for (const path of ["/demo", "/methodology", "/packages", "/check", "/proof", "/support", "/terms", "/privacy"]) {
+    for (const path of ["/demo", "/methodology", "/packages", "/check", "/proof", "/support", "/terms", "/privacy", "/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness"]) {
       assert.equal(covered.has(path), true, `${path} must be served by the Worker before SPA assets`);
     }
   }

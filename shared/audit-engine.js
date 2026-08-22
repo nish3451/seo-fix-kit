@@ -184,20 +184,20 @@ export function createAuditEngine({
       disabled: pagespeedDisabled
     });
 
-    const socialImages = await checkSocialImages(pages);
+    const declaredImages = await checkDeclaredImages(pages);
     let findings = buildFindings({
       pages,
       startUrl,
       robots,
       sitemap,
       performance,
-      socialImages
+      declaredImages
     });
     let score = scoreFindings(findings);
     let pageSummaries = buildPageSummaries(pages, findings, startUrl);
     let summary = summarize(findings, pages, maxPages);
     let repairPlan = buildRepairPlan(findings);
-    const fixPack = buildFixPack(pages[0], origin, findings, socialImages);
+    const fixPack = buildFixPack(pages[0], origin, findings, declaredImages);
     const report = {
       id: `${new URL(startUrl).hostname.replace(/[^a-z0-9]+/gi, "-")}-${startedAt.toString(36)}`,
       url: startUrl,
@@ -293,7 +293,11 @@ export function createAuditEngine({
     }
 
     const aiAnswerReadiness = buildAiAnswerReadiness(report, {
-      llmsTxt: report.llmsTxt
+      llmsTxt: report.llmsTxt,
+      // Prefer the complete imported rows over the capped keywordRankAudit rows
+      // so readiness prioritization does not silently drop traffic beyond the
+      // keyword audit's row cap.
+      keywordRows: options.keywordRows || options.keywordRankRows || report.keywordRankAudit?.rows || []
     });
     if (aiAnswerReadiness.status === "ready") {
       report.aiAnswerReadiness = aiAnswerReadiness;
@@ -538,43 +542,73 @@ export function createAuditEngine({
     return result;
   }
 
-  // Verify the declared social-share images actually load as images instead of
-  // trusting tag presence alone. A page that points og:image/twitter:image at a
-  // dead file or at an HTML page has no working social preview, so the snippet
-  // must not guess a replacement path that may not exist on the customer's
-  // origin: it names a placeholder the customer has to create.
-  async function checkSocialImages(pages) {
+  // Verify the declared images (social share images and the Apple touch icon)
+  // actually load as images instead of trusting tag presence alone. A page that
+  // points og:image/twitter:image/apple-touch-icon at a dead file or at an HTML
+  // page has no working preview or icon, so the snippet must not guess a
+  // replacement path that may not exist on the customer's origin: it names a
+  // placeholder the customer has to create.
+  //
+  // When no working apple-touch-icon is declared we probe the conventional
+  // /apple-touch-icon.png once per origin. If a real file is already served
+  // there the snippet can reference a URL we verified instead of a guess.
+  async function checkDeclaredImages(pages) {
     const results = [];
     const seen = new Set();
+    const probedOrigins = new Set();
+
+    const checkCandidate = async (page, candidate) => {
+      if (!candidate.url || seen.has(candidate.url)) return null;
+      seen.add(candidate.url);
+      const checked = await checkResource({ url: candidate.url, label: candidate.key, kind: "image" });
+      const contentType = String(checked.contentType || "").toLowerCase();
+      // A declared content-type wins over the file extension: a 200 response
+      // that is text/html is not a working image even when the URL ends in
+      // .png. The extension fallback only applies when the server returned no
+      // content-type at all.
+      const isImage =
+        contentType.includes("image/") ||
+        (!contentType && /\.(png|jpe?g|gif|webp|avif|svg)$/.test(new URL(candidate.url).pathname));
+      const result = {
+        pageUrl: page.url,
+        key: candidate.key,
+        url: candidate.url,
+        ok: Boolean(checked.ok) && isImage,
+        status: checked.status,
+        contentType: checked.contentType,
+        error: checked.error || "",
+        redirected: Boolean(checked.redirected)
+      };
+      results.push(result);
+      return result;
+    };
+
     for (const page of pages) {
       const rendered = page.rendered || {};
-      const candidates = [
-        { key: "og", url: rendered.openGraph?.image },
-        { key: "twitter", url: rendered.twitter?.image }
-      ];
-      for (const candidate of candidates) {
-        if (!candidate.url || seen.has(candidate.url)) continue;
-        seen.add(candidate.url);
-        const checked = await checkResource({ url: candidate.url, label: candidate.key, kind: "image" });
-        const contentType = String(checked.contentType || "").toLowerCase();
-        // A declared content-type wins over the file extension: a 200 response
-        // that is text/html is not a working social image even when the URL
-        // ends in .png. The extension fallback only applies when the server
-        // returned no content-type at all.
-        const isImage =
-          contentType.includes("image/") ||
-          (!contentType && /\.(png|jpe?g|gif|webp|avif|svg)$/.test(new URL(candidate.url).pathname));
-        results.push({
-          pageUrl: page.url,
-          key: candidate.key,
-          url: candidate.url,
-          ok: Boolean(checked.ok) && isImage,
-          status: checked.status,
-          contentType: checked.contentType,
-          error: checked.error || "",
-          redirected: Boolean(checked.redirected)
-        });
+      await checkCandidate(page, { key: "og", url: rendered.openGraph?.image });
+      await checkCandidate(page, { key: "twitter", url: rendered.twitter?.image });
+      const declaredIcon = await checkCandidate(page, {
+        key: "apple-touch-icon",
+        url: rendered.appleTouchIcon
+      });
+      const iconAlreadyOk =
+        declaredIcon?.ok ||
+        results.some(
+          (check) => check.key === "apple-touch-icon" && check.ok && check.url === rendered.appleTouchIcon
+        );
+      if (iconAlreadyOk) continue;
+      let pageOrigin = "";
+      try {
+        pageOrigin = new URL(page.url).origin;
+      } catch {
+        continue;
       }
+      if (probedOrigins.has(pageOrigin)) continue;
+      probedOrigins.add(pageOrigin);
+      await checkCandidate(page, {
+        key: "apple-touch-icon-probe",
+        url: `${pageOrigin}/apple-touch-icon.png`
+      });
     }
     return results;
   }
@@ -1223,7 +1257,7 @@ function extractStaticFacts(html, url, fetchResult = {}) {
   };
 }
 
-function buildFindings({ pages, startUrl, robots, sitemap, performance, socialImages = [] }) {
+function buildFindings({ pages, startUrl, robots, sitemap, performance, declaredImages = [] }) {
   const findings = [];
   let activePage = null;
   const add = (finding) => {
@@ -1762,10 +1796,10 @@ function buildFindings({ pages, startUrl, robots, sitemap, performance, socialIm
           rendered.twitter.image || "missing"
         }`,
         fix: "Add 1200x630 Open Graph and Twitter images.",
-        snippet: buildSocialSnippet(page.url, rendered, socialImages)
+        snippet: buildSocialSnippet(page.url, rendered, declaredImages)
       });
     } else {
-      const brokenSocialImages = socialImages.filter(
+      const brokenSocialImages = declaredImages.filter(
         (check) =>
           check.pageUrl === page.url &&
           (check.key === "og" || check.key === "twitter") &&
@@ -1789,12 +1823,21 @@ function buildFindings({ pages, startUrl, robots, sitemap, performance, socialIm
           why: "A social image tag that points at a file which does not load as an image leaves the share preview broken. It is not a direct ranking claim.",
           evidence: reasons,
           fix: "Replace each social image URL with a live 1200x630 image file, or remove the broken tag.",
-          snippet: buildSocialSnippet(page.url, rendered, socialImages),
+          snippet: buildSocialSnippet(page.url, rendered, declaredImages),
           confidence: "needs-review"
         });
       }
     }
 
+    // Presence of the tag is not proof of a working icon: a declared
+    // apple-touch-icon that 404s or returns HTML leaves the same blank
+    // home-screen tile as no tag at all, so the declared file is fetched and
+    // verified before the page is treated as covered.
+    const declaredAppleIcon = rendered.appleTouchIcon
+      ? declaredImages.find(
+          (check) => check.key === "apple-touch-icon" && check.url === rendered.appleTouchIcon
+        )
+      : null;
     if (!rendered.appleTouchIcon) {
       add({
         type: "issue",
@@ -1803,7 +1846,23 @@ function buildFindings({ pages, startUrl, robots, sitemap, performance, socialIm
         why: "This improves mobile saved-page presentation. It is not a ranking claim.",
         evidence: "No apple-touch-icon link found.",
         fix: "Add an Apple touch icon.",
-        snippet: '<link rel="apple-touch-icon" href="/apple-touch-icon.png" />'
+        snippet: buildAppleTouchIconSnippet(page.url, declaredImages)
+      });
+    } else if (declaredAppleIcon && !declaredAppleIcon.ok) {
+      const reason = declaredAppleIcon.error
+        ? declaredAppleIcon.error
+        : declaredAppleIcon.contentType
+          ? `returned ${declaredAppleIcon.status || "no status"} with content-type ${declaredAppleIcon.contentType}`
+          : `returned ${declaredAppleIcon.status || "no status"}`;
+      add({
+        type: "issue",
+        severity: "notice",
+        title: `Apple touch icon is not loadable on ${label}`,
+        why: "An apple-touch-icon tag pointing at a file that does not load as an image leaves the same blank saved-page tile as no icon. It is not a ranking claim.",
+        evidence: `apple-touch-icon (${declaredAppleIcon.url}): ${reason}`,
+        fix: "Point the apple-touch-icon link at a live square PNG, or remove the broken tag.",
+        snippet: buildAppleTouchIconSnippet(page.url, declaredImages),
+        confidence: "needs-review"
       });
     }
 
@@ -2013,7 +2072,7 @@ function buildRepairBrief({ startUrl, score, summary, pages, findings, repairPla
   return lines.join("\n");
 }
 
-function buildFixPack(page, origin, findings = [], socialImages = []) {
+function buildFixPack(page, origin, findings = [], declaredImages = []) {
   if (!page) return [];
   const issueFixes = findings
     .filter((finding) => finding.severity !== "good" && finding.snippet)
@@ -2029,7 +2088,7 @@ function buildFixPack(page, origin, findings = [], socialImages = []) {
     {
       title: "Social preview tags",
       body: "Use this when og:image or twitter:image is missing.",
-      snippet: buildSocialSnippet(page.url, page.rendered, socialImages)
+      snippet: buildSocialSnippet(page.url, page.rendered, declaredImages)
     },
     {
       title: "Canonical tag",
@@ -2139,7 +2198,7 @@ function fenceSafe(value) {
   return String(value || "").replaceAll("```", "` ` `");
 }
 
-function buildSocialSnippet(url, facts, socialImages = []) {
+function buildSocialSnippet(url, facts, declaredImages = []) {
   const title = escapeHtml(facts.title || suggestTitle(url, facts));
   const description = escapeHtml(facts.description || suggestDescription(facts));
   const origin = new URL(url).origin;
@@ -2147,8 +2206,8 @@ function buildSocialSnippet(url, facts, socialImages = []) {
   // audited origin. Guessing ${origin}/og-image.png for a site that serves no
   // such file ships a broken tag into the customer's head.
   const liveImage =
-    socialImages.find((check) => check.key === "og" && check.ok && check.url.startsWith(origin)) ||
-    socialImages.find((check) => check.key === "twitter" && check.ok && check.url.startsWith(origin));
+    declaredImages.find((check) => check.key === "og" && check.ok && check.url.startsWith(origin)) ||
+    declaredImages.find((check) => check.key === "twitter" && check.ok && check.url.startsWith(origin));
   const image = liveImage ? liveImage.url : `${origin}/og-image.png`;
   const placeholderNote = liveImage
     ? ""
@@ -2165,8 +2224,31 @@ function buildSocialSnippet(url, facts, socialImages = []) {
     .replace(/^/, placeholderNote);
 }
 
-function buildSchemaSnippet(url, facts) {
+// Never publish a hard-coded ${origin}/apple-touch-icon.png: shipping a tag
+// that points at a file the site does not serve replaces a missing icon with a
+// broken one. The engine probes the conventional path during the audit, so the
+// snippet either references an icon URL verified to load as an image on the
+// audited origin, or carries an explicit note that the file must be created
+// first.
+function buildAppleTouchIconSnippet(url, declaredImages = []) {
   const origin = new URL(url).origin;
+  const verified = declaredImages.find(
+    (check) =>
+      (check.key === "apple-touch-icon" || check.key === "apple-touch-icon-probe") &&
+      check.ok &&
+      check.url.startsWith(`${origin}/`)
+  );
+  const href = verified ? verified.url : `${origin}/apple-touch-icon.png`;
+  // No sizes attribute is emitted: the audit verifies the file loads as an
+  // image, not that it is 180x180, and a size claim we did not measure would be
+  // the same guess in a different attribute.
+  const note = verified
+    ? `<!-- ${verified.url} was verified to load as an image during this audit. Apple expects a square PNG, ideally 180x180. -->\n`
+    : `<!-- No icon file loaded at ${origin}/apple-touch-icon.png during this audit. Create a square 180x180 PNG there, or point href at your real icon file, before shipping this tag. -->\n`;
+  return `${note}<link rel="apple-touch-icon" href="${href}" />`;
+}
+
+function buildSchemaSnippet(url, facts) {  const origin = new URL(url).origin;
   return `<script type="application/ld+json">\n${JSON.stringify(
     {
       "@context": "https://schema.org",
@@ -3053,12 +3135,12 @@ export const ROOT_PUBLIC_LASTMODS = {
   "/methodology": "2026-08-15T07:14:01Z",
   "/packages": "2026-08-15T07:14:01Z",
   "/small-business-seo-audit": "2026-08-19T13:36:30Z",
-  "/rendered-vs-static-seo-audit": "2026-08-19T13:36:30Z",
-  "/ai-answer-readiness": "2026-08-19T13:36:30Z",
+  "/rendered-vs-static-seo-audit": "2026-08-21T10:06:57Z",
+  "/ai-answer-readiness": "2026-08-20T13:09:00Z",
   "/privacy": "2026-08-15T03:44:50Z",
   "/proof": "2026-08-15T10:43:48Z",
-  "/support": "2026-08-11T01:11:38Z",
-  "/terms": "2026-08-11T01:11:38Z"
+  "/support": "2026-08-13T03:48:58Z",
+  "/terms": "2026-08-13T03:48:58Z"
 };
 
 export function rootSitemap(origin) {

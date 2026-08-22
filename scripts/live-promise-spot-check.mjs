@@ -105,9 +105,9 @@ export async function spotCheckPublicPages({
         failures.push(reason);
       }
     }
-    if (check.isPage && failures.length > 0 && isSpaFallback(text, contentType)) {
+    if (check.isPage && failures.length > 0 && isAssetFallback(text, contentType)) {
       failures.push(
-        `deployed Worker is stale: ${check.path} was served by the static-asset SPA fallback instead of the ` +
+        `deployed Worker is stale: ${check.path} was served by the static-asset fallback instead of the ` +
           `Worker route (deploy main, then rerun)`
       );
     }
@@ -182,6 +182,9 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "Proof Monitoring is config-gated", match: "Config-gated subscription" },
         { reason: "Proof Monitoring checkout gated, offer visible", match: "Checkout only opens when the Dodo subscription product and webhook entitlement sync are configured" },
         { reason: "roadmap packages marked", match: "Roadmap" },
+        { reason: "names the GEO Auditor agent-fix comparison", match: "Compared with GEO Auditor" },
+        { reason: "names the $29 Agent Fix Mode tier", match: "Agent Fix Mode" },
+        { reason: "approval-first wedge answer present", match: "approval-first repair queue" },
         { reason: "link to terms", match: `href="${baseUrl}/terms"` },
         { reason: "link to privacy", match: `href="${baseUrl}/privacy"` }
       ]
@@ -203,12 +206,15 @@ export function publicPageSpotChecks(baseUrl) {
     },
     {
       path: "/rendered-vs-static-seo-audit",
-      name: "rendered-vs-static landing page keeps the false-positive guard boundary",
+      name: "rendered-vs-static landing page keeps the false-positive guard and AI crawler visibility boundary",
       isPage: true,
       acceptStatuses: [200],
       expectations: [
-        { reason: "static-vs-rendered headline", match: "Static crawlers invent work. Rendered proof does not." },
+        { reason: "static-vs-rendered headline", match: "Static scanners invent work. AI crawlers miss content. Rendered proof handles both." },
         { reason: "static scanner vs rendered proof panels", match: "Rendered proof" },
+        { reason: "AI crawler visibility framing", match: "The same diff is your AI crawler visibility check" },
+        { reason: "names the JavaScript-blind AI crawlers", match: "GPTBot (OpenAI), ClaudeBot (Anthropic), PerplexityBot, and CCBot" },
+        { reason: "cites the SEJ-confirmed no-JavaScript behavior", match: "fetch raw HTML and do not execute JavaScript" },
         { reason: "no-overclaim section", match: "What this page does not claim" },
         { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
         { reason: "link to the proof sample", match: `href="${baseUrl}/demo"` },
@@ -225,6 +231,12 @@ export function publicPageSpotChecks(baseUrl) {
         { reason: "no live answer-engine sampling", match: "No live answer-engine sampling" },
         { reason: "no AI citation monitoring", match: "No AI citation monitoring" },
         { reason: "llms.txt stays optional", match: "llms.txt stays optional" },
+        { reason: "names CrawlRaven comparison", match: "Compared with CrawlRaven" },
+        { reason: "names imported traffic ranking", match: "ranked by the clicks and impressions on the affected pages" },
+        { reason: "names no auto-join gap", match: "does not connect to Search Console or GA4 automatically" },
+        { reason: "challenges the r=0.009 headline directly", match: 'On "technical readiness predicts nothing (r=0.009)"' },
+        { reason: "keeps the r=0.009 challenge truth-safe", match: "441 domains, Perplexity-only citations, cross-sectional" },
+        { reason: "keeps the no-citation-prediction boundary", match: "never claims to predict citations" },
         { reason: "no-overclaim section", match: "What this page does not claim" },
         { reason: "clickable CTA into the anonymous check", match: `href="${baseUrl}/check"` },
         ...landingPageLdExpectations("/ai-answer-readiness", "AI Answer Readiness Check")
@@ -501,15 +513,17 @@ function hasContent(text, match) {
 }
 
 // Worker-rendered promise pages are served as `text/html; charset=utf-8` with
-// their own body copy. The static-asset SPA fallback serves index.html
-// instead: `text/html` without a charset and a `<div id="root">` root element.
-// A promise page that comes back as the SPA shell means the deployed Worker
-// predates the route the README promises — a deploy gap, not a copy drift.
-function isSpaFallback(text, contentType) {
-  const html = /text\/html/i.test(contentType);
-  const withoutCharset = !/charset/i.test(contentType);
-  const hasSpaRoot = text.includes('<div id="root"');
-  return html && withoutCharset && hasSpaRoot;
+// their own body copy. When the deployed Worker predates a promised route, the
+// static-asset layer answers instead — either the SPA `index.html` shell
+// (`text/html` without a charset and a `<div id="root">` root element) for
+// paths the Worker used to serve, or the asset-layer 404 page (`text/html`
+// without a charset and the 404 "Nothing to fix here." body) for paths the
+// Worker never served. Both mean a deploy gap, not copy drift.
+function isAssetFallback(text, contentType) {
+  if (!/text\/html/i.test(contentType) || /charset/i.test(contentType)) {
+    return false;
+  }
+  return text.includes('<div id="root"') || text.includes("Nothing to fix here.");
 }
 
 async function fetchWithTimeout(url, options, timeoutMs, fetcher = fetch) {

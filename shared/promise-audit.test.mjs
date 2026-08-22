@@ -345,6 +345,20 @@ test("README AI Answer Readiness claim stays free of live AI sampling", () => {
   assert.match(aiReadinessSource, /not live answer-engine sampling or citation monitoring/);
 });
 
+test("README AI Answer Readiness claim ranks faults by imported Search Console traffic", () => {
+  assert.match(
+    liveSection,
+    /when Search Console or rank-tracker rows are imported, readiness faults are ranked by the clicks and impressions on the affected pages/i
+  );
+  assert.match(aiReadinessSource, /imported-search-console-traffic/);
+  assert.match(aiReadinessSource, /Prioritization: imported Search Console traffic/);
+  assert.match(pagesSource, /Compared with CrawlRaven/);
+  assert.match(pagesSource, /does not connect to Search Console or GA4 automatically/);
+  assert.match(pagesSource, /On "technical readiness predicts nothing \(r=0\.009\)"/);
+  assert.match(pagesSource, /never claims to predict citations/);
+  assert.match(pagesSource, /Content relevance is the citation driver; technical health is the hygiene floor/);
+});
+
 test("README AI readiness derivation signals match the checks that compute them", () => {
   assert.match(liveSection, /AI Answer Readiness \/ SEO-GEO readiness checks derived from rendered content depth, helpful schema, canonical\/internal-link clarity, question-led structure, sitemap context/i);
   assert.match(aiReadinessSource, /contentDepth: contentDepthCheck/, "content depth check exists");

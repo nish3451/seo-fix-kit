@@ -14,6 +14,20 @@ function llmsText(origin) {
 
 SEO Fix Kit is a private-beta, self-serve SEO audit and paid Fix Pack workflow.
 
+## Pages
+- [${origin}/](https://seofixkit.com/): Landing page with proof-backed SEO repair pitch and free one-page check entry.
+- [${origin}/check](https://seofixkit.com/check): Anonymous one-page browser-rendered SEO audit. No account, no stored report, no ranking promises.
+- [${origin}/demo](https://seofixkit.com/demo): Public sample report showing rendered-vs-static false-positive guards and repair briefs.
+- [${origin}/methodology](https://seofixkit.com/methodology): Proof standard, limits, and boundaries. No live AI-engine sampling, no citation monitoring, no ranking guarantees.
+- [${origin}/packages](https://seofixkit.com/packages): Package ladder with $99 one-time beta Fix Pack. Dodo checkout is the price source of truth.
+- [${origin}/proof](https://seofixkit.com/proof): Before/after repair proof receipt from a completed beta repair. Published with consent.
+- [${origin}/small-business-seo-audit](https://seofixkit.com/small-business-seo-audit): Proof-backed SEO audit for small businesses. Check one page free, pay only when real fixes exist.
+- [${origin}/rendered-vs-static-seo-audit](https://seofixkit.com/rendered-vs-static-seo-audit): Renders pages in a real browser to compare raw HTML with the rendered DOM — guarding static-crawler false positives and showing AI crawler visibility for JavaScript-blind crawlers like GPTBot, ClaudeBot, PerplexityBot, and CCBot.
+- [${origin}/ai-answer-readiness](https://seofixkit.com/ai-answer-readiness): Proof-derived AI Answer Readiness from rendered content, schema, links, sitemap context, and optional llms.txt. Site-proof, not citation monitoring.
+- [${origin}/support](https://seofixkit.com/support): Support and contact page.
+- [${origin}/privacy](https://seofixkit.com/privacy): Privacy note for access requests, private beta audits, payments, and fulfillment.
+- [${origin}/terms](https://seofixkit.com/terms): Terms of service.
+
 Live product claims:
 - Visitors can request a secure email access link.
 - Anyone can anonymously check one public page URL at /check and see rendered proof, guarded false positives, and actionable findings when present, with no account and no stored report.
@@ -28,8 +42,8 @@ Live product claims:
 - Verified sessions can supply local business details, keywords, and citation URLs for local SEO proof and repair actions.
 - Verified sessions can import Search Console or rank-tracker keyword rows for low-CTR, page-two, decline, cannibalization, intent-match, uncrawled landing-page repair actions, and rank observation history.
 - Reports include rendered WordPress and ecommerce platform proof for Product schema, breadcrumbs, faceted links, archives, and plugin resource impact.
-- Reports include proof-derived AI Answer Readiness checks for rendered content depth, helpful schema, canonical/internal-link clarity, question-led structure, sitemap context, and optional llms.txt reachability.
-- Intent-matching landing pages at ${origin}/small-business-seo-audit, ${origin}/rendered-vs-static-seo-audit, and ${origin}/ai-answer-readiness describe the proof-backed small-business audit, rendered-vs-static proof loop, and site-proof AI Answer Readiness boundary; none claim live answer-engine sampling or AI citation monitoring.
+- Reports include proof-derived AI Answer Readiness checks for rendered content depth, helpful schema, canonical/internal-link clarity, question-led structure, sitemap context, and optional llms.txt reachability. When imported Search Console rows are present, those faults are ranked by clicks and impressions on the affected pages.
+- Intent-matching landing pages at ${origin}/small-business-seo-audit, ${origin}/rendered-vs-static-seo-audit, and ${origin}/ai-answer-readiness describe the proof-backed small-business audit, the rendered-vs-static proof loop framed as AI crawler visibility (GPTBot, ClaudeBot, PerplexityBot, and CCBot read raw HTML without executing JavaScript), and the site-proof AI Answer Readiness boundary; none claim live answer-engine sampling or AI citation monitoring.
 - Reports include draft-only growth briefs from verified keyword, competitor, AI-readiness, and crawl gaps.
 - Reports include a private repair queue with proof, acceptance checks, status, safe draft action records, approval state, owner-approved implementation packs, and proof receipts after fixed rerun proof.
 - The account dashboard includes a repair-agent feed that ranks open repairs, drafted actions, applied items needing rerun proof, and monitor regressions.
@@ -305,6 +319,22 @@ function methodologyHtml(origin) {
         <p>A repair is treated as proof-backed only when the report names the issue, shows source evidence, gives a concrete fix, and includes an acceptance check that can be rerun. Rankings, traffic, indexing, citations, and revenue are never guaranteed.</p>
       </section>
       <section class="band">
+        <h2>Why the repair queue exists</h2>
+        <p>The most consistent complaint about SEO audit tools in 2026 is not that audits miss issues. It is that audits find too many issues, prioritize none of them, and nobody owns the backlog after delivery. An eighty-page PDF where every line item is marked high priority is functionally the same as no audit at all.</p>
+        <div class="grid three">
+          <article class="panel"><strong>The complaint</strong><p>Audits end at the recommendation. The fixes never ship. Nobody owns the backlog after delivery, and every finding is marked high priority so none of them are.</p></article>
+          <article class="panel proof"><strong>The repair queue</strong><p>Every proven finding becomes a queue item with severity, source proof, a suggested action, approval state, and an acceptance check. The queue persists across saved reports — the backlog does not reset every time you scan.</p></article>
+          <article class="panel proof"><strong>The proof receipt</strong><p>After a fix ships, a rerun issues a receipt that says fixed, still-open, new, or regressed. Owner-approved implementation packs turn approved actions into private handoff documents with source proof.</p></article>
+        </div>
+        <p>The audit layer is commoditized — free tools now render pages and compare static HTML with the rendered DOM. What no free tool has is a persistent repair queue with approval state, proof receipts after fixed reruns, and hosted crawl scope at site scale. That is the part that turns a list of findings into a closed loop, and it is why the repair queue is the hero of this product, not a footnote.</p>
+      </section>
+      <section class="band">
+        <h2>Why not just use SEOmator's free audits?</h2>
+        <p>SEOmator is the broadest free-tool competitor this page will name, and it earns the mention: its directory lists <a href="https://seomator.com/free-tools" rel="nofollow noopener" target="_blank">39 free SEO tools</a> with no signup, including a <a href="https://seomator.com/free-seo-audit-tool" rel="nofollow noopener" target="_blank">free SEO audit</a> that runs a 251-check rule engine across 16 categories and renders JavaScript, plus a dedicated <a href="https://seomator.com/geo-audit-tool" rel="nofollow noopener" target="_blank">free GEO audit</a> that crawls up to 50 pages, checks access for 14 AI-specific crawlers including GPTBot, ClaudeBot, and PerplexityBot, and scores citability, E-E-A-T, and schema gaps. There is also an npm CLI (<code>@seomator/seo-audit</code>). If what you need today is a broad free audit, that suite is a fair choice.</p>
+        <p>The difference starts where the report ends. An audit — free or paid — hands you findings; SEO Fix Kit turns each proven finding into a persistent repair-queue item with severity, source proof, a suggested action, approval state, and an acceptance check, then re-measures after your fix ships so the queue says fixed, still-open, new, or regressed. For sites that need fixes rather than another findings list, that repair queue plus rerun proof is the product.</p>
+        <p>Honest differences in the other direction: SEOmator's audit states a fixed check count where the anonymous one-page check here proves rendered-vs-static false-positive guarding per page, and its GEO audit reads AI-crawler access from robots.txt while AI Answer Readiness here is proof-derived from rendered pages without claiming live engine visibility. No live AI-engine sampling, no AI citation monitoring, and no ranking guarantees — the limits above apply to every comparison on this page.</p>
+      </section>
+      <section class="band">
         <h2>Why not just use a free AI SEO agent skill?</h2>
         <p>Free installable SEO agent skills are genuinely useful for quick, single-page checks: read a page, spot a missing title or description, draft a fix. Open-source SEO tooling is good at that, and you should keep using it. Those skills run per prompt, though, with no persisted state across a whole site.</p>
         <p>The hosted product earns its place by doing the parts that need infrastructure and persistence: rendered crawl scope at site scale (self-serve audits up to 1,000 pages, sitemap inventory up to 50,000 discovered URLs, and staged large rendered crawl jobs), a persistent repair queue with approval, acceptance checks, and fixed-rerun proof receipts, owner-approved implementation packs, and paid Fix Pack fulfillment with one rerun after fixes.</p>
@@ -393,7 +423,21 @@ function packagesHtml(origin) {
         <p>The product is built to avoid audit noise and over-automation. The first paid step is a small, inspectable repair pass. Future packages only become live when proof, approval controls, billing, and provider safety are implemented.</p>
         <p>Wondering why a hosted service at all, when free installable AI SEO agent skills exist? The plain answer is on the <a href="${origin}/methodology">methodology page</a>: free skills are great for one-page checks, while hosted audits add site-scale rendered crawl scope, persistent repair state, and fulfillment.</p>
       </section>
-    `
+      <section class="band">
+        <h2>Compared with GEO Auditor</h2>
+        <p>GEO Auditor (geoauditor.app) runs a free AI-visibility audit — 40+ signals across 6 AI platforms, no signup, about 45 seconds — and sells a $29 one-time full report whose Agent Fix Mode gives you one Claude command for your local AI agent to apply the report's fixes to your project. That is genuine delivery speed at a third of the Fix Pack price, and it deserves a straight answer rather than a feature table.</p>
+        <ul class="check-list">
+          <li>The Fix Pack delivers suggested fixes with an exact snippet when the engine can generate one, inside an approval-first repair queue: every item carries source evidence and an acceptance check, nothing is applied until you approve it, and one rerun after fixes issues a proof receipt that says fixed, still-open, new, or regressed.</li>
+          <li>Automatic agent application optimizes for speed. It has no per-item approval gate and no re-measurement step, so if a finding was a false positive, an automated agent applies it anyway.</li>
+          <li>SEO Fix Kit's rendered-vs-static guards exist precisely so neither a human nor an agent "fixes" something the browser already renders correctly — the failure mode an automated fix loop cannot see.</li>
+          <li>If you want the fastest path and accept that trade-off, GEO Auditor's Agent Fix Mode is a reasonable choice. If you want owner approval before anything touches the site plus rerun proof, that inspection loop is what this ladder sells at ${FIX_PACK_PUBLIC_PRICE}.</li>
+        </ul>
+        <p>SEO Fix Kit does not auto-apply fixes to your site: implementation packs are handoff documents, and the full boundary is stated on the <a href="${origin}/methodology">methodology page</a>.</p>
+      </section>
+    `,
+    faq: [
+      { q: "Why pay more for a Fix Pack when GEO Auditor applies agent fixes at $29?", a: "GEO Auditor's Agent Fix Mode hands you one Claude command and your local AI agent applies the report's fixes automatically — fast, and fairly priced. The Fix Pack is the inspection-first alternative: proof-backed snippets from rendered evidence, an approval gate before anything is applied, and one rerun whose proof receipt records what actually changed. Dodo shows the final checkout price before payment." }
+    ]
   });
 }
 
@@ -450,11 +494,11 @@ function renderedVsStaticAuditHtml(origin) {
     origin,
     path: "/rendered-vs-static-seo-audit",
     title: "Rendered vs Static SEO Audit",
-    description: "Why static crawlers invent SEO problems on JavaScript-rendered pages, and how SEO Fix Kit compares raw HTML with the rendered DOM to keep false positives out of the repair queue.",
-    eyebrow: "Rendered vs static audit",
-    heading: "Static crawlers invent work. Rendered proof does not.",
-    lead: "JavaScript-heavy sites fail static scanners that read the raw app shell. SEO Fix Kit opens the page in a real browser, compares raw HTML with the rendered DOM, and only creates a repair when the browser-visible page is actually wrong.",
-    softwareDescription: "Private-beta SEO repair software that renders pages in a real browser to compare static HTML with the final DOM and guard static-crawler false positives.",
+    description: "GPTBot, ClaudeBot, PerplexityBot, and CCBot read raw HTML without executing JavaScript. SEO Fix Kit compares raw HTML with the rendered DOM to show your AI crawler visibility and keep false positives out of the repair queue.",
+    eyebrow: "AI crawler visibility · Rendered vs static audit",
+    heading: "Static scanners invent work. AI crawlers miss content. Rendered proof handles both.",
+    lead: "JavaScript-heavy sites fail static scanners that read the raw app shell, and AI crawlers never execute JavaScript at all. SEO Fix Kit opens the page in a real browser, compares raw HTML with the rendered DOM, shows exactly what a JavaScript-blind crawler can see, and only creates a repair when the browser-visible page is actually wrong.",
+    softwareDescription: "Private-beta SEO repair software that renders pages in a real browser to compare static HTML with the final DOM — measuring AI crawler visibility for JavaScript-blind crawlers and guarding static-crawler false positives.",
     body: `
       <section class="grid three" aria-label="Static scanner vs rendered proof">
         <article class="panel"><strong>Static scanner</strong><p>No H1. No internal links. Thin content. Needs cleanup.</p></article>
@@ -462,8 +506,12 @@ function renderedVsStaticAuditHtml(origin) {
         <article class="panel"><strong>Repair brief</strong><p>No duplicate H1. No fake internal links. No busywork. Keep monitoring and rerun after real content changes.</p></article>
       </section>
       <section class="band">
+        <h2>The same diff is your AI crawler visibility check</h2>
+        <p>Search Engine Journal confirms the major AI crawlers — GPTBot (OpenAI), ClaudeBot (Anthropic), PerplexityBot, and CCBot — fetch raw HTML and do not execute JavaScript. A page whose content appears only after a browser render hands those crawlers an empty shell: no headings, no internal links, no text to retrieve or cite. The rendered-vs-static comparison doubles as an AI crawler visibility check, because the raw-HTML side of the diff is precisely what those crawlers can read.</p>
+      </section>
+      <section class="band">
         <h2>Why this matters for repair work</h2>
-        <p>An agent that trusts a static crawl can make a site worse: if a scanner says "add an H1" when the rendered page already has one, the suggested repair is a duplicate heading, not a fix. Rendered-vs-static comparison separates a crawler limitation from a real customer problem, so the repair queue only receives proven findings.</p>
+        <p>An agent that trusts a static crawl can make a site worse: if a scanner says "add an H1" when the rendered page already has one, the suggested repair is a duplicate heading, not a fix. Rendered-vs-static comparison separates a crawler limitation from a real customer problem, so the repair queue only receives proven findings — and the same proof tells you which pages are invisible to AI crawlers until the content ships in the raw HTML.</p>
       </section>
       <section class="band">
         <h2>Where you can see it live</h2>
@@ -475,7 +523,7 @@ function renderedVsStaticAuditHtml(origin) {
       </section>
       <section class="band">
         <h2>What this page does not claim</h2>
-        <p>The one-page check covers a single public URL, not a full site audit. Full multi-page reports run inside the private beta. Rendered proof does not guarantee rankings, traffic, indexing, revenue, or AI citations, and SEO Fix Kit does not provide live answer-engine sampling or citation monitoring.</p>
+        <p>The one-page check covers a single public URL, not a full site audit. Full multi-page reports run inside the private beta. AI crawler visibility here means what a fetcher that does not execute JavaScript can retrieve from your raw HTML, based on public reporting about those crawlers — it is not live sampling of ChatGPT, Perplexity, or any answer engine, and SEO Fix Kit does not provide live AI citation monitoring or answer-engine sampling. Rendered proof does not guarantee rankings, traffic, indexing, revenue, or AI citations.</p>
       </section>
       <section class="band">
         <h2>Start with proof</h2>
@@ -485,6 +533,8 @@ function renderedVsStaticAuditHtml(origin) {
     `,
     faq: [
       { q: "Why does my static SEO tool report problems I cannot see in the browser?", a: "Static scanners read the raw HTML response and miss content rendered by JavaScript. SEO Fix Kit renders the page in a real browser and only reports what the final DOM actually shows." },
+      { q: "Which AI crawlers cannot see JavaScript-rendered content?", a: "Search Engine Journal confirms GPTBot, ClaudeBot, PerplexityBot, and CCBot fetch raw HTML without executing JavaScript. If your page's content exists only in the rendered DOM, those crawlers never see it — the rendered-vs-static diff shows exactly what they can." },
+      { q: "Is AI crawler visibility the same as sampling ChatGPT or Perplexity?", a: "No. SEO Fix Kit never queries AI engines. Visibility here is measured from your own pages: the raw HTML is what a JavaScript-blind crawler can retrieve, and the rendered DOM is what a browser user gets." },
       { q: "Can I see a rendered-vs-static example before signing up?", a: "Yes. The public sample at /demo shows a static scanner false positive against the rendered proof, and the free one-page check at /check runs the same proof loop on any public URL." },
       { q: "Does rendered proof mean guaranteed fixes or rankings?", a: "No. Every report is diagnostic and reflects what the crawl could observe at scan time. Rankings, traffic, indexing, revenue, and AI citations are never guaranteed." },
       { q: "How does the repair queue use rendered proof?", a: "Only proven findings become queue items. Each item keeps its source proof, suggested action, effort estimate, and an acceptance check that can be rerun after a change ships." }
@@ -497,11 +547,11 @@ function aiAnswerReadinessHtml(origin) {
     origin,
     path: "/ai-answer-readiness",
     title: "AI Answer Readiness Check",
-    description: "A site-proof AI Answer Readiness check: rendered content depth, helpful schema, canonical and internal-link clarity, question-led structure, sitemap context, and optional llms.txt reachability — no live citation monitoring.",
+    description: "A site-proof AI Answer Readiness check with optional traffic-ranked faults from imported Search Console rows — no live citation monitoring, no auto-join to GA4.",
     eyebrow: "AI Answer Readiness",
     heading: "A site-proof AI readiness check, not a citation tracker.",
-    lead: "AI search visibility starts with content and markup answer engines can actually use. SEO Fix Kit derives AI Answer Readiness from your rendered pages, schema, links, sitemap context, and optional llms.txt — it does not sample live answer engines or monitor citations.",
-    softwareDescription: "Private-beta SEO repair software with proof-derived AI Answer Readiness checks built from rendered content, schema, canonical and internal-link clarity, sitemap context, and optional llms.txt reachability.",
+    lead: "AI search visibility starts with content and markup answer engines can actually use. SEO Fix Kit derives AI Answer Readiness from your rendered pages, schema, links, sitemap context, and optional llms.txt. When you import Search Console rows, those proof-derived faults are ranked by the traffic behind them. It does not sample live answer engines or monitor citations.",
+    softwareDescription: "Private-beta SEO repair software with proof-derived AI Answer Readiness checks built from rendered content, schema, canonical and internal-link clarity, sitemap context, and optional llms.txt reachability. Imported Search Console rows rank those faults by clicks and impressions on the affected pages.",
     body: `
       <section class="band">
         <h2>What the readiness check measures</h2>
@@ -511,7 +561,27 @@ function aiAnswerReadinessHtml(origin) {
           <li>Canonical and internal-link clarity: one canonical per URL and a link graph an engine can follow.</li>
           <li>Question-led structure: headings and copy that answer the questions searchers and answer engines ask.</li>
           <li>Sitemap context and coverage, plus optional llms.txt reachability when present.</li>
+          <li>Traffic-ranked prioritization: when Search Console or rank-tracker rows are imported, faults on pages with more clicks and impressions come first.</li>
         </ul>
+      </section>
+      <section class="band">
+        <h2>Compared with CrawlRaven</h2>
+        <p>CrawlRaven defines AI search readiness auditors as tools that find the technical reasons you are not cited, and it sells a one-time readiness audit that joins Search Console and GA4 so faults are ranked by the traffic behind them. SEO Fix Kit's AI Answer Readiness wedge is the same job: prove why a rendered page is hard for an answer engine to use.</p>
+        <ul class="check-list">
+          <li>When you import Search Console or rank-tracker rows, SEO Fix Kit ranks proof-derived readiness faults by the clicks and impressions on the affected pages.</li>
+          <li>SEO Fix Kit does not connect to Search Console or GA4 automatically, and it does not sample ChatGPT, Perplexity, Google AI Overviews, or other engines.</li>
+          <li>Proof without traffic is still useful: a tracker can say a page is invisible, while a readiness check says why the rendered page is thin, unclear, or missing schema. Traffic ranking then puts the proven faults that sit on pages with search demand first.</li>
+        </ul>
+      </section>
+      <section class="band">
+        <h2>On "technical readiness predicts nothing (r=0.009)"</h2>
+        <p>getaisearchscore.com's own study — 441 domains, Perplexity-only citations, cross-sectional — found its original 26-check aggregate score did not predict citations (r=0.009), and it rebuilt its product around content relevance. That null is real, and it matches our boundary rather than refuting it:</p>
+        <ul class="check-list">
+          <li>The null is on one vendor's aggregate score, not on individual technical faults. A site that blocks AI crawlers is invisible; a site with an app-shell render is empty to an extractor. getaisearchscore.com itself calls AI-crawler access "the only structural factor with an unambiguous effect."</li>
+          <li>The study could not see content that only appears after JavaScript renders. SEO Fix Kit judges readiness on the rendered page — the DOM an answer engine would actually parse — not on a static crawl.</li>
+          <li>"Not sufficient" is not "predicts nothing." The vendor's own Readiness Paradox (low-scoring established brands cited at 38.8%) is a domain-authority confound, not a proof that technical faults do not matter.</li>
+        </ul>
+        <p>SEO Fix Kit's AI Answer Readiness is proof-derived from the rendered page and never claims to predict citations. Readiness is a diagnostic, not a citation guarantee. Content relevance is the citation driver; technical health is the hygiene floor that keeps content retrievable at all. We agree with getaisearchscore.com on both halves.</p>
       </section>
       <section class="grid two" aria-label="Readiness boundaries">
         <article class="panel"><strong>No live answer-engine sampling</strong><p>SEO Fix Kit does not query ChatGPT, Perplexity, Google AI Overview, or other engines to see what they answer about your site.</p></article>
@@ -523,13 +593,13 @@ function aiAnswerReadinessHtml(origin) {
         <h2>How to get the check</h2>
         <ul class="check-list">
           <li>Free: paste a public URL at ${origin}/check for rendered proof, guarded false positives, and actionable findings when present — no account and nothing stored.</li>
-          <li>Private reports for verified sites include proof-derived AI Answer Readiness checks beside the rendered crawl evidence.</li>
+          <li>Private reports for verified sites include proof-derived AI Answer Readiness checks beside the rendered crawl evidence. Import Search Console rows on the same audit to rank those faults by traffic.</li>
           <li>Read the exact boundaries on ${origin}/methodology before relying on any readiness signal.</li>
         </ul>
       </section>
       <section class="band">
         <h2>What this page does not claim</h2>
-        <p>This page is a landing page, not a readiness report for your site. AI Answer Readiness does not guarantee rankings, traffic, AI citations, or revenue, and it does not replace live AI visibility tracking, which is not part of the product.</p>
+        <p>This page is a landing page, not a readiness report for your site. SEO Fix Kit does not provide live AI citation monitoring or answer-engine sampling, does not auto-join Search Console or GA4, and does not guarantee rankings, traffic, AI citations, or revenue.</p>
       </section>
       <section class="band">
         <h2>Start with proof</h2>
@@ -539,6 +609,7 @@ function aiAnswerReadinessHtml(origin) {
     `,
     faq: [
       { q: "Is AI Answer Readiness the same as monitoring citations in ChatGPT or Perplexity?", a: "No. Readiness is site-proof: it evaluates what your rendered pages, schema, links, sitemap context, and optional llms.txt allow an answer engine to understand. Live answer-engine sampling, AI citation monitoring, and AI visibility score tracking are not live." },
+      { q: "Does SEO Fix Kit rank AI readiness faults by traffic like CrawlRaven?", a: "When you import Search Console or rank-tracker rows, yes: readiness faults are ranked by the clicks and impressions on the affected pages. SEO Fix Kit does not auto-join Search Console or GA4, and it does not provide live AI citation monitoring or answer-engine sampling." },
       { q: "Do I need an llms.txt file to pass the check?", a: "No. llms.txt reachability is an optional signal. SEO Fix Kit does not claim llms.txt is required for Google Search or generative search surfaces." },
       { q: "Can I check my site's AI readiness for free?", a: "The anonymous one-page check at /check renders one public URL and returns proof fields and findings when present. Full proof-derived AI Answer Readiness checks appear in private reports for verified sites." },
       { q: "Does a good readiness signal guarantee AI visibility?", a: "No. Readiness is a site-proof diagnostic, and rankings, traffic, AI citations, and revenue are never guaranteed." }
