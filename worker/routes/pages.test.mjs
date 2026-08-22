@@ -223,6 +223,29 @@ test("packages page names the GEO Auditor agent-fix parity trade-off without ove
   assert.doesNotMatch(packages, /each with an exact snippet/);
 });
 
+test("rendered-vs-static page names free static-vs-rendered checkers without overclaims", () => {
+  const page = renderedVsStaticAuditHtml(origin);
+  const section = (page.match(/<h2>Compared with free static-vs-rendered checkers<\/h2>[\s\S]*?<\/section>/) || [])[0];
+  assert.ok(section, "rendered-vs-static page must carry a dedicated free-checker comparison");
+  assert.match(section, /LLM Pulse GEO Crawlability Checker/);
+  assert.match(section, /<a href="https:\/\/llmpulse\.ai\/geo-crawlability-checker"/);
+  assert.match(section, /<a href="https:\/\/llmpulse\.ai\/free-ai-search-tools"/);
+  assert.match(section, /Free SEO Auditor/);
+  assert.match(section, /<a href="https:\/\/freeseoaudit\.vercel\.app\/"/);
+  assert.match(section, /<a href="https:\/\/github\.com\/ravigupta0210\/seo-auditor"/);
+  assert.match(section, /geo-crawl-audit/);
+  assert.match(section, /<a href="https:\/\/github\.com\/abouchard11\/geo-crawl-audit"/);
+  assert.match(section, /SSR_FULL \/ SSR_THIN \/ CSR_SHELL/);
+  assert.match(section, /persistent repair queue only receives proven findings/);
+  assert.match(section, /fixed, still-open, new, or regressed/);
+  assert.match(section, /No live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/);
+  assert.match(section, /fair choice/);
+  assert.doesNotMatch(section, /no crawl cap/i);
+  assert.doesNotMatch(section, /live AI-engine sampling is live/i);
+  assert.doesNotMatch(page, /guaranteed rankings|guarantees citations/i);
+  assert.match(page, /Why not use a free static-vs-rendered checker like LLM Pulse\?/);
+});
+
 test("machine-readable public surfaces list proof pages and limits", () => {
   const llms = llmsText(origin);
   const markdown = homeMarkdown(origin);
@@ -302,16 +325,16 @@ const PUBLIC_PAGE_RENDERERS = {
   "/methodology": [{ file: "worker/routes/pages.js", lineStart: 265, lineEnd: 315 }],
   "/packages": [{ file: "worker/routes/pages.js", lineStart: 317, lineEnd: 398 }],
   "/small-business-seo-audit": [
-    { file: "worker/routes/pages.js", lineStart: 400, lineEnd: 446 },
-    { file: "worker/routes/pages.js", lineStart: 553, lineEnd: 668 }
+    { file: "worker/routes/pages.js", lineStart: 444, lineEnd: 491 },
+    { file: "worker/routes/pages.js", lineStart: 635, lineEnd: 777 }
   ],
   "/rendered-vs-static-seo-audit": [
-    { file: "worker/routes/pages.js", lineStart: 448, lineEnd: 493 },
-    { file: "worker/routes/pages.js", lineStart: 553, lineEnd: 668 }
+    { file: "worker/routes/pages.js", lineStart: 492, lineEnd: 555 },
+    { file: "worker/routes/pages.js", lineStart: 635, lineEnd: 777 }
   ],
   "/ai-answer-readiness": [
-    { file: "worker/routes/pages.js", lineStart: 495, lineEnd: 547 },
-    { file: "worker/routes/pages.js", lineStart: 553, lineEnd: 668 }
+    { file: "worker/routes/pages.js", lineStart: 556, lineEnd: 634 },
+    { file: "worker/routes/pages.js", lineStart: 635, lineEnd: 777 }
   ],
   "/proof": [{ file: "worker/routes/pages.js", lineStart: 696, lineEnd: 822 }],
   "/privacy": [{ file: "worker/routes/pages.js", lineStart: 868, lineEnd: 907 }],
