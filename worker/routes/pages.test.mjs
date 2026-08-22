@@ -141,6 +141,33 @@ test("public proof pages expose methodology and package ladder without overclaim
     assert.match(seomator, /No live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/);
     assert.doesNotMatch(seomator, /AI visibility score tracking|AI citation monitoring (is|are) live/i);
   }
+  // Volume Nine GEO Grader regression guard: named on its own terms (agency
+  // tool, six categories, 60+ signals, robots.txt AI-crawler access check,
+  // free, launched January 2026 per its own quick facts), placed between the
+  // SEOmator and agentic answers, with the repair queue + rerun proof wedge
+  // and the standing no-overclaim boundary.
+  {
+    const volnine = (methodology.match(/<h2>Why not just use Volume Nine's GEO Grader\?<\/h2>[\s\S]*?<\/section>/) || [])[0];
+    const seomatorH2 = methodology.indexOf("<h2>Why not just use SEOmator's free audits?</h2>");
+    const volnineH2 = methodology.indexOf("<h2>Why not just use Volume Nine's GEO Grader?</h2>");
+    const agenticH2 = methodology.indexOf("<h2>Why not just use an agentic SEO auditor that files its own GitHub issues?</h2>");
+    assert.ok(volnine, "methodology must carry a dedicated Volume Nine GEO Grader competitor answer");
+    assert.ok(seomatorH2 > -1 && seomatorH2 < volnineH2 && volnineH2 < agenticH2, "Volume Nine section must sit between the SEOmator and agentic sections");
+    assert.match(volnine, /Denver-based digital marketing agency/);
+    assert.match(volnine, /launched in January 2026/);
+    assert.match(volnine, /totally free/);
+    assert.match(volnine, /60\+ signals across six categories/);
+    assert.match(volnine, /discoverability, structured data, AI readiness, performance, reputation and trust, and LLM-ready content/);
+    assert.match(volnine, /reads robots\.txt rules/);
+    assert.match(volnine, /ChatGPT, Claude, Gemini, Perplexity, and Grok/);
+    assert.match(volnine, /<a href="https:\/\/www\.v9digital\.com\/geo-grader\/" rel="nofollow noopener" target="_blank">/);
+    assert.match(volnine, /<a href="https:\/\/geo\.v9digital\.com\/grader\/" rel="nofollow noopener" target="_blank">/);
+    assert.match(volnine, /emails a detailed report with actionable to-dos/);
+    assert.match(volnine, /repair queue plus rerun proof/);
+    assert.match(volnine, /No live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/);
+    assert.doesNotMatch(volnine, /AI visibility score tracking|AI citation monitoring (is|are) live/i);
+    assert.doesNotMatch(volnine, /guaranteed rankings|guarantees rankings|guarantees citations/i);
+  }
   // Agentic SEO auditor (SEO Automation Club) regression guard
   {
     const agentic = (methodology.match(/<h2>Why not just use an agentic SEO auditor that files its own GitHub issues\?<\/h2>[\s\S]*?<\/section>/) || [])[0];
@@ -338,24 +365,24 @@ const PUBLIC_PAGE_RENDERERS = {
   ],
   "/demo": [{ file: "worker/routes/pages.js", lineStart: 156, lineEnd: 263 }],
   "/check": [{ file: "worker/routes/public-check.js", lineStart: 296, lineEnd: 800 }],
-  "/methodology": [{ file: "worker/routes/pages.js", lineStart: 265, lineEnd: 351 }],
-  "/packages": [{ file: "worker/routes/pages.js", lineStart: 354, lineEnd: 448 }],
+  "/methodology": [{ file: "worker/routes/pages.js", lineStart: 265, lineEnd: 357 }],
+  "/packages": [{ file: "worker/routes/pages.js", lineStart: 360, lineEnd: 454 }],
   "/small-business-seo-audit": [
-    { file: "worker/routes/pages.js", lineStart: 451, lineEnd: 498 },
-    { file: "worker/routes/pages.js", lineStart: 642, lineEnd: 784 }
+    { file: "worker/routes/pages.js", lineStart: 457, lineEnd: 504 },
+    { file: "worker/routes/pages.js", lineStart: 648, lineEnd: 790 }
   ],
   "/rendered-vs-static-seo-audit": [
-    { file: "worker/routes/pages.js", lineStart: 499, lineEnd: 562 },
-    { file: "worker/routes/pages.js", lineStart: 642, lineEnd: 784 }
+    { file: "worker/routes/pages.js", lineStart: 505, lineEnd: 568 },
+    { file: "worker/routes/pages.js", lineStart: 648, lineEnd: 790 }
   ],
   "/ai-answer-readiness": [
-    { file: "worker/routes/pages.js", lineStart: 563, lineEnd: 641 },
-    { file: "worker/routes/pages.js", lineStart: 642, lineEnd: 784 }
+    { file: "worker/routes/pages.js", lineStart: 569, lineEnd: 647 },
+    { file: "worker/routes/pages.js", lineStart: 648, lineEnd: 790 }
   ],
-  "/proof": [{ file: "worker/routes/pages.js", lineStart: 703, lineEnd: 829 }],
-  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 875, lineEnd: 914 }],
-  "/support": [{ file: "worker/routes/pages.js", lineStart: 916, lineEnd: 949 }],
-  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1033, lineEnd: 1083 }]
+  "/proof": [{ file: "worker/routes/pages.js", lineStart: 709, lineEnd: 835 }],
+  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 881, lineEnd: 920 }],
+  "/support": [{ file: "worker/routes/pages.js", lineStart: 922, lineEnd: 955 }],
+  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1039, lineEnd: 1089 }]
 };
 
 function latestCommitIsoIst(renderer) {
