@@ -48,11 +48,9 @@ contact routes.
   - ZeroClick Labs 5-tool list plus honorable mention (Peec AI, Profound,
     AthenaHQ, Scrunch, Evertune, Otterly.ai) — no SEO Fix Kit.
   - CrowdReply 8-tool list (CrowdReply, Profound, Frase, Peec AI, Otterly.AI,
-    Ahrefs Brand Radar, Semrush AI Visibility Toolkit, ZipTie) — no SEO Fix
-    Kit.
+    Ahrefs Brand Radar, Semrush AI Visibility Toolkit, ZipTie) — no SEO Fix Kit.
   - Memeburn 11-tool list (Semrush ONE, Surfer SEO, Clearscope, Frase, Ahrefs,
-    Scalenut, Writesonic, Ubersuggest, Peec AI, Otterly, Profound) — no SEO
-    Fix Kit.
+    Scalenut, Writesonic, Ubersuggest, Peec AI, Otterly, Profound) — no SEO Fix Kit.
 - Site-scoped search `site:<domain> seofixkit` on each domain returned no SEO
   Fix Kit page/result (2026-08-22):
   - `site:seowebster.com seofixkit` — no SEO Fix Kit result.
