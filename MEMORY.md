@@ -58,3 +58,19 @@ Use this file for durable project truth Codex cannot reliably infer from code al
   accurate; no product-copy change needed. See
   `docs/research/2026-08-22-crawlraven-competitor-benchmark.md` and
   `.lane/reports/lane1-crawl-raven-competitor-20260822.md`.
+- 2026-08-23 (lane 1, item `36534cb9f0`): Shipped Otterly.ai and Peec.ai as
+  funded AI-visibility tracker competitors on `/methodology`
+  (`lane1-otterly-peec-funded-trackers-20260823`). Names Otterly's $29/mo
+  Lite plan truthfully (tracks four AI search surfaces — ChatGPT, Google AI
+  Overviews, Perplexity, MS Copilot — with Claude, Google AI Mode, and
+  Gemini as paid add-ons; 40,000+ marketing pros) and Peec's $80/mo Starter
+  plan (annual, 50 prompts) and $21M Series A led by Singular (total funding
+  to $29M; 3000+ brands and agencies on the home page, 1,300+ since
+  February 2025 on the funding post). Added benchmark docs under
+  `docs/research/`, a regression guard in `worker/routes/pages.test.mjs`,
+  refreshed `ROOT_PUBLIC_LASTMODS["/methodology"]` and the sitemap lastmod,
+  and this lane-unique report. Live facts verified on otterly.ai and
+  peec.ai 2026-08-23. See
+  `docs/research/2026-08-23-otterly-ai-competitor-benchmark.md`,
+  `docs/research/2026-08-23-peec-ai-competitor-benchmark.md`, and
+  `.lane/reports/lane1-otterly-peec-funded-trackers-20260823.md`.
