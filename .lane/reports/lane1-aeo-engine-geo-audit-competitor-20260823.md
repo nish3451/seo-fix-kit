@@ -3,7 +3,7 @@
 Item: `5f873349bb` — Raise AEO Engine as a free GEO audit that also ships the fix and embeds on other sites.
 
 Branch: `lane1-aeo-engine-geo-audit-competitor-20260823`
-PR: https://github.com/nish3451/seo-fix-kit/pull/XXX (base `main`)
+PR: https://github.com/nish3451/seo-fix-kit/pull/208 (base `main`)
 
 ## Direction chosen
 
