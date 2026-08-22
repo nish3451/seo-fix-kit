@@ -127,6 +127,29 @@ trail note: the 2026-08-17 entry's cited evidence file
 (`.lane/reports/lane1-icp-precondition-reverify-20260817.md`) is not tracked in the repo;
 this entry records today's live result as the current truth.
 
+Re-verified 2026-08-22 (lane-1 run, evidence in
+`.lane/reports/lane1-icp-precondition-verify-20260822.md`): **preconditions are NOT green
+today — do not start the seven-day window yet, and the regression is wider than 2026-08-20.**
+`npm run audit:live-promise` against `https://seofixkit.com` fails on 7 of 24 surfaces
+(17 ok): the 2026-08-20 `/proof` receipt cluster is still failing (`/proof` and `/proof.md`
+404; `/llms.txt` + `/sitemap.xml` still omit the receipt), and three more surfaces have
+fallen behind main — `/packages` no longer names the GEO Auditor / $29 Agent Fix Mode
+comparison (PR #190), `/rendered-vs-static-seo-audit` lost its static-vs-rendered headline,
+AI-crawler framing and SEJ citation, and `/ai-answer-readiness` lost the CrawlRaven
+comparison, imported-traffic ranking and the r=0.009 challenge pins. The offline regression
+lock (`npm run test:live-promise-spot-check`) is 19/19 green on origin/main `ddd0718`, so
+the repo source is correct — same stale-Worker deploy-machinery regression class as
+2026-08-14 and 2026-08-20, not copy drift. Root cause unchanged: the live homepage still
+serves bundle `assets/index-9gz2OE-i.js`, the exact marker recorded by the 2026-08-17
+release (`release-state-seo-fix-kit.json`: sha `c53e28f`), so no deploy has swapped the
+live Worker since 2026-08-17 while main kept landing copy (PRs #169/#190/#194-era and the
+`/proof` receipt). The lane worktree has no Cloudflare credentials (`wrangler whoami`
+unauthenticated) and the packet scope forbids production actions, so the deploy belongs to
+the fleet release chain (the rank-1 deploy stall already noted in project memory on
+2026-08-21). The founder should re-verify (`npm run audit:live-promise`) after the next
+fleet release that actually swaps the live Worker to a bundle at or past `ddd0718`, before
+sending invitation #1.
+
 ## Numeric gates (seven-day window)
 
 Window starts on the day the first invitation is sent. Record `window_start` and `window_end`
