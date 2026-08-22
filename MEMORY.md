@@ -12,6 +12,20 @@ Use this file for durable project truth Codex cannot reliably infer from code al
 
 ## Session Summaries
 
+- 2026-08-22 (lane 1, item `f2f489ed8b`): Folded the backlog's 2026-08-21
+  GEO-awesome-lists annotation into the discovery-venues ledger as venues
+  #19–#23 with fresh raw-README absence receipts (`deeflect/awesome-geo`,
+  `raghav453/awesome-ai-seo-geo-tools`, `trakkr-aisearch/awesome-geo`,
+  `tentenco/awesome-geo` all 0 seofixkit matches live 2026-08-22;
+  `VictorOsondu/awesome-ai-search-readiness` now HTTP 404 — repo gone,
+  recorded as not-a-target). First-run `venue-claim check` gate receipts
+  produced on this box (tool present since 2026-08-20; allowlist still
+  empty → every venue stays manual-only). All venues re-probed absent;
+  GeoIndex still pending review; `/proof` still 404 so listing copy must
+  not claim repair receipts are live. See
+  `docs/growth/discovery-venues-2026-08-10.md` (venues #19–#23 +
+  2026-08-22 ledger) and
+  `.lane/reports/lane1-discovery-listings-geo-awesome-lists-20260822.md`.
 - 2026-08-22 (lane 1, packet `985d43c444`): Shipped truthful SEOmator
   competitor answer on `/methodology` (PR #192,
   `growth/seomator-free-tool-parity-20260822`). Names SEOmator's free suite
