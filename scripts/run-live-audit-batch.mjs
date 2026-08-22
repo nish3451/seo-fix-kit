@@ -48,7 +48,7 @@ async function main() {
   const cookie = useAdminProofSession
     ? await createAdminBetaSession(ownerEmail, adminToken)
     : useTestMode
-      ? await login(ownerEmail, readFounderPassword())
+      ? await login(ownerEmail, await readFounderPassword())
       : await createInvite(ownerEmail, adminToken).then((invite) => login(ownerEmail, invite.code));
 
   for (const target of targets) {
@@ -147,9 +147,22 @@ function readAdminToken() {
   }
 }
 
-function readFounderPassword() {
+async function readFounderPassword() {
   const envPassword = process.env.SEOFIXKIT_FOUNDER_PASSWORD || process.env.BETA_ACCESS_PASSWORD;
   if (envPassword) return envPassword.trim();
+
+  const passwordFilePath = process.env.SEOFIXKIT_FOUNDER_PASSWORD_FILE;
+  if (passwordFilePath) {
+    let fromFile = "";
+    try {
+      fromFile = (await readFile(passwordFilePath, "utf8")).trim();
+    } catch {
+      throw new Error(
+        `Could not read SEOFIXKIT_FOUNDER_PASSWORD_FILE at ${passwordFilePath}.`
+      );
+    }
+    if (fromFile) return fromFile;
+  }
 
   try {
     return execFileSync("security", [
@@ -164,7 +177,7 @@ function readFounderPassword() {
       .trim();
   } catch {
     throw new Error(
-      "Missing founder password for test-mode proof. Set SEOFIXKIT_FOUNDER_PASSWORD or store seofixkit-founder-password in Keychain."
+      "Missing founder password for test-mode proof. Set SEOFIXKIT_FOUNDER_PASSWORD, point SEOFIXKIT_FOUNDER_PASSWORD_FILE at a file containing it, or store seofixkit-founder-password in Keychain."
     );
   }
 }
@@ -817,12 +830,13 @@ async function fetchWithTimeout(url, options, timeoutMs, fetcher = fetch) {
 
 export {
   audit,
+  betaCookieFromResponse,
   buildDodoWebhookDrillEvent,
   createAdminBetaSession,
-  betaCookieFromResponse,
   fetchWithTimeout,
   isAuditReportPayload,
   proveFixPackForReport,
+  readFounderPassword,
   recommendOffer,
   requestFixPack,
   resolveUrl,
