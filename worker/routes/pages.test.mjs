@@ -168,6 +168,33 @@ test("public proof pages expose methodology and package ladder without overclaim
     assert.doesNotMatch(volnine, /AI visibility score tracking|AI citation monitoring (is|are) live/i);
     assert.doesNotMatch(volnine, /guaranteed rankings|guarantees rankings|guarantees citations/i);
   }
+  // Juma.ai GEO Audit regression guard: named on its own terms (free, no signup,
+  // published open methodology of ten weighted dimensions, impact × effort matrix,
+  // MCP run_geo_audit tool), placed between the Volume Nine and agentic
+  // answers, with the repair queue + rerun proof wedge and the standing no-overclaim
+  // boundary.
+  {
+    const juma = (methodology.match(/<h2>Why not just use Juma\.ai's free GEO Audit\?<\/h2>[\s\S]*?<\/section>/) || [])[0];
+    const seomatorH2 = methodology.indexOf("<h2>Why not just use SEOmator's free audits?</h2>");
+    const volnineH2 = methodology.indexOf("<h2>Why not just use Volume Nine's GEO Grader?</h2>");
+    const jumaH2 = methodology.indexOf("<h2>Why not just use Juma.ai's free GEO Audit?</h2>");
+    const agenticH2 = methodology.indexOf("<h2>Why not just use an agentic SEO auditor that files its own GitHub issues?</h2>");
+    assert.ok(juma, "methodology must carry a dedicated Juma.ai GEO Audit competitor answer");
+    assert.ok(seomatorH2 < volnineH2 && volnineH2 < jumaH2 && jumaH2 < agenticH2, "Juma section must sit between the Volume Nine and agentic sections");
+    assert.match(juma, /no signup/);
+    assert.match(juma, /ten weighted dimensions/);
+    assert.match(juma, /impact × effort matrix/);
+    assert.match(juma, /published open methodology/);
+    assert.match(juma, /run_geo_audit/);
+    assert.match(juma, /<a href="https:\/\/geo\.juma\.ai\/" rel="nofollow noopener" target="_blank">/);
+    assert.match(juma, /<a href="https:\/\/geo\.juma\.ai\/methodology" rel="nofollow noopener" target="_blank">/);
+    assert.match(juma, /<a href="https:\/\/juma\.ai\/mcp" rel="nofollow noopener" target="_blank">/);
+    assert.match(juma, /rather than sampling ChatGPT, Claude, Gemini, or Perplexity live/);
+    assert.match(juma, /repair queue plus rerun proof/);
+    assert.match(juma, /No live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/);
+    assert.doesNotMatch(juma, /AI visibility score tracking|AI citation monitoring (is|are) live/i);
+    assert.doesNotMatch(juma, /guaranteed rankings|guarantees rankings|guarantees citations/i);
+  }
   // Agentic SEO auditor (SEO Automation Club) regression guard
   {
     const agentic = (methodology.match(/<h2>Why not just use an agentic SEO auditor that files its own GitHub issues\?<\/h2>[\s\S]*?<\/section>/) || [])[0];
@@ -365,24 +392,24 @@ const PUBLIC_PAGE_RENDERERS = {
   ],
   "/demo": [{ file: "worker/routes/pages.js", lineStart: 156, lineEnd: 263 }],
   "/check": [{ file: "worker/routes/public-check.js", lineStart: 296, lineEnd: 800 }],
-  "/methodology": [{ file: "worker/routes/pages.js", lineStart: 265, lineEnd: 357 }],
-  "/packages": [{ file: "worker/routes/pages.js", lineStart: 360, lineEnd: 454 }],
+  "/methodology": [{ file: "worker/routes/pages.js", lineStart: 265, lineEnd: 363 }],
+  "/packages": [{ file: "worker/routes/pages.js", lineStart: 366, lineEnd: 460 }],
   "/small-business-seo-audit": [
-    { file: "worker/routes/pages.js", lineStart: 457, lineEnd: 504 },
-    { file: "worker/routes/pages.js", lineStart: 660, lineEnd: 802 }
+    { file: "worker/routes/pages.js", lineStart: 463, lineEnd: 510 },
+    { file: "worker/routes/pages.js", lineStart: 666, lineEnd: 808 }
   ],
   "/rendered-vs-static-seo-audit": [
-    { file: "worker/routes/pages.js", lineStart: 505, lineEnd: 568 },
-    { file: "worker/routes/pages.js", lineStart: 660, lineEnd: 802 }
+    { file: "worker/routes/pages.js", lineStart: 511, lineEnd: 574 },
+    { file: "worker/routes/pages.js", lineStart: 666, lineEnd: 808 }
   ],
   "/ai-answer-readiness": [
-    { file: "worker/routes/pages.js", lineStart: 569, lineEnd: 659 },
-    { file: "worker/routes/pages.js", lineStart: 660, lineEnd: 802 }
+    { file: "worker/routes/pages.js", lineStart: 575, lineEnd: 665 },
+    { file: "worker/routes/pages.js", lineStart: 666, lineEnd: 808 }
   ],
-  "/proof": [{ file: "worker/routes/pages.js", lineStart: 721, lineEnd: 847 }],
-  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 893, lineEnd: 932 }],
-  "/support": [{ file: "worker/routes/pages.js", lineStart: 934, lineEnd: 967 }],
-  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1051, lineEnd: 1101 }]
+  "/proof": [{ file: "worker/routes/pages.js", lineStart: 727, lineEnd: 853 }],
+  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 899, lineEnd: 938 }],
+  "/support": [{ file: "worker/routes/pages.js", lineStart: 940, lineEnd: 973 }],
+  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1057, lineEnd: 1107 }]
 };
 
 function latestCommitIsoIst(renderer) {
