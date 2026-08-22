@@ -339,7 +339,7 @@ const PUBLIC_PAGE_RENDERERS = {
   "/proof": [{ file: "worker/routes/pages.js", lineStart: 696, lineEnd: 822 }],
   "/privacy": [{ file: "worker/routes/pages.js", lineStart: 868, lineEnd: 907 }],
   "/support": [{ file: "worker/routes/pages.js", lineStart: 909, lineEnd: 942 }],
-  "/terms": [{ file: "worker/routes/pages.js", lineStart: 944, lineEnd: 993 }]
+  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1026, lineEnd: 1076 }]
 };
 
 function latestCommitIsoIst(renderer) {
