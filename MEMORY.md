@@ -32,3 +32,15 @@ Use this file for durable project truth Codex cannot reliably infer from code al
   See `docs/growth/discovery-venues-2026-08-10.md` (venue #18, 2026-08-21
   ledger entry) and
   `.lane/reports/lane1-seotechlist-listing-20260821.md`.
+
+- 2026-08-22 (lane 1, item `06f80c6d6a`): Raised CrawlRaven as the DIRECT
+  competitor to the `/ai-answer-readiness` wedge (Zaatar.ai stays the
+  delivery-wedge benchmark). Primary evidence fetched from
+  `crawlraven.com/ai-search-readiness`: same no-sampling/no-monitoring
+  boundary; readiness faults ranked via OAuth-joined GSC+GA4 (daily sync,
+  revenue-weighted) vs our import-based ranking — import friction is the gap
+  to close. Its pricing page still marks the technical audit "coming soon".
+  Landing-page "Compared with CrawlRaven" section (PR #169) verified still
+  accurate; no product-copy change needed. See
+  `docs/research/2026-08-22-crawlraven-competitor-benchmark.md` and
+  `.lane/reports/lane1-crawl-raven-competitor-20260822.md`.
