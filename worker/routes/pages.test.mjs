@@ -251,6 +251,11 @@ test("rendered-vs-static page names free static-vs-rendered checkers without ove
   assert.match(section, /<a href="https:\/\/github\.com\/ravigupta0210\/seo-auditor"/);
   assert.match(section, /geo-crawl-audit/);
   assert.match(section, /<a href="https:\/\/github\.com\/abouchard11\/geo-crawl-audit"/);
+  assert.match(section, /joshuaopolko\.com AI Readiness Scanner/);
+  assert.match(section, /<a href="https:\/\/joshuaopolko\.com\/aiscan\/"/);
+  assert.match(section, /openaeo-audit/);
+  assert.match(section, /<a href="https:\/\/www\.npmjs\.com\/package\/openaeo-audit"/);
+  assert.match(section, /<a href="https:\/\/github\.com\/charlacsina\/openaeo-audit"/);
   assert.match(section, /SSR_FULL \/ SSR_THIN \/ CSR_SHELL/);
   assert.match(section, /persistent repair queue only receives proven findings/);
   assert.match(section, /fixed, still-open, new, or regressed/);
@@ -260,6 +265,7 @@ test("rendered-vs-static page names free static-vs-rendered checkers without ove
   assert.doesNotMatch(section, /live AI-engine sampling is live/i);
   assert.doesNotMatch(page, /guaranteed rankings|guarantees citations/i);
   assert.match(page, /Why not use a free static-vs-rendered checker like LLM Pulse\?/);
+  assert.match(page, /LLM Pulse, Free SEO Auditor, geo-crawl-audit, the joshuaopolko\.com AI Readiness Scanner, and openaeo-audit already do that for free/);
 });
 
 test("machine-readable public surfaces list proof pages and limits", () => {
@@ -342,20 +348,20 @@ const PUBLIC_PAGE_RENDERERS = {
   "/packages": [{ file: "worker/routes/pages.js", lineStart: 354, lineEnd: 448 }],
   "/small-business-seo-audit": [
     { file: "worker/routes/pages.js", lineStart: 451, lineEnd: 498 },
-    { file: "worker/routes/pages.js", lineStart: 642, lineEnd: 784 }
+    { file: "worker/routes/pages.js", lineStart: 644, lineEnd: 786 }
   ],
   "/rendered-vs-static-seo-audit": [
-    { file: "worker/routes/pages.js", lineStart: 499, lineEnd: 562 },
-    { file: "worker/routes/pages.js", lineStart: 642, lineEnd: 784 }
+    { file: "worker/routes/pages.js", lineStart: 499, lineEnd: 564 },
+    { file: "worker/routes/pages.js", lineStart: 644, lineEnd: 786 }
   ],
   "/ai-answer-readiness": [
-    { file: "worker/routes/pages.js", lineStart: 563, lineEnd: 641 },
-    { file: "worker/routes/pages.js", lineStart: 642, lineEnd: 784 }
+    { file: "worker/routes/pages.js", lineStart: 565, lineEnd: 643 },
+    { file: "worker/routes/pages.js", lineStart: 644, lineEnd: 786 }
   ],
-  "/proof": [{ file: "worker/routes/pages.js", lineStart: 703, lineEnd: 829 }],
-  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 875, lineEnd: 914 }],
-  "/support": [{ file: "worker/routes/pages.js", lineStart: 916, lineEnd: 949 }],
-  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1033, lineEnd: 1083 }]
+  "/proof": [{ file: "worker/routes/pages.js", lineStart: 705, lineEnd: 831 }],
+  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 877, lineEnd: 916 }],
+  "/support": [{ file: "worker/routes/pages.js", lineStart: 918, lineEnd: 951 }],
+  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1035, lineEnd: 1085 }]
 };
 
 function latestCommitIsoIst(renderer) {
