@@ -339,23 +339,23 @@ const PUBLIC_PAGE_RENDERERS = {
   "/demo": [{ file: "worker/routes/pages.js", lineStart: 156, lineEnd: 263 }],
   "/check": [{ file: "worker/routes/public-check.js", lineStart: 296, lineEnd: 800 }],
   "/methodology": [{ file: "worker/routes/pages.js", lineStart: 265, lineEnd: 351 }],
-  "/packages": [{ file: "worker/routes/pages.js", lineStart: 317, lineEnd: 398 }],
+  "/packages": [{ file: "worker/routes/pages.js", lineStart: 354, lineEnd: 448 }],
   "/small-business-seo-audit": [
-    { file: "worker/routes/pages.js", lineStart: 444, lineEnd: 491 },
-    { file: "worker/routes/pages.js", lineStart: 635, lineEnd: 777 }
+    { file: "worker/routes/pages.js", lineStart: 451, lineEnd: 498 },
+    { file: "worker/routes/pages.js", lineStart: 642, lineEnd: 784 }
   ],
   "/rendered-vs-static-seo-audit": [
-    { file: "worker/routes/pages.js", lineStart: 492, lineEnd: 555 },
-    { file: "worker/routes/pages.js", lineStart: 635, lineEnd: 777 }
+    { file: "worker/routes/pages.js", lineStart: 499, lineEnd: 562 },
+    { file: "worker/routes/pages.js", lineStart: 642, lineEnd: 784 }
   ],
   "/ai-answer-readiness": [
-    { file: "worker/routes/pages.js", lineStart: 556, lineEnd: 634 },
-    { file: "worker/routes/pages.js", lineStart: 635, lineEnd: 777 }
+    { file: "worker/routes/pages.js", lineStart: 563, lineEnd: 641 },
+    { file: "worker/routes/pages.js", lineStart: 642, lineEnd: 784 }
   ],
-  "/proof": [{ file: "worker/routes/pages.js", lineStart: 696, lineEnd: 822 }],
-  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 868, lineEnd: 907 }],
-  "/support": [{ file: "worker/routes/pages.js", lineStart: 909, lineEnd: 942 }],
-  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1026, lineEnd: 1076 }]
+  "/proof": [{ file: "worker/routes/pages.js", lineStart: 703, lineEnd: 829 }],
+  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 875, lineEnd: 914 }],
+  "/support": [{ file: "worker/routes/pages.js", lineStart: 916, lineEnd: 949 }],
+  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1033, lineEnd: 1083 }]
 };
 
 function latestCommitIsoIst(renderer) {
