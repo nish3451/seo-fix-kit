@@ -3116,25 +3116,31 @@ function wait(ms) {
 // with the public page routes in worker/index.js and worker/routes/pages.js.
 export const ROOT_PUBLIC_PATHS = ["/", "/demo", "/check", "/methodology", "/packages", "/small-business-seo-audit", "/rendered-vs-static-seo-audit", "/ai-answer-readiness", "/privacy", "/proof", "/support", "/terms"];
 
-// Truthful per-page last modification times (W3C datetime, UTC): the commit
-// timestamp of the last change to the code that renders each page — for "/"
-// the SPA source (src/App.jsx), for the worker-rendered pages the generator in
-// worker/routes/pages.js or worker/routes/public-check.js. Update a page's
-// entry whenever that page's visible content changes, so the sitemap keeps
-// giving crawlers an accurate re-crawl freshness signal.
+// Truthful per-page last modification times (W3C datetime, Z-suffixed): the
+// commit timestamp of the last change to the code that renders each page —
+// for "/" the SPA source (src/App.jsx), for the worker-rendered pages the
+// generator in worker/routes/pages.js or worker/routes/public-check.js.
+// Times follow the existing sitemap convention: the commit's local IST
+// datetime formatted with a Z suffix (technically not real UTC, but what
+// the sitemap, IndexNow payload, and the freshness-discipline test all
+// compare against). Update a page's entry whenever that page's visible
+// content changes, so the sitemap keeps giving crawlers an accurate
+// re-crawl freshness signal; the freshness discipline pin in
+// worker/routes/pages.test.mjs refuses a stale lastmod so the update
+// cannot silently ship.
 export const ROOT_PUBLIC_LASTMODS = {
-  "/": "2026-08-13T03:48:58Z",
+  "/": "2026-08-20T18:41:39Z",
   "/demo": "2026-08-15T07:14:01Z",
-  "/check": "2026-08-15T04:27:51Z",
-  "/methodology": "2026-08-15T07:14:01Z",
-  "/packages": "2026-08-15T07:14:01Z",
-  "/small-business-seo-audit": "2026-08-15T07:14:01Z",
-  "/rendered-vs-static-seo-audit": "2026-08-21T10:06:57Z",
-  "/ai-answer-readiness": "2026-08-20T13:09:00Z",
-  "/privacy": "2026-08-11T12:01:28Z",
-  "/proof": "2026-08-15T06:27:08Z",
-  "/support": "2026-06-12T14:12:49Z",
-  "/terms": "2026-06-12T14:12:49Z"
+  "/check": "2026-08-19T12:56:07Z",
+  "/methodology": "2026-08-13T03:48:58Z",
+  "/packages": "2026-08-22T05:24:07Z",
+  "/small-business-seo-audit": "2026-08-21T15:52:53Z",
+  "/rendered-vs-static-seo-audit": "2026-08-21T05:10:13Z",
+  "/ai-answer-readiness": "2026-08-21T15:37:54Z",
+  "/privacy": "2026-08-15T10:43:48Z",
+  "/proof": "2026-08-15T10:43:48Z",
+  "/support": "2026-08-15T10:43:48Z",
+  "/terms": "2026-08-15T03:44:50Z"
 };
 
 export function rootSitemap(origin) {

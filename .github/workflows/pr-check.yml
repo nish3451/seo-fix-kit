@@ -48,6 +48,13 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Full history, not the default depth 1. The sitemap freshness
+          # discipline (worker/routes/pages.test.mjs) resolves each page's
+          # last renderer change with `git log -L`; a shallow checkout only
+          # sees the head commit, which makes every lastmod look stale and
+          # fails the gate on every PR regardless of the values committed.
+          fetch-depth: 0
 
       - name: Set up Node.js 22 (LTS)
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4

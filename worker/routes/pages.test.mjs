@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
-import http from "node:http";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import http from "node:http";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { auditUrl } from "../../server/audit/engine.js";
 import { ROOT_PUBLIC_LASTMODS, ROOT_PUBLIC_PATHS, escapeHtml, rootSitemap } from "../../shared/audit-engine.js";
 import { DEMO_PROOF, DEMO_FIXTURE_PATH, demoProofSnippet } from "./demo-proof.js";
@@ -272,6 +275,114 @@ test("machine-readable public surfaces list proof pages and limits", () => {
   assert.match(llms, new RegExp(`The plain answer is on ${origin}/methodology`));
   assert.match(llms, /no live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/);
   assert.match(markdown, new RegExp(`Anonymous one-page check: ${origin}/check`));
+});
+
+// Sitemap freshness discipline (lane 1: "Establish full search-index coverage").
+//
+// The <lastmod> every URL ships in /sitemap.xml is the re-crawl freshness
+// hint search engines use to decide whether a page has changed. If a
+// lastmod is older than the actual change to the rendered HTML, the
+// crawlers under-recrawl the truth and the indexing coverage gap this
+// item exists to close widens silently. This test pins the discipline so
+// future page edits cannot ship without refreshing the matching lastmod.
+//
+// Both timestamps are compared in the existing sitemap convention (commit
+// local IST time, formatted as Z-suffixed UTC in the published sitemap).
+// That is technically wrong (the Z should be UTC), but it is what the
+// current sitemap and IndexNow payload use, and the discipline test must
+// agree with the published artefact rather than redefine the convention.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const PUBLIC_PAGE_RENDERERS = {
+  "/": [
+    { file: "src/App.jsx", lineStart: 35, lineEnd: 400 },
+    { file: "index.html", lineStart: 1, lineEnd: 100 }
+  ],
+  "/demo": [{ file: "worker/routes/pages.js", lineStart: 156, lineEnd: 263 }],
+  "/check": [{ file: "worker/routes/public-check.js", lineStart: 296, lineEnd: 800 }],
+  "/methodology": [{ file: "worker/routes/pages.js", lineStart: 265, lineEnd: 315 }],
+  "/packages": [{ file: "worker/routes/pages.js", lineStart: 317, lineEnd: 398 }],
+  "/small-business-seo-audit": [
+    { file: "worker/routes/pages.js", lineStart: 400, lineEnd: 446 },
+    { file: "worker/routes/pages.js", lineStart: 553, lineEnd: 668 }
+  ],
+  "/rendered-vs-static-seo-audit": [
+    { file: "worker/routes/pages.js", lineStart: 448, lineEnd: 493 },
+    { file: "worker/routes/pages.js", lineStart: 553, lineEnd: 668 }
+  ],
+  "/ai-answer-readiness": [
+    { file: "worker/routes/pages.js", lineStart: 495, lineEnd: 547 },
+    { file: "worker/routes/pages.js", lineStart: 553, lineEnd: 668 }
+  ],
+  "/proof": [{ file: "worker/routes/pages.js", lineStart: 696, lineEnd: 822 }],
+  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 868, lineEnd: 907 }],
+  "/support": [{ file: "worker/routes/pages.js", lineStart: 909, lineEnd: 942 }],
+  "/terms": [{ file: "worker/routes/pages.js", lineStart: 944, lineEnd: 993 }]
+};
+
+function latestCommitIsoIst(renderer) {
+  const output = execFileSync(
+    "git",
+    ["log", "-1", "--format=%aI", "-L", `${renderer.lineStart},${renderer.lineEnd}:${renderer.file}`],
+    { cwd: REPO_ROOT, encoding: "utf8" }
+  );
+  // %aI is strict ISO 8601 with offset (e.g. 2026-08-19T13:36:30+05:30) and is
+  // emitted as the first line; the -L flag then appends the diff hunk. Take
+  // only the first line so trailing diff hunks cannot leak into the
+  // timestamp. Convert any non-IST offset to IST YYYY-MM-DDTHH:MM:SS so the
+  // comparison can match the published lastmod convention (Z-suffixed IST).
+  const firstLine = output.split("\n", 1)[0];
+  const match = firstLine.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})([+-]\d{2}:?\d{2})?$/);
+  if (!match) return "";
+  const [, base, tz] = match;
+  if (!tz || tz === "+05:30" || tz === "+0530") return base;
+  const ms = Date.parse(`${base}${tz}`);
+  const istMs = ms + (5.5 * 60 * 60 * 1000 - parseTimezoneOffsetMinutes(tz) * 60 * 1000);
+  return new Date(istMs).toISOString().slice(0, 19);
+}
+
+function parseTimezoneOffsetMinutes(tz) {
+  const m = tz.match(/^([+-])(\d{2}):?(\d{2})$/);
+  if (!m) return 0;
+  const [, sign, hh, mm] = m;
+  return (sign === "-" ? -1 : 1) * (parseInt(hh, 10) * 60 + parseInt(mm, 10));
+}
+
+test("sitemap lastmod stays truthful relative to the page renderer (freshness discipline)", () => {
+  const failures = [];
+  for (const path of ROOT_PUBLIC_PATHS) {
+    const ranges = PUBLIC_PAGE_RENDERERS[path];
+    if (!ranges) {
+      failures.push(`${path}: missing renderer locator in PUBLIC_PAGE_RENDERERS (refresh the map when adding a new public path)`);
+      continue;
+    }
+
+    const lastmod = ROOT_PUBLIC_LASTMODS[path];
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(lastmod)) {
+      failures.push(`${path}: lastmod ${lastmod} is not a UTC W3C datetime (existing convention uses Z-suffixed IST time)`);
+      continue;
+    }
+    const lastmodIst = lastmod.slice(0, 19);
+    let latestRendererCommitIst = "";
+    let missingCommit = false;
+    for (const renderer of ranges) {
+      const commitIst = latestCommitIsoIst(renderer);
+      if (!commitIst) {
+        failures.push(`${path}: unable to read latest commit for ${renderer.file}:${renderer.lineStart}-${renderer.lineEnd}`);
+        missingCommit = true;
+        break;
+      }
+      if (commitIst > latestRendererCommitIst) latestRendererCommitIst = commitIst;
+    }
+    if (missingCommit) continue;
+    if (lastmodIst < latestRendererCommitIst) {
+      failures.push(
+        `${path}: lastmod ${lastmod} (IST ${lastmodIst}) is older than the latest renderer commit (${latestRendererCommitIst} IST in ${ranges
+          .map((r) => `${r.file}:${r.lineStart}-${r.lineEnd}`)
+          .join(", ")}). Refresh ROOT_PUBLIC_LASTMODS[${path}] and the mirror in public/sitemap.xml so the re-crawl freshness hint stays truthful.`
+      );
+    }
+  }
+  assert.deepEqual(failures, [], failures.length === 1 ? failures[0] : failures.join("\n"));
 });
 
 test("intent-matching landing pages carry unique, truthful, machine-readable proof", () => {
