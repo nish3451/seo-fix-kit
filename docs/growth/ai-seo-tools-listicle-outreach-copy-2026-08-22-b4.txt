@@ -1,0 +1,175 @@
+SEO Fix Kit — prepared outreach copy for four 2026 GEO/SEO-audit tool
+listicles (fourth prepared batch, b4, 2026-08-22). Every claim traces to
+https://seofixkit.com live homepage, /llms.txt, /packages, /demo,
+/methodology, /check, /rendered-vs-static-seo-audit (verified 2026-08-22).
+Do not add ranking, traffic, indexing, revenue, or AI-citation promises;
+do not claim anonymous checks of more than one page, live AI-engine
+sampling, completed 50K rendered validation, auto-publishing, or
+replacement of Ahrefs / Semrush. Outreach is founder-owned: the founder
+sends these, never unattended automation.
+
+===============================================================
+MASTER FACTS (for any venue)
+===============================================================
+
+- Name: SEO Fix Kit
+- Website URL: https://seofixkit.com
+- One-line description: SEO Fix Kit is a proof-backed SEO repair tool for
+  sites that need clear fixes, not generic audit homework.
+- Proof links to include: https://seofixkit.com/demo,
+  https://seofixkit.com/methodology,
+  https://seofixkit.com/rendered-vs-static-seo-audit
+- Conversion links (where the venue allows more than one link):
+  https://seofixkit.com/check, https://seofixkit.com/packages
+- Pricing (state accurately): private beta audits are free in beta; full
+  audits and the repair queue require a secure access link. Paid: SEO Fix
+  Pack — one proof-backed repair pass tied to one report, plus one rerun
+  after fixes — $99.00 one-time during beta; the visible Dodo checkout price
+  is authoritative at payment time.
+- Honesty lines to keep visible:
+  - "No ranking or traffic guarantee."
+  - "Anonymous audits are one page only; full audits require private beta
+    access."
+  - "AI Answer Readiness is derived from your site's rendered content; SEO
+    Fix Kit does not monitor live AI-engine answers or citations."
+
+===============================================================
+SHORT PITCH (~100-115 words, for any venue)
+===============================================================
+
+Hi [Name],
+
+I'm the founder of SEO Fix Kit (https://seofixkit.com) — a proof-backed SEO
+repair tool for sites that need clear fixes, not generic audit homework. Your
+GEO / SEO audit tools roundup caught my eye; it's a great list, and I'd
+love to offer SEO Fix Kit for a future update.
+
+What makes it different: paste a public URL at /check and it opens the page in
+a real browser, compares the static HTML with the rendered DOM, and shows the
+evidence for each finding — including a guarded false-positive section — so a
+report explains what is wrong, why, and what to fix. The proof loop is visible
+before any signup (/demo and /methodology), and the paid offer is narrow: one
+proof-backed repair pass plus one rerun, $99.00 one-time in beta. No ranking
+or traffic guarantee.
+
+Happy to answer any questions or set up a walkthrough.
+
+Best,
+[Founder name]
+SEO Fix Kit — https://seofixkit.com
+
+===============================================================
+PER-VENUE FIELDS
+===============================================================
+
+--- Shadow (email: hello@shadow.inc) ---
+Route: hello@shadow.inc (published in the site footer Connect block on
+https://www.shadow.inc/resources/best-geo-ai-visibility-tools-2026 and the
+homepage). Author: Jessen Gibbs, Communications Strategist. Last updated
+2026-07-31. Only published inbox in this batch — send first.
+
+Subject: Tool suggestion for "The Best GEO and AI Visibility Tools in 2026" (SEO Fix Kit)
+
+Body: use the SHORT PITCH above, then add:
+
+Your split of the category into three jobs — citation-tracking, visibility
+auditing, and content optimization — is the right lens. SEO Fix Kit sits in
+the visibility-auditing bucket on the site itself: the free anonymous
+one-page check at /check opens the URL in a real browser, compares static
+HTML with the rendered DOM, and shows evidence plus a guarded false-positive
+section for every finding, then a repair queue with proof receipts after a
+fixed rerun. It does not tell you whether AI engines cite you; that is a
+different category (no live AI-engine queries). The proof loop is public at
+/demo, /methodology, and /rendered-vs-static-seo-audit.
+
+Happy to share a proof sample. Thanks for considering it!
+
+--- Distribb (LinkedIn: https://www.linkedin.com/in/borja-obeso/) ---
+Route: no public pitch inbox on the listicle. https://distribb.io/contact
+redirects to https://distribb.io/faq. Verified author LinkedIn on the
+byline: https://www.linkedin.com/in/borja-obeso/ (Borja Obeso, Co-founder).
+Their "13 Best SEO Audit Tools for 2026 (Tested)" was last updated
+2026-08-07. NEEDS-NISH — founder sends via LinkedIn (or whatever live
+channel they choose); do not invent an address.
+
+Subject: Tool suggestion for "13 Best SEO Audit Tools for 2026" (SEO Fix Kit)
+
+Body: use the SHORT PITCH above, then add:
+
+Your framing is still on the live page and is the right split: "Some of
+these tools crawl better than anything else available. Some tell you whether
+AI engines cite you. Almost none do both." SEO Fix Kit is a candidate only
+for the crawl/readability side of that split — rendered-vs-static proof at
+/rendered-vs-static-seo-audit, a free one-page check at /check, and a repair
+queue with proof receipts after a fixed rerun. It does not tell you whether
+AI engines cite you; that is a different category, and we do not cover that
+second half. No ranking or traffic guarantee.
+
+Happy to share screenshots or a proof sample. Thanks for considering it!
+
+--- Prismic (LinkedIn / demo form) ---
+Route: no public email. Author Tosin Adelowo via
+https://www.linkedin.com/in/oluwatosin-adelowo and
+https://prismic.io/blog/authors/tosin-adelowo; also the live demo form at
+https://prismic.io/demo (HTTP 200 on 2026-08-22). Their "Best GEO Tools
+2026: Categorized by What They Do" was published 2026-08-05. Placement is
+by job: track, create, refresh, or audit. NEEDS-NISH.
+
+Subject: Tool suggestion for "Best GEO Tools 2026" — audit category (SEO Fix Kit)
+
+Body: use the SHORT PITCH above, then add:
+
+Your grouping by the job a tool does — track, create, refresh, or audit —
+is the comparison I wish more lists used. SEO Fix Kit belongs in the audit
+bucket, not tracking or page creation: a free anonymous one-page check at
+/check opens the URL in a real browser, compares static HTML with the
+rendered DOM, and shows evidence plus a guarded false-positive section so a
+report explains what is wrong, why, and what to fix. The paid offer stays
+narrow — one proof-backed repair pass plus one rerun, $99.00 one-time in
+beta, no ranking or traffic guarantee. Proof is public at /demo,
+/methodology, and /rendered-vs-static-seo-audit.
+
+Happy to walk you through the proof loop for a future update. Thanks for
+considering it!
+
+--- GeoReady (GitHub Issues / About contact) ---
+Route: no public pitch inbox and no individual byline. Address the
+**GeoReady team**. Contact section on https://geoready.dev/about/ points to
+GitHub Issues https://github.com/Auriti-Labs/geo-optimizer-skill/issues
+(HTTP 200 on 2026-08-22). Their "Best GEO Tools 2026: Compare AI Visibility
+Software" was published 2026-06-16 and last updated 2026-06-17. NEEDS-NISH.
+
+Subject: Tool suggestion for "Best GEO Tools 2026" (SEO Fix Kit)
+
+Body: use the SHORT PITCH above, then add:
+
+Hi GeoReady team — your criteria-driven comparison (methodology
+transparency, open vs hosted, audit vs monitoring, CI/CD, answer-engine
+querying) is the durable way to judge this category. SEO Fix Kit is a
+closed-source hosted product on the audit side of that split: published
+methodology at https://seofixkit.com/methodology, a free one-page check at
+/check, rendered-vs-static proof, and a repair queue with proof receipts
+after a fixed rerun. It does not run live answer-engine queries; AI Answer
+Readiness is derived from the site's rendered content. Not a replacement
+for an open-source CLI, and no ranking or traffic guarantee.
+
+Happy to share a proof sample or answer methodology questions. Thanks for
+considering it!
+
+===============================================================
+COMMON RULES
+===============================================================
+
+- Nothing was sent by agents. The founder sends these, never unattended
+  automation.
+- Send from a business-domain email where the venue asks (founders should
+  send from a company address, never free Gmail).
+- Do not pay for placement; do not offer payment; never fabricate a listing.
+- Do not promise rankings, traffic, AI citations, or revenue.
+- Record every send and reply in the Replies ledger in
+  docs/growth/ai-seo-tools-listicle-outreach-2026-08-22-b4.md.
+- If a venue asks for a "two-line description," use: "SEO Fix Kit —
+  proof-backed SEO repair: rendered vs static HTML proof, guarded false
+  positives, actionable fixes, and a paid one-pass repair workflow. Free
+  anonymous one-page check at /check; $99.00 one-time Fix Pack in beta (no
+  ranking or traffic guarantee)."
