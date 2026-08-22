@@ -3176,7 +3176,7 @@ export const ROOT_PUBLIC_LASTMODS = {
   "/": "2026-08-20T18:41:39Z",
   "/demo": "2026-08-15T07:14:01Z",
   "/check": "2026-08-19T12:56:07Z",
-  "/methodology": "2026-08-22T18:24:07Z",
+  "/methodology": "2026-08-22T23:00:33Z",
   "/packages": "2026-08-22T05:24:07Z",
   "/small-business-seo-audit": "2026-08-21T15:52:53Z",
   "/rendered-vs-static-seo-audit": "2026-08-22T12:07:56Z",
