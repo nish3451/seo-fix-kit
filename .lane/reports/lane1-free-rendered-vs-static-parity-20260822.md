@@ -18,14 +18,41 @@ Live `https://seofixkit.com/proof` HTTP 404 is already on origin/main (`worker/i
 - `worker/routes/pages.test.mjs` — new no-overclaim test + refreshed `PUBLIC_PAGE_RENDERERS` locators
 - `scripts/live-promise-spot-check.mjs` — five new copy expectations
 - `scripts/live-promise-spot-check.test.mjs` — regression when the comparison heading is lost
-- `shared/audit-engine.js` — `ROOT_PUBLIC_LASTMODS` for `/rendered-vs-static-seo-audit` only
+- `shared/audit-engine.js` — `ROOT_PUBLIC_LASTMODS` for `/rendered-vs-static-seo-audit` only (`2026-08-22T12:07:56Z`)
 - `public/sitemap.xml` — matching `<lastmod>` only
 - `.lane/reports/lane1-free-rendered-vs-static-parity-20260822.md` — this file
 
 ## PR URL
 
-Pending push and `gh pr create`.
+https://github.com/nish3451/seo-fix-kit/pull/200
 
 ## Commands
 
-Pending `npm run test:public-pages`, `npm run test:live-promise-spot-check`, `npm run test:promise-audit`, `npm run check`.
+```
+python3 -c "import json; d=json.load(open('/home/nish/workspaces/agent-state/lanes/seo-fix-kit/lane-1.json')); print(d['claims'])"
+# exit 0 — seven claim paths
+
+git branch --show-current
+# exit 0 — lane1/free-rendered-vs-static-parity-20260822
+
+npm run test:public-pages
+# exit 0 — tests 18, pass 18, fail 0
+# includes: rendered-vs-static page names free static-vs-rendered checkers without overclaims
+# includes: sitemap lastmod stays truthful relative to the page renderer (freshness discipline)
+
+npm run test:live-promise-spot-check
+# exit 0 — tests 20, pass 20, fail 0
+# includes: live spot-check passes against the shipped public page copy
+# includes: live spot-check flags a rendered-vs-static page that lost the free-checker comparison
+
+npm run test:promise-audit
+# exit 0 — tests 72, pass 72, fail 0
+
+npm run check
+# CHECK_EXIT=0
+# test:public-pages tests 18 pass 18 fail 0
+# test:live-promise-spot-check tests 20 pass 20 fail 0
+# test:promise-audit tests 72 pass 72 fail 0
+# test:canary-dry-run / indexnow / check-inventory fail 0
+# vite build ✓ built in 651ms
+```
