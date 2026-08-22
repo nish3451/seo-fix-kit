@@ -195,6 +195,40 @@ test("public proof pages expose methodology and package ladder without overclaim
     assert.doesNotMatch(juma, /AI visibility score tracking|AI citation monitoring (is|are) live/i);
     assert.doesNotMatch(juma, /guaranteed rankings|guarantees rankings|guarantees citations/i);
   }
+  // Funded AI-visibility tracker (Otterly.ai + Peec.ai) regression guard
+  {
+    const tracker = (methodology.match(/<h2>Why not just use a tracker like Otterly\.ai or Peec\.ai\?<\/h2>[\s\S]*?<\/section>/) || [])[0];
+    const jumaH2 = methodology.indexOf("<h2>Why not just use Juma.ai's free GEO Audit?</h2>");
+    const trackerH2 = methodology.indexOf("<h2>Why not just use a tracker like Otterly.ai or Peec.ai?</h2>");
+    const agenticH2 = methodology.indexOf("<h2>Why not just use an agentic SEO auditor that files its own GitHub issues?</h2>");
+    assert.ok(tracker, "methodology must carry a dedicated funded-tracker competitor answer");
+    assert.ok(jumaH2 < trackerH2 && trackerH2 < agenticH2, "tracker section must sit between the Juma and agentic sections");
+    assert.match(tracker, /Otterly\.ai/);
+    assert.match(tracker, /Peec AI/);
+    assert.match(tracker, /Peec\.ai/);
+    assert.match(tracker, /40,000\+ Marketing Pros/);
+    assert.match(tracker, /\$29\/mo/);
+    assert.match(tracker, /Lite/);
+    assert.match(tracker, /Tracking of 4 AI Search Engines/);
+    assert.match(tracker, /ChatGPT, Google AI Overviews, Perplexity, MS Copilot/);
+    assert.match(tracker, /Claude, Google AI Mode, Gemini/);
+    assert.match(tracker, /paid add-ons/);
+    assert.match(tracker, /3000\+ brands and agencies/);
+    assert.match(tracker, /\$80\/mo/);
+    assert.match(tracker, /Starter/);
+    assert.match(tracker, /\$21M Series A/);
+    assert.match(tracker, /Singular/);
+    assert.match(tracker, /total funding to \$29M/);
+    assert.match(tracker, /repair queue plus rerun proof/);
+    assert.match(tracker, /No live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/);
+    assert.doesNotMatch(tracker, /AI visibility score tracking|AI citation monitoring (is|are) live/i);
+    assert.doesNotMatch(tracker, /guaranteed rankings|guarantees rankings|guarantees citations/i);
+    assert.match(tracker, /<a href="https:\/\/otterly\.ai" rel="nofollow noopener" target="_blank">/);
+    assert.match(tracker, /<a href="https:\/\/otterly\.ai\/pricing" rel="nofollow noopener" target="_blank">/);
+    assert.match(tracker, /<a href="https:\/\/peec\.ai" rel="nofollow noopener" target="_blank">/);
+    assert.match(tracker, /<a href="https:\/\/peec\.ai\/pricing" rel="nofollow noopener" target="_blank">/);
+    assert.match(tracker, /<a href="https:\/\/peec\.ai\/blog\/we-raised-21m-series-a-to-help-brands-win-in-ai-search" rel="nofollow noopener" target="_blank">/);
+  }
   // Agentic SEO auditor (SEO Automation Club) regression guard
   {
     const agentic = (methodology.match(/<h2>Why not just use an agentic SEO auditor that files its own GitHub issues\?<\/h2>[\s\S]*?<\/section>/) || [])[0];
@@ -392,24 +426,24 @@ const PUBLIC_PAGE_RENDERERS = {
   ],
   "/demo": [{ file: "worker/routes/pages.js", lineStart: 156, lineEnd: 263 }],
   "/check": [{ file: "worker/routes/public-check.js", lineStart: 296, lineEnd: 800 }],
-  "/methodology": [{ file: "worker/routes/pages.js", lineStart: 265, lineEnd: 363 }],
-  "/packages": [{ file: "worker/routes/pages.js", lineStart: 366, lineEnd: 460 }],
+  "/methodology": [{ file: "worker/routes/pages.js", lineStart: 265, lineEnd: 369 }],
+  "/packages": [{ file: "worker/routes/pages.js", lineStart: 372, lineEnd: 466 }],
   "/small-business-seo-audit": [
-    { file: "worker/routes/pages.js", lineStart: 463, lineEnd: 510 },
-    { file: "worker/routes/pages.js", lineStart: 666, lineEnd: 808 }
+    { file: "worker/routes/pages.js", lineStart: 469, lineEnd: 516 },
+    { file: "worker/routes/pages.js", lineStart: 672, lineEnd: 814 }
   ],
   "/rendered-vs-static-seo-audit": [
-    { file: "worker/routes/pages.js", lineStart: 511, lineEnd: 574 },
-    { file: "worker/routes/pages.js", lineStart: 666, lineEnd: 808 }
+    { file: "worker/routes/pages.js", lineStart: 517, lineEnd: 580 },
+    { file: "worker/routes/pages.js", lineStart: 672, lineEnd: 814 }
   ],
   "/ai-answer-readiness": [
-    { file: "worker/routes/pages.js", lineStart: 575, lineEnd: 665 },
-    { file: "worker/routes/pages.js", lineStart: 666, lineEnd: 808 }
+    { file: "worker/routes/pages.js", lineStart: 581, lineEnd: 671 },
+    { file: "worker/routes/pages.js", lineStart: 672, lineEnd: 814 }
   ],
-  "/proof": [{ file: "worker/routes/pages.js", lineStart: 727, lineEnd: 853 }],
-  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 899, lineEnd: 938 }],
-  "/support": [{ file: "worker/routes/pages.js", lineStart: 940, lineEnd: 973 }],
-  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1057, lineEnd: 1107 }]
+  "/proof": [{ file: "worker/routes/pages.js", lineStart: 733, lineEnd: 859 }],
+  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 905, lineEnd: 944 }],
+  "/support": [{ file: "worker/routes/pages.js", lineStart: 946, lineEnd: 979 }],
+  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1063, lineEnd: 1113 }]
 };
 
 function latestCommitIsoIst(renderer) {
