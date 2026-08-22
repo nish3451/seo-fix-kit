@@ -98,6 +98,46 @@ still absent from this box and its policy allowlist remains empty, so every
 venue stays manual-only; the account owner's exact resume path is the
 2026-08-11 execution ledger below.
 
+Re-verified 2026-08-22 (lane-1 packet run — 5 GEO awesome-lists folded in as
+venues #19–#23): this run folded in the backlog's 2026-08-21 15:30 IST
+annotation (5 GEO-specific GitHub awesome-lists, packet
+`growth-loop/packets/seo-fix-kit/done/awesome-geo-lists-manual-listing-20260821.md`)
+as venues #19–#23, with fresh raw-README absence receipts fetched live
+2026-08-22: `deeflect/awesome-geo` (0 `seofixkit` / `SEO Fix Kit` matches),
+`raghav453/awesome-ai-seo-geo-tools` (0 matches), `trakkr-aisearch/awesome-geo`
+(0 matches), `tentenco/awesome-geo` (0 matches). The fifth list from that
+annotation, `VictorOsondu/awesome-ai-search-readiness`, is NO LONGER
+REACHABLE as of 2026-08-22 (repo page and GitHub API both HTTP 404) — it is
+recorded as venue #21 for history but is not a submission target until a live
+repo re-verifies by search. Fleet-infra change worth recording:
+`/home/nish/.local/bin/venue-claim` IS NOW PRESENT on this box (mtime
+2026-08-20 23:24) — every prior ledger entry recorded it absent. Fresh gate
+receipts were produced this run (`venue-claim check <venue> seo-fix-kit`
+exit=0 — no active claim record — for alternativeto.net, saashub.com,
+producthunt.com, g2.com, capterra.com, getapp.com, saashive.com, github.com,
+geodes.ai, primaryposition.com, directree.io, seotechlist.com), and the
+policy allowlist in `venue-policy.json` is still EMPTY (updated 2026-08-08),
+so every venue stays manual-only; no unattended account creation or browser
+submission is permitted. Direct probes re-run live 2026-08-22: SaaSHub
+`/seo-fix-kit` HTTP 404 after redirect to www.saashub.com (absent); Directree
+`/seo-fix-kit` HTTP 404 (absent); SaaS Hive `/seo-fix-kit` soft-404s to the
+generic homepage ("The SaaS launch and discovery platform built for AI search
+engines…", zero `seofixkit` string); AlternativeTo and Product Hunt remain
+bot-walled (HTTP 403 to plain curl; prior Camoufox receipts stand); GeoIndex
+80-vendor directory fetched live still has zero `seofixkit` / `SEO Fix Kit`
+entries (GeoIndex submission remains pending review since 2026-08-11);
+SEO Tech List `/products/seo-fix-kit` HTTP 404 and `/api/search?q=seofixkit`
+returns `{"results":[]}` (no listing yet). The previously-named GitHub lists
+re-checked via raw README 2026-08-22: `Suganthan-Mohanadasan/awesome-seo-tools`
+and `best-of-ai/awesome-ai-seo` both still have zero `seofixkit` /
+`SEO Fix Kit` matches. All canonical product surfaces re-verified live
+2026-08-22 (`/llms.txt`, `/packages`, `/demo`, `/methodology`, `/check` all
+HTTP 200; `/proof` STILL HTTP 404 — the rank-1 deploy chain stall persists, so
+listing copy must not claim before/after repair receipts are live);
+`/packages` still states the $99.00 one-time beta Fix Pack, so the approved
+copy inputs remain current. The account owner's exact resume path is the
+2026-08-11 execution ledger below plus the new venue #19–#23 owner actions.
+
 Re-verified 2026-08-21 (lane-1 packet run — SEO Tech List venue on-boarded):
 the new venue **SEO Tech List** (`https://seotechlist.com`) was folded into
 this ledger as venue #18. Direct probes re-run live 2026-08-21:
@@ -201,6 +241,12 @@ activity was involved.
 | 17 | Directree | Directory + search fetched live 2026-08-12 (`https://www.directree.io/saas-directory`): no SEO Fix Kit entry; direct product probe `/seo-fix-kit` → HTTP 404 | Official directory page (live 2026-08-12): "Free to submit and claim", "No pay-to-rank", "No sponsored slots"; listings label every fact "Observed, AI-inferred, or Founder-edited"; verified listings earn a do-follow backlink; official submit page (`https://www.directree.io/submit`, live 2026-08-12): "You just need a free account first", ~30-second AI listing or full claim editor; terms `https://www.directree.io/terms` (July 2026): "Any user may submit a tool URL", anti-scraping clause only (no automation permission) | reviewed (unknown) → manual-only (ambiguous; no unattended-automation permission) | Manual "Add Listing" with free account by the account owner using copy file; record listing URL + indexed title/description + do-follow receipt when accepted |
 | 18 | SEO Tech List | Directory + search fetched live 2026-08-21 (`https://seotechlist.com/tools`, categories `/categories/ai-visibility` and `/categories/technical-seo`): no SEO Fix Kit entry; direct product probe `/products/seo-fix-kit` → HTTP 404; `/api/search?q=seofixkit` returns `{"results":[]}` | Official submit page (`https://seotechlist.com/submit-seo-tool`, live 2026-08-21): "Submit your SEO tool, AI search product, MCP server, Agent Skill or open-source project for a permanent, searchable listing"; Community plan is free, no payment details, 2–6 week standard queue, permanent URL, Product of the Day rotation, owner analytics, verified badge; Premium $39 (24h publication + launch date + homepage promo); editorial policy (`https://seotechlist.com/editorial-policy`, reviewed 26 July 2026, live JSON-LD `dateModified: 2026-07-26`): "Listings may combine information supplied by makers with public first-party sources"; "automated refreshes may update stars, releases, licence information" (their own automation of public repo data, NOT permission for us to automate submissions); "We do not promise 'link juice', domain-rating increases, search rankings or inclusion in AI answers"; "A normal product profile includes an editorial link to the official website and, where relevant, a separate public repository link"; "Premium... does not purchase a different permanent product link"; verification via GitHub permissions, DNS, temporary website badge or work-email review; operator Wojciech Skrzek (WebMoose, Poland) | unknown (not reviewed) → manual-only (no unattended-automation permission; absence of a rule is not permission) | Manual free Community submission via the maker form at `/submit` (or `?plan=free`) by the account owner using the copy file; record listing URL + indexed title/description + verification route (GitHub/DNS/work-email) when accepted; Premium tier ($39) stays NEEDS-NISH per the backlog acceptance |
 
+| 19 | GitHub `deeflect/awesome-geo` | Official README fetched via raw.githubusercontent.com live 2026-08-22: zero `seofixkit` / `SEO Fix Kit` matches; "GEO Toolkits & Skills" category (16 entries) fits the AI Answer Readiness wedge | Fork + pull request workflow per repo README; packet `growth-loop/packets/seo-fix-kit/done/awesome-geo-lists-manual-listing-20260821.md` (checked 2026-08-21) | manual-only (PR workflow; github.com resolves "unknown (not reviewed)", allowlist empty) | Owner-authored fork + PR with truthful copy ("proof-backed SEO repair tool… No ranking promises. https://seofixkit.com"); record merged-PR URL as receipt |
+| 20 | GitHub `raghav453/awesome-ai-seo-geo-tools` | Official README raw-fetched live 2026-08-22: zero `seofixkit` / `SEO Fix Kit` matches; categories "AI SEO & GEO Platforms", "LLMS.txt Tools", "Schema & Structured Data Tools", "Answer Engine Optimization Tools", "AI Content Optimization Tools" | Fork + PR workflow per repo README (same packet, checked 2026-08-21) | manual-only (PR workflow) | Owner-authored fork + PR with truthful copy from the packet; record merged-PR URL as receipt |
+| 21 | GitHub `VictorOsondu/awesome-ai-search-readiness` | REPO NO LONGER REACHABLE as of 2026-08-22: repo page and GitHub API both HTTP 404 (deleted, renamed, or made private since the 2026-08-21 web-search discovery) | n/a this run — no live repo to read policy from | not a submission target until a live repo re-verifies by search | Skip; re-run a web search before any manual attempt and re-check policy if it reappears under a new name |
+| 22 | GitHub `trakkr-aisearch/awesome-geo` | Official README raw-fetched live 2026-08-22: zero `seofixkit` / `SEO Fix Kit` matches; sections "Tools (Commercial)", "Tools (Open Source and Free)", "Free Checkers", "Datasets and Benchmarks" | Fork + PR workflow per repo README (same packet, checked 2026-08-21) | manual-only (PR workflow) | Owner-authored fork + PR with truthful copy from the packet; record merged-PR URL as receipt |
+| 23 | GitHub `tentenco/awesome-geo` | Official README raw-fetched live 2026-08-22: zero `seofixkit` / `SEO Fix Kit` matches; GEO/AIO/AEO/AI SEO scope | Fork + PR workflow per repo README (same packet, checked 2026-08-21) | manual-only (PR workflow) | Owner-authored fork + PR with truthful copy from the packet; record merged-PR URL as receipt |
+
 Prior fleet packets for this product already cover #1, #2, and #13 in detail and
 are incorporated here by reference (do not duplicate submissions):
 `agent-state/growth-loop/packets/seo-fix-kit/done/alternativeto-manual-listing-20260808.md`,
@@ -264,9 +310,18 @@ Every venue above is manual-only this run:
    must link to `https://seofixkit.com/demo` and `/methodology`, state
    private-beta limits and the $99.00 one-time beta offer accurately, and carry
    zero unsupported ranking/AI-citation claims.
-2. **GitHub awesome-lists (manual PR/issue only, no spam):** only fork + PR with
-   proven track-record evidence (real users, decent reviews) once the beta has
-   any; never unattended.
+2. **GitHub awesome-lists (manual PR/issue only, no spam):**
+   `Suganthan-Mohanadasan/awesome-seo-tools` and `best-of-ai/awesome-ai-seo`:
+   only fork + PR with proven track-record evidence (real users, decent
+   reviews) once the beta has any; never unattended. The GEO-specific lists
+   #19–#23 (`deeflect/awesome-geo`, `raghav453/awesome-ai-seo-geo-tools`,
+   `trakkr-aisearch/awesome-geo`, `tentenco/awesome-geo`): owner-authored
+   fork + PR with the truthful copy in
+   `growth-loop/packets/seo-fix-kit/done/awesome-geo-lists-manual-listing-20260821.md`
+   ("proof-backed SEO repair tool… No ranking promises"), per each repo's own
+   contribution rules; record merged-PR URLs as receipts;
+   `VictorOsondu/awesome-ai-search-readiness` stays skipped until the repo is
+   reachable again (HTTP 404 on 2026-08-22). Never unattended.
 3. **Paid placements (NEEDS-NISH):** StartupSubmit ($99–$299) and any paid
    boost/priority options (e.g. AlternativeTo priority review) are the founder's
    paid decision — the item's acceptance criteria keep paid placements
@@ -314,7 +369,10 @@ premium tier stays NEEDS-NISH) and folded into the suggested order below.
    site-proof AI Answer Readiness positioning; added 2026-08-21).
 7. G2 → Capterra → GetApp vendor profiles (business-email validation; one G2
    Digital Markets account covers all three).
-8. GitHub awesome-lists only after real-user evidence exists.
+8. GitHub awesome-lists: GEO lists #19–#23 per their packet's proposed test
+   (owner fork + PR, truthful copy, ≥2-of-5 merged acceptance);
+   `awesome-seo-tools` / `awesome-ai-seo` only after real-user evidence exists
+   (their README policy requires it).
 9. Product Hunt only as a planned founder-led launch.
 10. Crunchbase / StackShare / Trustpilot: optional, low fit.
 11. Primary Position: editorial outreach only (optional, manual contact form).
