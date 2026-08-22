@@ -220,6 +220,38 @@ test("packages page names the GEO Auditor agent-fix parity trade-off without ove
   assert.doesNotMatch(packages, /each with an exact snippet/);
 });
 
+test("methodology page names the Zaatar ship-as-PR delivery gap without overclaims", () => {
+  const methodology = methodologyHtml(origin);
+  // Zaatar.ai is named as the closest delivery competitor on its own terms
+  // (verified on zaatar.ai, fetched 2026-08-20): July 2026 launch, weekly
+  // audit -> prioritized queue -> technical fixes opened as PRs you approve,
+  // $59-$419/mo, no free tier.
+  {
+    const zaatar = (methodology.match(/<h2>Why not just use Zaatar to ship fixes as pull requests\?<\/h2>[\s\S]*?<\/section>/) || [])[0];
+    assert.ok(zaatar, "methodology must carry a dedicated Zaatar competitor answer");
+    assert.match(zaatar, /<a href="https:\/\/zaatar\.ai\/"/);
+    assert.match(zaatar, /opens PRs on your repo to fix your SEO/);
+    assert.match(zaatar, /pull requests in your repository for you to approve/);
+    assert.match(zaatar, /\$59–\$419 per month with no free tier/);
+    assert.match(zaatar, /nothing ships without you/);
+    // The wedge answer must carry the load-bearing halves: proof-backed
+    // snippets, approval gate, rerun receipt statuses — plus the honest gap:
+    // we do not open PRs today.
+    assert.match(zaatar, /does not open pull requests against your repository/);
+    assert.match(zaatar, /GitHub PR delivery is planned, not live/);
+    assert.match(zaatar, /approval gate/);
+    assert.match(zaatar, /fixed, still-open, new, or regressed/);
+    // Fair-to-competitor guard: name the real trade-off both ways.
+    assert.match(zaatar, /this page will not pretend otherwise/);
+    assert.match(zaatar, /no free tier by design/);
+    // No-overclaim guards: no ranking-timing promise of our own, and the
+    // page-wide boundary sentence must survive in this section too.
+    assert.doesNotMatch(zaatar, /rankings (usually )?move two to four weeks after Google recrawls in|we (also )?promise rankings/i);
+    assert.doesNotMatch(zaatar, /SEO Fix Kit opens pull requests|ships fixes as pull requests itself/i);
+    assert.match(zaatar, /No live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/);
+  }
+});
+
 test("machine-readable public surfaces list proof pages and limits", () => {
   const llms = llmsText(origin);
   const markdown = homeMarkdown(origin);
