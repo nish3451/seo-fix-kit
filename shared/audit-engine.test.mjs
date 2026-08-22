@@ -849,7 +849,7 @@ test("genuine failures are still not mistaken for throttling", () => {
 // the URLs. The public /check must not turn a scan-time origin hiccup into
 // verified critical "broken internal links" findings the page does not have.
 test("same-origin Cloudflare origin errors are not treated as broken internal links", () => {
-  for (const status of [522, 523, 524]) {
+  for (const status of [520, 521, 522, 523, 524, 525, 526]) {
     assert.equal(
       isSameOriginInfraFailure({ status, ok: false, kind: "internal" }),
       true,
@@ -1014,6 +1014,109 @@ test("cross-origin canonical 522/523/524 is still reported as unreachable", asyn
     const canonicalNotice = (report.findings || []).filter((finding) => /Canonical URL redirects/i.test(finding.title || ""));
     assert.deepEqual(canonicalNotice, [], `a failed cross-origin canonical ${status} is not a redirect notice`);
   }
+});
+
+
+// Regression: a www↔apex canonical lives on the customer's own infrastructure
+// even though the hostname differs from the audited page. The strict origin
+// comparison marked it kind "canonical", which bypassed the same-origin infra
+// guard entirely and let one transient Cloudflare origin error become a false
+// "Canonical URL is not reachable" warning on an otherwise clean page.
+test("same-site www and apex canonical transient origin errors are guarded like same-origin", async () => {
+  for (const status of [520, 521, 522, 523, 524, 525, 526]) {
+    for (const [pageUrl, canonical] of [
+      ["https://www.public.example/", "https://public.example/canonical"],
+      ["https://public.example/", "https://www.public.example/canonical"]
+    ]) {
+      const engine = createAuditEngine({
+        launchBrowser: async () =>
+          fakeBrowser(pageUrl, {
+            title: "Proof page with useful content",
+            canonical
+          }),
+        fetchImpl: async (url) => {
+          if (url === pageUrl) {
+            return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+              status: 200,
+              headers: { "content-type": "text/html; charset=utf-8" }
+            });
+          }
+          if (url === canonical) {
+            return new Response("origin hiccup", { status, headers: { "content-type": "text/html" } });
+          }
+          return new Response("", { status: 404, headers: { "content-type": "text/plain" } });
+        },
+        pagespeedDisabled: true
+      });
+
+      const report = await engine.auditUrl(pageUrl, { maxPages: 1, pageSpeed: false });
+      const canonicalFindings = (report.findings || []).filter((finding) => /Canonical URL is not reachable/i.test(finding.title || ""));
+      assert.deepEqual(canonicalFindings, [], `www↔apex canonical ${status} on the same site must not be reported as unreachable`);
+      const canonicalNotice = (report.findings || []).filter((finding) => /Canonical URL redirects/i.test(finding.title || ""));
+      assert.deepEqual(canonicalNotice, [], `www↔apex canonical ${status} on the same site must not surface as a redirect notice either`);
+    }
+  }
+});
+
+
+// Regression: the canonical probe is a second network request to the customer's
+// own site seconds after the page itself rendered fine. When that probe dies at
+// the transport layer (timeout, connection reset, DNS hiccup) it carries no
+// HTTP status at all — proof of nothing about the canonical URL. Reporting it
+// as "Canonical URL is not reachable" turned our own probe timeout into the
+// customer's warning-tier defect. A real HTTP answer (404, 410, 500) still is.
+test("same-origin canonical probe transport failures are not reported as unreachable", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser("https://public.example/", {
+        title: "Proof page with useful content",
+        canonical: "https://public.example/canonical"
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      throw new Error("The operation was aborted due to timeout");
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const canonicalFindings = (report.findings || []).filter((finding) => /Canonical URL is not reachable/i.test(finding.title || ""));
+  assert.deepEqual(canonicalFindings, [], "a timed-out same-origin canonical probe is not proof of an unreachable canonical");
+  const canonicalNotice = (report.findings || []).filter((finding) => /Canonical URL redirects/i.test(finding.title || ""));
+  assert.deepEqual(canonicalNotice, [], "a timed-out same-origin canonical probe is not a redirect observation either");
+});
+
+
+// Guard rail for the transport-failure suppression above: when the same-origin
+// canonical probe gets a REAL HTTP answer, the finding must keep firing so the
+// guard cannot hide genuine breakage.
+test("same-origin canonical returning a real error status stays reported as unreachable", async () => {
+  const engine = createAuditEngine({
+    launchBrowser: async () =>
+      fakeBrowser("https://public.example/", {
+        title: "Proof page with useful content",
+        canonical: "https://public.example/gone"
+      }),
+    fetchImpl: async (url) => {
+      if (url === "https://public.example/") {
+        return new Response("<!doctype html><html><head><title>Proof page</title></head><body><h1>Proof page</h1><p>Useful content.</p></body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      return new Response("not found", { status: 404, headers: { "content-type": "text/html" } });
+    },
+    pagespeedDisabled: true
+  });
+
+  const report = await engine.auditUrl("https://public.example/", { maxPages: 1, pageSpeed: false });
+  const canonicalFindings = (report.findings || []).filter((finding) => /Canonical URL is not reachable/i.test(finding.title || ""));
+  assert.equal(canonicalFindings.length, 1, "a same-origin canonical answering 404 is a real defect");
 });
 
 

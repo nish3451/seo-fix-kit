@@ -505,9 +505,14 @@ export function createAuditEngine({
     const canonicalOrigin = rendered.canonical
       ? safeOrigin(rendered.canonical)
       : "";
-    const canonicalKind = canonicalOrigin && canonicalOrigin === pageOrigin
-      ? "internal"
-      : "canonical";
+    // A canonical pointing at the site's own apex↔www twin is still the
+    // customer's own infrastructure: transient origin errors there must be
+    // guarded exactly like a same-origin canonical, so it gets kind
+    // "internal" too. Only genuinely third-party canonicals stay "canonical".
+    const canonicalKind =
+      canonicalOrigin && pageOrigin && isSameSiteOrigin(canonicalOrigin, pageOrigin)
+        ? "internal"
+        : "canonical";
 
     const [linkChecks, imageChecks, canonicalCheck] = await Promise.all([
       Promise.all(links.map(checkResource)),
@@ -625,6 +630,7 @@ export function createAuditEngine({
           contentLength: 0,
           headers: {},
           redirectChain: [],
+          guarded: true,
           error: result.error
         };
       }
@@ -642,6 +648,7 @@ export function createAuditEngine({
             contentLength: 0,
             headers: {},
             redirectChain,
+            guarded: true,
             error: "This URL points at a private or internal address and cannot be audited."
           };
         }
@@ -1561,7 +1568,12 @@ function buildFindings({ pages, startUrl, robots, sitemap, performance, declared
       });
     }
 
-    if (rendered.canonical && page.canonicalCheck && isBrokenResource(page.canonicalCheck)) {
+    // A same-site canonical probe that failed transiently (Cloudflare origin
+    // errors, or a transport-level failure with no HTTP status at all) is our
+    // scan-time hiccup, not the customer's defect: neither an "unreachable"
+    // warning nor a "redirects" notice may be built on top of it.
+    const canonicalProbeFailedTransiently = isTransientCanonicalProbeFailure(page.canonicalCheck);
+    if (rendered.canonical && page.canonicalCheck && isBrokenResource(page.canonicalCheck) && !canonicalProbeFailedTransiently) {
       add({
         type: "issue",
         severity: "warning",
@@ -1571,7 +1583,7 @@ function buildFindings({ pages, startUrl, robots, sitemap, performance, declared
         fix: "Update the canonical href to a live indexable URL, or restore the canonical destination.",
         source: DOCS.javascript
       });
-    } else if (rendered.canonical && page.canonicalCheck?.redirected) {
+    } else if (rendered.canonical && page.canonicalCheck?.redirected && !canonicalProbeFailedTransiently) {
       add({
         type: "issue",
         severity: "notice",
@@ -2521,6 +2533,22 @@ function safeOrigin(value = "") {
   }
 }
 
+// Same site = exact same origin, or one host is the other with the leading
+// "www." stripped (apex↔www). This is deliberately narrower than a full
+// registrable-domain comparison: blog.example.com pointing at www.example.com
+// is a cross-host canonical worth observing, while www.example.com pointing at
+// example.com is the same site choosing its preferred host.
+function isSameSiteOrigin(originA = "", originB = "") {
+  if (!originA || !originB) return false;
+  if (originA === originB) return true;
+  try {
+    const host = (value) => new URL(value).hostname.toLowerCase().replace(/^www\./, "");
+    return host(originA) === host(originB);
+  } catch {
+    return false;
+  }
+}
+
 function emptyResourceChecks() {
   return { links: [], images: [], canonical: null };
 }
@@ -2598,17 +2626,19 @@ function dedupeHreflangIssues(issues) {
 // same URLs politely returned 200 and 302.
 const THROTTLED_STATUSES = new Set([408, 425, 429, 503]);
 
-// 522 (connection timed out), 523 (origin unreachable), and 524 (origin did
-// not answer in time) are Cloudflare-edge errors returned when the checked
-// site's own origin temporarily cannot be reached. Every same-origin link
-// fails at once while the origin is down and recovers with it; Google backs
-// off and retries 5xx rather than treating the URLs as dead. Reporting a
-// scan-time origin hiccup as verified critical broken internal links invents
-// a defect the page does not have, so same-origin (internal) 522/523/524
-// checks are treated as transient infra failures, not broken links. External
-// targets' 522/523/524 stay reportable: that is a real observation about the
-// referenced site, not our own footprint.
-const CLOUDFLARE_ORIGIN_ERRORS = new Set([522, 523, 524]);
+// 520 (origin returned an unknown/empty error), 521 (web server is down),
+// 522 (connection timed out), 523 (origin unreachable), 524 (origin did
+// not answer in time), 525 (SSL handshake with origin failed), and 526
+// (invalid SSL certificate on origin) are Cloudflare-edge errors returned
+// when the checked site's own origin temporarily cannot be reached. Every
+// same-origin link fails at once while the origin is down and recovers with
+// it; Google backs off and retries 5xx rather than treating the URLs as
+// dead. Reporting a scan-time origin hiccup as verified critical broken
+// internal links invents a defect the page does not have, so same-origin
+// (internal) checks in this class are treated as transient infra failures,
+// not broken links. External targets' failures stay reportable: that is a
+// real observation about the referenced site, not our own footprint.
+const CLOUDFLARE_ORIGIN_ERRORS = new Set([520, 521, 522, 523, 524, 525, 526]);
 
 export function isThrottledResource(check) {
   return Boolean(check && check.status && THROTTLED_STATUSES.has(check.status));
@@ -2621,6 +2651,20 @@ export function isSameOriginInfraFailure(check) {
       check.status &&
       CLOUDFLARE_ORIGIN_ERRORS.has(check.status)
   );
+}
+
+// The canonical probe is a second request to the customer's own site seconds
+// after the page itself rendered fine. A same-site probe that never received
+// an HTTP status at all (timeout, connection reset, DNS hiccup) is a
+// scan-time transport failure on our side, not evidence the canonical URL is
+// dead. Deliberate refusals from our own safety guards (private address,
+// off-origin) are marked `guarded` and stay reportable: refusing to fetch is
+// our decision, not a network hiccup. Same-site means exact origin or the
+// apex↔www twin — both are the customer's own infrastructure.
+export function isTransientCanonicalProbeFailure(check) {
+  if (!check || check.kind !== "internal") return false;
+  if (isSameOriginInfraFailure(check)) return true;
+  return Boolean(!check.status && !check.guarded && check.error);
 }
 
 function isBrokenResource(check) {
