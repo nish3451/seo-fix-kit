@@ -255,6 +255,37 @@ test("public proof pages expose methodology and package ladder without overclaim
     assert.match(tracker, /<a href="https:\/\/peec\.ai\/pricing" rel="nofollow noopener" target="_blank">/);
     assert.match(tracker, /<a href="https:\/\/peec\.ai\/blog\/we-raised-21m-series-a-to-help-brands-win-in-ai-search" rel="nofollow noopener" target="_blank">/);
   }
+  // Rankora + ANJ Digital (executive-ready GEO artifact class) regression
+  // guard: named on its own terms (Rankora's 8-tool toolkit with 36+-check
+  // audit, 100K-page crawler, AI visibility tracking, branded-PDF action
+  // plans; ANJ Digital's executive-ready Power BI dashboards), placed
+  // between the funded-tracker and agentic answers, with the repair queue +
+  // rerun proof wedge and the standing no-overclaim boundary.
+  {
+    const execArtifact = (methodology.match(/<h2>Why not just use Rankora or ANJ Digital\?<\/h2>[\s\S]*?<\/section>/) || [])[0];
+    const trackerH2 = methodology.indexOf("<h2>Why not just use a tracker like Otterly.ai or Peec.ai?</h2>");
+    const rankoraH2 = methodology.indexOf("<h2>Why not just use Rankora or ANJ Digital?</h2>");
+    const agenticH2 = methodology.indexOf("<h2>Why not just use an agentic SEO auditor that files its own GitHub issues?</h2>");
+    assert.ok(execArtifact, "methodology must carry a dedicated Rankora/ANJ Digital competitor answer");
+    assert.ok(trackerH2 > -1 && trackerH2 < rankoraH2 && rankoraH2 < agenticH2, "Rankora/ANJ Digital section must sit between the tracker and agentic sections");
+    assert.match(execArtifact, /Rankora/);
+    assert.match(execArtifact, /ANJ Digital/);
+    assert.match(execArtifact, /executive-ready/);
+    assert.match(execArtifact, /eight-tool SEO\/GEO toolkit/);
+    assert.match(execArtifact, /36\+ checks/);
+    assert.match(execArtifact, /100K pages/);
+    assert.match(execArtifact, /AI visibility tracking/);
+    assert.match(execArtifact, /branded PDF/);
+    assert.match(execArtifact, /Power BI dashboards/);
+    assert.match(execArtifact, /conversions, lead quality, and ROI/);
+    assert.match(execArtifact, /fair choices/);
+    assert.match(execArtifact, /<a href="https:\/\/rankorra\.com" rel="nofollow noopener" target="_blank">/);
+    assert.match(execArtifact, /<a href="https:\/\/anjdigital\.com\/dashboard\/" rel="nofollow noopener" target="_blank">/);
+    assert.match(execArtifact, /repair queue plus rerun proof/);
+    assert.match(execArtifact, /No live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/);
+    assert.doesNotMatch(execArtifact, /AI visibility score tracking|AI citation monitoring (is|are) live/i);
+    assert.doesNotMatch(execArtifact, /guaranteed rankings|guarantees rankings|guarantees citations/i);
+  }
   // Agentic SEO auditor (SEO Automation Club) regression guard
   {
     const agentic = (methodology.match(/<h2>Why not just use an agentic SEO auditor that files its own GitHub issues\?<\/h2>[\s\S]*?<\/section>/) || [])[0];
