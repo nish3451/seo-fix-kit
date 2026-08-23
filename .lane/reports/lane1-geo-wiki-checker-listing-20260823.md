@@ -3,7 +3,7 @@
 Item: `5e13c683b4` — List SEO Fix Kit on GEO Wiki and name its free 26-crawler access checker.
 
 Branch: `lane1-geo-wiki-checker-listing-20260823`
-PR: (pending — filled after `gh pr create`)
+PR: https://github.com/nish3451/seo-fix-kit/pull/209 (base `main`)
 
 ## Direction chosen
 
