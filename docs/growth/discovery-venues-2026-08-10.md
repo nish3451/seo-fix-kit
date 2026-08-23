@@ -138,6 +138,49 @@ listing copy must not claim before/after repair receipts are live);
 copy inputs remain current. The account owner's exact resume path is the
 2026-08-11 execution ledger below plus the new venue #19–#23 owner actions.
 
+Re-verified 2026-08-23 (lane-1 packet run — SourceForge / Trustpilot / Peplio folded in as venues #24–#26):
+this run folded SourceForge, Trustpilot, and Peplio into the ledger as venues
+#24–#26 with fresh live absence receipts dated 2026-08-23. **SourceForge**
+(`https://sourceforge.net/` HTTP 200 on-platform; on-platform search
+`https://sourceforge.net/search/?q=%22seo+fix+kit%22` HTTP 404, 0
+`sourceforge.net` result links with `seofix`; Bing `site:sourceforge.net "seo
+fix kit"` HTTP 200 → 0 result links; Bing `site:sourceforge.net seofixkit` HTTP
+200 → 0; DuckDuckGo lite both queries HTTP 202 wall receipts → 0 countable
+links). Policy ladder: SourceForge SOP doc URL HTTP 404 (prior 403 wall; still
+no quotable proprietary-listing permission); `https://slashdotmedia.com/terms-of-use/`
+HTTP 200 quotes OSI-compliant open-source scope only ("Except for any Open
+Source Initiative ("OSI") compliant Code found on SourceForge"); SourceForge
+homepage meta description (HTTP 200) cites "free & fast open source software
+downloads" — no affirmative proprietary-SaaS listing permission, so row-9
+NOT_APPLICABLE stands refreshed. **Trustpilot** (`https://www.trustpilot.com/`
+HTTP 403 bot wall — live receipt, ≤2 attempts); Bing `site:trustpilot.com
+seofixkit` HTTP 200 → 0; Bing `site:trustpilot.com "seo fix kit"` HTTP 200 →
+0; DuckDuckGo lite both HTTP 202 walls → 0 countable links. Policy:
+`https://support.trustpilot.com/hc/en-us` HTTP 200 redirects to
+`https://help.trustpilot.com/s/?language=en_US`; authoritative business policy
+at `https://legal.trustpilot.com/for-businesses` (HTTP 200) states verbatim:
+"If your business is reviewed on Trustpilot, you can easily claim your business
+profile page" and "Once claimed, your profile page shows the label 'Claimed'
+and you'll have access to our free plan features" — no existing reviews for
+seofixkit.com, so row-11 NOT_CURRENTLY_ELIGIBLE stands refreshed (claim only
+when real customer reviews exist; never fabricate). **Peplio**
+(`https://peplio.com/free-seo-tools/` HTTP 200; page grep `seofix`
+case-insensitive → 0 matches; Bing `site:peplio.com seofixkit` HTTP 200 → 0;
+Bing `site:peplio.com "seo fix kit"` HTTP 200 → 0; DuckDuckGo lite both HTTP
+202 walls → 0). Peplio requirement lines quoted live: "✓ 100% free — no paid
+tier for core features"; "✓ No login required to use the main tool"; meta
+description "Submit your free SEO tool to Peplio. Get a permanent dofollow
+backlink, a social shoutout, and a monthly newsletter feature. 100% free.";
+submission contact `info@peplio.com`; only on-page `<form>` is newsletter
+opt-in (`tb_optin_form` → `wp-admin/admin-ajax.php`) — tool submission is
+email-only. Fresh `venue-claim check` gate receipts (all exit=0, dispositions
+`unknown (not reviewed)` for sourceforge.net, trustpilot.com, peplio.com);
+`venue-policy.json` allowlist still `{}` (updated 2026-08-08) → every venue
+stays manual-only. Canonical surfaces re-verified live 2026-08-23: `/llms.txt`,
+`/packages`, `/check`, `/methodology` HTTP 200; `/proof` STILL HTTP 404 (no
+copy may claim repair receipts are live); `/packages` still states the $99.00
+one-time beta Fix Pack.
+
 Re-verified 2026-08-21 (lane-1 packet run — SEO Tech List venue on-boarded):
 the new venue **SEO Tech List** (`https://seotechlist.com`) was folded into
 this ledger as venue #18. Direct probes re-run live 2026-08-21:
@@ -180,6 +223,21 @@ ledger, approved copy, exact resume path — was completed this run.
 | Venue | 2026-08-21 outcome | Exact next step |
 | --- | --- | --- |
 | SEO Tech List (seotechlist.com) | **NEEDS_NISH_STEP** — free Community plan submission via the maker form at `https://seotechlist.com/submit` (or `?plan=free`). Community plan is free, no payment details required, 2–6 week standard queue; Premium $39 (24h + launch date + homepage promo) — paid tier stays NEEDS_NISH per the backlog acceptance. | Nish (or a founder-approved sender) signs in at `/owner/login` or submits via the form, enters the approved copy with links to `/demo` and `/methodology`, picks AI visibility / Technical SEO categories, and submits under the Community plan. Record listing URL + indexed title/description when accepted. |
+
+---
+
+## 2026-08-23 execution ledger (SourceForge / Trustpilot / Peplio venues #24–#26 — manual-only)
+
+Held to the same contract as the earlier ledgers: the fleet `venue-claim`
+allowlist is empty; no unattended account creation, browser submission, or
+email send happened in this run. The agent-completable half — live-verified
+absence, dated receipts, approved copy, exact resume path — is complete.
+
+| Venue | 2026-08-23 outcome | Exact next step |
+| --- | --- | --- |
+| SourceForge (sourceforge.net) | **NOT_APPLICABLE** — OSI/open-source scope only per Slashdot Media terms and SourceForge homepage meta; row-9 judgement re-verified live 2026-08-23 (SOP doc HTTP 404; no proprietary-listing permission). | None; revisit only if the product becomes open-source; do not file a misleading listing. |
+| Trustpilot (trustpilot.com) | **NOT_CURRENTLY_ELIGIBLE** — homepage HTTP 403 wall; legal policy requires an existing reviewed profile to claim; zero seofixkit.com reviews today; row-11 judgement re-verified live 2026-08-23. | Claim only when real customer reviews exist; never fabricate reviews. |
+| Peplio (peplio.com) | **NEEDS_NISH** — free-tool directory; email-only submission to info@peplio.com; absence confirmed live 2026-08-23 (submit-packet-ready in copy file). | Account-owner email per the Peplio block in `docs/growth/discovery-venues-copy-2026-08-10.txt` (tool: SEO Fix Kit Check at `/check`; $99 Fix Pack excluded). |
 
 ---
 
@@ -246,6 +304,10 @@ activity was involved.
 | 21 | GitHub `VictorOsondu/awesome-ai-search-readiness` | REPO NO LONGER REACHABLE as of 2026-08-22: repo page and GitHub API both HTTP 404 (deleted, renamed, or made private since the 2026-08-21 web-search discovery) | n/a this run — no live repo to read policy from | not a submission target until a live repo re-verifies by search | Skip; re-run a web search before any manual attempt and re-check policy if it reappears under a new name |
 | 22 | GitHub `trakkr-aisearch/awesome-geo` | Official README raw-fetched live 2026-08-22: zero `seofixkit` / `SEO Fix Kit` matches; sections "Tools (Commercial)", "Tools (Open Source and Free)", "Free Checkers", "Datasets and Benchmarks" | Fork + PR workflow per repo README (same packet, checked 2026-08-21) | manual-only (PR workflow) | Owner-authored fork + PR with truthful copy from the packet; record merged-PR URL as receipt |
 | 23 | GitHub `tentenco/awesome-geo` | Official README raw-fetched live 2026-08-22: zero `seofixkit` / `SEO Fix Kit` matches; GEO/AIO/AEO/AI SEO scope | Fork + PR workflow per repo README (same packet, checked 2026-08-21) | manual-only (PR workflow) | Owner-authored fork + PR with truthful copy from the packet; record merged-PR URL as receipt |
+
+| 24 | SourceForge | On-platform search `https://sourceforge.net/search/?q=%22seo+fix+kit%22` HTTP 404, 0 `sourceforge.net` links with `seofix`; Bing `site:sourceforge.net "seo fix kit"` HTTP 200 → 0; Bing `site:sourceforge.net seofixkit` HTTP 200 → 0; DuckDuckGo lite both queries HTTP 202 walls → 0 (2026-08-23) | `https://sourceforge.net/` HTTP 200; SOP doc HTTP 404; `https://slashdotmedia.com/terms-of-use/` HTTP 200 quotes OSI-compliant open-source scope only ("Except for any Open Source Initiative ("OSI") compliant Code found on SourceForge"); homepage meta cites "free & fast open source software downloads" — no proprietary-SaaS listing permission (row-9 history re-verified) | unknown (not reviewed) → manual-only (allowlist empty) | None; revisit only if the product becomes open-source; do not file a misleading listing |
+| 25 | Trustpilot | `https://www.trustpilot.com/` HTTP 403 bot wall (2026-08-23); Bing `site:trustpilot.com seofixkit` HTTP 200 → 0; Bing `site:trustpilot.com "seo fix kit"` HTTP 200 → 0; DuckDuckGo lite both HTTP 202 walls → 0 | `https://support.trustpilot.com/hc/en-us` HTTP 200 → `https://help.trustpilot.com/s/?language=en_US`; `https://legal.trustpilot.com/for-businesses` HTTP 200: "If your business is reviewed on Trustpilot, you can easily claim your business profile page" and free-plan access after claim — review platform, not a discovery listing (row-11 history re-verified) | unknown (not reviewed) → manual-only (allowlist empty) | Claim only when real customer reviews exist; never fabricate reviews |
+| 26 | Peplio | `https://peplio.com/free-seo-tools/` HTTP 200; page grep `seofix` → 0; Bing `site:peplio.com seofixkit` HTTP 200 → 0; Bing `site:peplio.com "seo fix kit"` HTTP 200 → 0; DuckDuckGo lite both HTTP 202 walls → 0 (2026-08-23) | `https://peplio.com/free-seo-tools/` HTTP 200: "✓ 100% free — no paid tier for core features"; "✓ No login required to use the main tool"; meta "Submit your free SEO tool to Peplio. Get a permanent dofollow backlink, a social shoutout, and a monthly newsletter feature. 100% free."; submission `info@peplio.com` (email-only — on-page form is newsletter opt-in `tb_optin_form`) | unknown (not reviewed) → manual-only (allowlist empty) | Account-owner email per the Peplio block in the copy file (SEO Fix Kit Check at `/check`; parent product disclosed; $99 Fix Pack excluded) |
 
 Prior fleet packets for this product already cover #1, #2, and #13 in detail and
 are incorporated here by reference (do not duplicate submissions):
@@ -329,6 +391,12 @@ Every venue above is manual-only this run:
 4. **Record receipts:** after each submission, save the venue listing URL, the
    indexed title/description, and any referral-source tag next to this packet
    (see Acceptance/rollback).
+5. **SourceForge / Trustpilot / Peplio (venues #24–#26, added 2026-08-23):**
+   SourceForge stays closed (NOT_APPLICABLE — proprietary SaaS, not open
+   source); Trustpilot stays deferred (NOT_CURRENTLY_ELIGIBLE — claim only
+   when real customer reviews exist); Peplio is submit-packet-ready
+   (NEEDS_NISH) — account-owner email to `info@peplio.com` per the Peplio
+   block in `docs/growth/discovery-venues-copy-2026-08-10.txt`.
 
 ## Acceptance and rollback
 
@@ -377,3 +445,4 @@ premium tier stays NEEDS-NISH) and folded into the suggested order below.
 10. Crunchbase / StackShare / Trustpilot: optional, low fit.
 11. Primary Position: editorial outreach only (optional, manual contact form).
 12. StartupSubmit and any paid boosts: NEEDS-NISH.
+13. SourceForge / Trustpilot / Peplio per the 2026-08-23 ledger rows (manual; venues #24–#26).

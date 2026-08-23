@@ -284,3 +284,41 @@ PER-VENUE FIELDS
 - StackShare: tool page (manual, account-gated; dev-stack audience).
 - Trustpilot: claim only when real customer reviews exist; never fabricate.
 - SourceForge: not applicable — proprietary SaaS, not open source.
+
+================================================================
+VENUES #24–#26 (added 2026-08-23; manual-only, account-owner steps)
+================================================================
+- SourceForge (#24): closed — see ledger; no listing filed (truth boundary).
+- Trustpilot (#25): closed — see ledger; claim deferred (truth boundary).
+
+--- Peplio ("SEO Fix Kit Check" free-tool listing; EMAIL submission; venue #26) ---
+- Requirements met (quoted live 2026-08-23 from
+  https://peplio.com/free-seo-tools/): "✓ 100% free — no paid tier for core
+  features"; "✓ No login required to use the main tool". Permanent dofollow
+  backlink + social shoutout + newsletter feature; "No paid placement, no
+  link exchange required, no fee."
+- SETTLED SCOPE DECISION: the submitted tool is the anonymous /check surface
+  branded "SEO Fix Kit Check" — NOT the full product. The parent product is
+  disclosed; the $99 Fix Pack is EXCLUDED from this entry (never pitched as
+  the listed tool, no checkout link in the listing body).
+- Route: account-owner email to info@peplio.com, subject "Free SEO tool
+  submission — SEO Fix Kit Check" (submission flow is email-only; the on-page
+  form is a newsletter opt-in, not the tool form).
+- Tool name: SEO Fix Kit Check
+- URL to submit: https://seofixkit.com/check
+- Description (send verbatim):
+  "SEO Fix Kit Check is the free anonymous checker by SEO Fix Kit
+  (https://seofixkit.com). Paste a public page URL and it renders the page in
+  a real browser, compares static vs rendered HTML, guards against false
+  positives, and shows actionable findings — no account and no stored report.
+  The maker's main product also offers full private-beta audits and a paid
+  repair workflow; this submission is the free checker."
+- Category suggestion: Free SEO Tools / technical SEO audit (use Peplio's own
+  vocabulary at submission time).
+- Honesty lines to keep visible:
+  - "No ranking or traffic guarantee."
+  - "Do NOT claim /proof is live (it returned HTTP 404 on 2026-08-23; no
+    before/after repair-receipt claims anywhere in this listing)."
+  - "No AI-citation monitoring — AI Answer Readiness is site-proof only."
+- Receipt to record afterwards: sent-email date, reply, listing URL on
+  peplio.com, indexed title/description.

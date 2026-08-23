@@ -74,3 +74,16 @@ Use this file for durable project truth Codex cannot reliably infer from code al
   `docs/research/2026-08-23-otterly-ai-competitor-benchmark.md`,
   `docs/research/2026-08-23-peec-ai-competitor-benchmark.md`, and
   `.lane/reports/lane1-otterly-peec-funded-trackers-20260823.md`.
+- 2026-08-23 (lane 1, item `f5919d0e82`): Folded SourceForge, Trustpilot, and
+  Peplio into the discovery-venues ledger as venues #24–#26 with fresh live
+  absence receipts (SourceForge: Bing HTTP 200/0 links, DDG lite HTTP 202 wall;
+  Trustpilot: homepage HTTP 403 wall, Bing HTTP 200/0, DDG lite HTTP 202 wall;
+  Peplio: page grep 0, Bing HTTP 200/0, DDG lite HTTP 202 wall) and first-run
+  `venue-claim check` gate receipts (all exit=0, dispositions "unknown (not
+  reviewed)"; allowlist still EMPTY → every venue stays manual-only).
+  Dispositions: SourceForge NOT_APPLICABLE, Trustpilot NOT_CURRENTLY_ELIGIBLE,
+  Peplio NEEDS_NISH (submit-packet-ready; "SEO Fix Kit Check" anonymous /check
+  surface, parent disclosed, $99 Fix Pack excluded). `/proof` still 404 so no
+  copy claims repair receipts are live. See `docs/growth/discovery-venues-2026-08-10.md`
+  (venues #24–#26 + 2026-08-23 ledger) and
+  `.lane/reports/lane1-sf-trustpilot-peplio-listings-20260823.md`.
