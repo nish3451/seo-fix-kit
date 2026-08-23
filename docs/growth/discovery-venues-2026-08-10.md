@@ -167,6 +167,21 @@ reviewed)" under the current policy), so the new venue stays manual-only;
 the account owner's exact resume path is the new 2026-08-21 ledger entry
 below.
 
+Re-verified 2026-08-23 (lane-1 packet run): geo.wiki folded in as venue #24.
+The GEO product directory (https://geo.wiki/products, fetched live 2026-08-23)
+lists exactly 4 products — Profound, Peec AI, LLMrefs, Otterly.AI — with zero
+seofixkit / SEO Fix Kit entries; SEO Fix Kit is absent. geo.wiki also ships a
+free AI Crawler Access Checker (https://geo.wiki/tools/ai-crawler-access,
+verified live 2026-08-23: 26 AI crawler tokens vs robots.txt per RFC 9309 with
+quoted match lines, UA-keyed edge-rule probes against a browser baseline,
+free/no-account, 5 checks/day, sign-in 15, page states "Updated 18 August
+2026"). The only known listing channel is the correction-path email to
+support@geo.wiki ("Report an error" mailto on the products page); prepared,
+truthful email copy is in discovery-venues-copy-2026-08-10.txt. Status:
+pending-manual-submission — the send is the account owner's manual step;
+no account creation, browser submission, or automated send was performed.
+Live receipts: docs/research/2026-08-23-geo-wiki-benchmark.md.
+
 ---
 
 ## 2026-08-21 execution ledger (SEO Tech List venue on-boarded — manual-only)
@@ -377,3 +392,6 @@ premium tier stays NEEDS-NISH) and folded into the suggested order below.
 10. Crunchbase / StackShare / Trustpilot: optional, low fit.
 11. Primary Position: editorial outreach only (optional, manual contact form).
 12. StartupSubmit and any paid boosts: NEEDS-NISH.
+13. GEO Wiki products-directory listing via the correction-path email to
+   support@geo.wiki (venue #24; copy prepared 2026-08-23; editorial channel,
+   acceptance not guaranteed; manual send only).

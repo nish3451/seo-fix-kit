@@ -12,6 +12,17 @@ Use this file for durable project truth Codex cannot reliably infer from code al
 
 ## Session Summaries
 
+- 2026-08-23 (lane 1, item `5e13c683b4`): Named GEO Wiki's free AI Crawler
+  Access Checker on `/methodology` as the crawler-map competitor (26 tokens vs
+  robots.txt per RFC 9309 with quoted verdicts, UA-keyed edge probes, free/no
+  account, 5 checks/day) with the repair queue + rerun proof wedge, and
+  on-boarded geo.wiki as discovery venue #24 (products directory: 4 products,
+  SEO Fix Kit absent, verified live 2026-08-23; correction-path email copy to
+  support@geo.wiki prepared, pending manual submission). Regression guard +
+  PUBLIC_PAGE_RENDERERS shift added; sitemap lastmod refreshed; `/proof`
+  still 404 so nothing claims public repair receipts. See
+  `docs/research/2026-08-23-geo-wiki-benchmark.md` and
+  `.lane/reports/lane1-geo-wiki-checker-listing-20260823.md`.
 - 2026-08-22 (lane 1, item `f2f489ed8b`): Folded the backlog's 2026-08-21
   GEO-awesome-lists annotation into the discovery-venues ledger as venues
   #19–#23 with fresh raw-README absence receipts (`deeflect/awesome-geo`,

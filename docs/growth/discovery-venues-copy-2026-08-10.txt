@@ -256,6 +256,49 @@ PER-VENUE FIELDS
   editorial policy; absence of a rule is not permission; submission is
   manual-only by the account owner.
 
+--- GEO Wiki (GEO product directory; venue #24; added 2026-08-23) ---
+- Route: correction-path email to support@geo.wiki. The live products page
+  ships a "Report an error" mailto with subject "Products correction". No
+  self-serve submission form exists; whether outside submissions are accepted
+  at all is unknown — this correction email is the only known channel.
+  Status: PENDING MANUAL SUBMISSION by the account owner ([NEEDS-NISH] half).
+  No account creation, browser submission, or automated send.
+- To: support@geo.wiki
+- Subject: Products correction — add SEO Fix Kit (GEO product)
+- Body:
+    Hi GEO Wiki team,
+
+    Your GEO product directory lists four products today (Profound, Peec AI,
+    LLMrefs, Otterly.AI). Please consider adding SEO Fix Kit.
+
+    SEO Fix Kit (https://seofixkit.com) is a proof-backed SEO repair tool. It
+    renders a page in a real browser, compares the static HTML with the
+    rendered DOM, and shows evidence for each finding, including guarded
+    false positives. Anonymous one-page checks are free at
+    https://seofixkit.com/check with no account; full reports and the private
+    repair queue need beta access. Paid offer: one Fix Pack ($99.00 one-time
+    in beta) covering one proof-backed repair pass tied to one report plus one
+    rerun after fixes. We make no ranking or traffic guarantee, and we do not
+    sample live AI engines or monitor citations — our AI Answer Readiness
+    checks are derived from the site's own rendered pages.
+
+    Credit where due: your free AI Crawler Access Checker goes deeper than our
+    /check on crawler access today — 26 AI crawler tokens evaluated against
+    robots.txt per RFC 9309 with quoted verdicts, plus UA-keyed edge-rule
+    probes, free without an account (5 checks a day). Our wedge is the step
+    after the audit: turning proven findings into an approved repair queue
+    with re-measurement after fixes.
+
+    Proof links: https://seofixkit.com/demo and https://seofixkit.com/methodology.
+
+    Thanks,
+    Nish — SEO Fix Kit
+- Honesty lines kept visible: "No ranking or traffic guarantee."; "AI Answer
+  Readiness is derived from your site's rendered content; SEO Fix Kit does
+  not monitor live AI-engine answers or citations."
+- DO NOT claim unless https://seofixkit.com/proof returns non-404 at writing
+  time: that before/after repair receipts are publicly viewable/live.
+
 --- GitHub awesome lists (fork + PR, manual, only with track record) ---
 - Suganthan-Mohanadasan/awesome-seo-tools — section "Technical SEO and Site
   Auditing". Proposed entry:
