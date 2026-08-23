@@ -255,6 +255,38 @@ test("public proof pages expose methodology and package ladder without overclaim
     assert.match(tracker, /<a href="https:\/\/peec\.ai\/pricing" rel="nofollow noopener" target="_blank">/);
     assert.match(tracker, /<a href="https:\/\/peec\.ai\/blog\/we-raised-21m-series-a-to-help-brands-win-in-ai-search" rel="nofollow noopener" target="_blank">/);
   }
+  // GEO Wiki AI Crawler Access Checker regression guard: named on its own terms
+  // (free, no account, 5 checks/day, 26 tokens, RFC 9309 quoted verdicts,
+  // UA-keyed edge-rule probes vs browser baseline, dated directory absence),
+  // placed between the tracker and agentic answers, with the repair queue +
+  // rerun proof wedge and the standing no-overclaim boundary.
+  {
+    const geowiki = (methodology.match(/<h2>Why not just use GEO Wiki's free AI Crawler Access Checker\?<\/h2>[\s\S]*?<\/section>/) || [])[0];
+    const trackerH2 = methodology.indexOf("<h2>Why not just use a tracker like Otterly.ai or Peec.ai?</h2>");
+    const geoWikiH2 = methodology.indexOf("<h2>Why not just use GEO Wiki's free AI Crawler Access Checker?</h2>");
+    const agenticH2 = methodology.indexOf("<h2>Why not just use an agentic SEO auditor that files its own GitHub issues?</h2>");
+    assert.ok(geowiki, "methodology must carry a dedicated GEO Wiki checker competitor answer");
+    assert.ok(trackerH2 > -1 && trackerH2 < geoWikiH2 && geoWikiH2 < agenticH2, "GEO Wiki section must sit between the tracker and agentic sections");
+    assert.match(geowiki, /26 AI crawler tokens/);
+    assert.match(geowiki, /RFC 9309/);
+    assert.match(geowiki, /quoting the exact rule line behind every verdict/);
+    assert.match(geowiki, /UA-keyed edge rules/);
+    assert.match(geowiki, /24 of 26/);
+    assert.match(geowiki, /Google-Extended and Applebot-Extended/);
+    assert.match(geowiki, /Free, no account needed — 5 checks a day/);
+    assert.match(geowiki, /updated 18 August 2026/);
+    assert.match(geowiki, /citability, schema markup, and llms\.txt generation/);
+    assert.match(geowiki, /as of August 2026/);
+    assert.match(geowiki, /Profound, Peec AI, LLMrefs, and Otterly\.AI/);
+    assert.match(geowiki, /support@geo\.wiki/);
+    assert.match(geowiki, /repair queue plus rerun proof/);
+    assert.match(geowiki, /No live AI-engine sampling, no AI citation monitoring, and no ranking guarantees/);
+    assert.doesNotMatch(geowiki, /AI visibility score tracking|AI citation monitoring (is|are) live/i);
+    assert.doesNotMatch(geowiki, /guaranteed rankings|guarantees rankings|guarantees citations/i);
+    assert.doesNotMatch(geowiki, /repair receipts are live|viewable at/i);
+    assert.match(geowiki, /<a href="https:\/\/geo\.wiki\/tools\/ai-crawler-access" rel="nofollow noopener" target="_blank">/);
+    assert.match(geowiki, /<a href="https:\/\/geo\.wiki\/products" rel="nofollow noopener" target="_blank">/);
+  }
   // Agentic SEO auditor (SEO Automation Club) regression guard
   {
     const agentic = (methodology.match(/<h2>Why not just use an agentic SEO auditor that files its own GitHub issues\?<\/h2>[\s\S]*?<\/section>/) || [])[0];
@@ -452,24 +484,24 @@ const PUBLIC_PAGE_RENDERERS = {
   ],
   "/demo": [{ file: "worker/routes/pages.js", lineStart: 156, lineEnd: 263 }],
   "/check": [{ file: "worker/routes/public-check.js", lineStart: 296, lineEnd: 800 }],
-  "/methodology": [{ file: "worker/routes/pages.js", lineStart: 265, lineEnd: 375 }],
-  "/packages": [{ file: "worker/routes/pages.js", lineStart: 378, lineEnd: 472 }],
+  "/methodology": [{ file: "worker/routes/pages.js", lineStart: 265, lineEnd: 381 }],
+  "/packages": [{ file: "worker/routes/pages.js", lineStart: 384, lineEnd: 478 }],
   "/small-business-seo-audit": [
-    { file: "worker/routes/pages.js", lineStart: 475, lineEnd: 522 },
-    { file: "worker/routes/pages.js", lineStart: 678, lineEnd: 820 }
+    { file: "worker/routes/pages.js", lineStart: 481, lineEnd: 528 },
+    { file: "worker/routes/pages.js", lineStart: 684, lineEnd: 826 }
   ],
   "/rendered-vs-static-seo-audit": [
-    { file: "worker/routes/pages.js", lineStart: 523, lineEnd: 586 },
-    { file: "worker/routes/pages.js", lineStart: 678, lineEnd: 820 }
+    { file: "worker/routes/pages.js", lineStart: 529, lineEnd: 592 },
+    { file: "worker/routes/pages.js", lineStart: 684, lineEnd: 826 }
   ],
   "/ai-answer-readiness": [
-    { file: "worker/routes/pages.js", lineStart: 587, lineEnd: 677 },
-    { file: "worker/routes/pages.js", lineStart: 678, lineEnd: 820 }
+    { file: "worker/routes/pages.js", lineStart: 593, lineEnd: 683 },
+    { file: "worker/routes/pages.js", lineStart: 684, lineEnd: 826 }
   ],
-  "/proof": [{ file: "worker/routes/pages.js", lineStart: 739, lineEnd: 865 }],
-  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 911, lineEnd: 950 }],
-  "/support": [{ file: "worker/routes/pages.js", lineStart: 952, lineEnd: 985 }],
-  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1069, lineEnd: 1119 }]
+  "/proof": [{ file: "worker/routes/pages.js", lineStart: 745, lineEnd: 871 }],
+  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 917, lineEnd: 956 }],
+  "/support": [{ file: "worker/routes/pages.js", lineStart: 958, lineEnd: 991 }],
+  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1075, lineEnd: 1125 }]
 };
 
 function latestCommitIsoIst(renderer) {
