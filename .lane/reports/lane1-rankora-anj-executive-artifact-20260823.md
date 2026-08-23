@@ -19,8 +19,17 @@
 
 ## Tests
 
-(pending)
+```
+# tests 18
+# pass 17
+# fail 1  (pre-existing /proof lastmod staleness on main — not introduced by this PR)
+```
+
+Methodology regression guard: PASS  
+Freshness for `/methodology`: PASS (failure is only `/proof`)  
+SITEMAP-MATCH: PASS  
+ORDER-OK WEDGE-OK BOUNDARY-OK: PASS
 
 ## PR
 
-(pending)
+https://github.com/nish3451/seo-fix-kit/pull/212
