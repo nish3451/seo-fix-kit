@@ -623,6 +623,7 @@ function aiAnswerReadinessHtml(origin) {
           <li><a href="https://revsurgedigital.com/free-tools/geo-audit" rel="nofollow noopener" target="_blank">RevSurge Digital</a> is a free GEO audit that checks whether AI answer engines can read, understand, and cite your website.</li>
           <li><a href="https://answervisibilitylab.com/geo-audit-tool" rel="nofollow noopener" target="_blank">Answer Visibility Lab</a> is a free GEO audit tool that checks brand mentions and owned-URL citations across ChatGPT, Perplexity, Gemini, Claude, and Google AI Overviews.</li>
           <li><a href="https://websiteaeogeochecker.com" rel="nofollow noopener" target="_blank">Website AEO GEO Checker</a> is a free AEO and GEO checker for AI search that shows how ChatGPT, Perplexity, Gemini, Claude AI, and Bing AI read your site.</li>
+          <li><a href="https://www.veuno.com/ai-visibility-checker" rel="nofollow noopener" target="_blank">Veuno</a> is a free AI visibility checker that scores how easily ChatGPT, Claude, Perplexity, and Google AI Overviews can find, understand, and cite your website.</li>
         </ul>
         <p>If you only need that visibility score, those tools are a fair choice. SEO Fix Kit stays on the site-proof side: readiness here is derived from your rendered pages, schema, links, sitemap context, and optional llms.txt, and only proven findings reach the persistent repair queue with a rerun proof receipt.</p>
         <p>No live AI-engine sampling, no AI citation monitoring, and no ranking guarantees.</p>
