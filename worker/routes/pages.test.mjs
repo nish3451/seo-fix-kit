@@ -456,20 +456,20 @@ const PUBLIC_PAGE_RENDERERS = {
   "/packages": [{ file: "worker/routes/pages.js", lineStart: 378, lineEnd: 472 }],
   "/small-business-seo-audit": [
     { file: "worker/routes/pages.js", lineStart: 475, lineEnd: 522 },
-    { file: "worker/routes/pages.js", lineStart: 678, lineEnd: 820 }
+    { file: "worker/routes/pages.js", lineStart: 679, lineEnd: 821 }
   ],
   "/rendered-vs-static-seo-audit": [
     { file: "worker/routes/pages.js", lineStart: 523, lineEnd: 586 },
-    { file: "worker/routes/pages.js", lineStart: 678, lineEnd: 820 }
+    { file: "worker/routes/pages.js", lineStart: 679, lineEnd: 821 }
   ],
   "/ai-answer-readiness": [
-    { file: "worker/routes/pages.js", lineStart: 587, lineEnd: 677 },
-    { file: "worker/routes/pages.js", lineStart: 678, lineEnd: 820 }
+    { file: "worker/routes/pages.js", lineStart: 587, lineEnd: 678 },
+    { file: "worker/routes/pages.js", lineStart: 679, lineEnd: 821 }
   ],
-  "/proof": [{ file: "worker/routes/pages.js", lineStart: 739, lineEnd: 865 }],
-  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 911, lineEnd: 950 }],
-  "/support": [{ file: "worker/routes/pages.js", lineStart: 952, lineEnd: 985 }],
-  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1069, lineEnd: 1119 }]
+  "/proof": [{ file: "worker/routes/pages.js", lineStart: 740, lineEnd: 866 }],
+  "/privacy": [{ file: "worker/routes/pages.js", lineStart: 912, lineEnd: 951 }],
+  "/support": [{ file: "worker/routes/pages.js", lineStart: 953, lineEnd: 986 }],
+  "/terms": [{ file: "worker/routes/pages.js", lineStart: 1070, lineEnd: 1120 }]
 };
 
 function latestCommitIsoIst(renderer) {
@@ -587,6 +587,7 @@ test("intent-matching landing pages carry unique, truthful, machine-readable pro
   assert.match(pages[2].html, /RevSurge Digital/);
   assert.match(pages[2].html, /Answer Visibility Lab/);
   assert.match(pages[2].html, /Website AEO GEO Checker/);
+  assert.match(pages[2].html, /Veuno/);
   // Direct challenge to the getaisearchscore.com r=0.009 headline stays truth-safe:
   // the null is real, but it does not refute proof-derived readiness.
   assert.match(pages[2].html, /On "technical readiness predicts nothing \(r=0\.009\)"/);
