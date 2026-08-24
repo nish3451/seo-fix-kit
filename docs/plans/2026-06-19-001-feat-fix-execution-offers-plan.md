@@ -29,20 +29,20 @@ SEO Fix Kit has strong proof-backed auditing, private reports, Dodo Fix Pack che
 - R6. A verified site owner can subscribe to recurring proof monitoring for one or more verified sites.
 - R7. Monitoring must reuse existing audit schedules, report deltas, and saved report ownership.
 - R8. Monitoring must avoid pretending to fix issues; it sells detection, proof, and change alerts.
-- R9. Monitoring pricing should fit the lower tier: roughly $49-$99/month once billing entitlements exist.
+- R9. Monitoring pricing should fit the lower tier; exact range is held in the private offer catalog until billing entitlements are live.
 - R10. A site owner can buy a one-time repair sprint from a report with fixable issues.
 - R11. A repair sprint must produce a scoped queue, owner approval, delivery status, and rerun proof.
 - R12. A repair sprint may include manual delivery links, CMS edits, or GitHub PRs depending on integrations.
-- R13. Repair sprint pricing should start around $249-$499 one-time once execution is visible and reliable.
+- R13. Repair sprint pricing starts in the mid range, one-time, once execution is visible and reliable; exact figure is held in the private offer catalog.
 - R14. A verified site owner can enable a recurring repair agent that prioritizes SEO and AI-search readiness repairs from live proof.
 - R15. The agent must prioritize by real opportunity signals: report severity, repeat issues, Search Console or imported keyword data, report deltas, and AI-search readiness checks.
 - R16. The agent must include practical AI-search readiness checks without claiming Google needs llms.txt or special AI markup.
 - R17. The agent must keep owner approval before publishing, merging, or marking delivery complete.
-- R18. SEO/GEO repair agent pricing can move toward $199-$399/month after recurring execution is real.
+- R18. SEO/GEO repair agent pricing can move into the mid-upper monthly range after recurring execution is real; exact figure is held in the private offer catalog.
 - R19. An agency owner can manage multiple client reports with branding, client links, PDF exports, issue assignment, and repair status.
 - R20. Agency workspace must build on existing white-label reports, report domains, team members, and issue collaboration.
 - R21. Agency workspace must separate client-facing proof from private admin notes and internal fulfillment state.
-- R22. Agency pricing can move toward $299-$799/month after client/workspace limits and billing entitlements are implemented.
+- R22. Agency pricing can move into the mid-upper monthly range after client/workspace limits and billing entitlements are implemented; exact figure is held in the private offer catalog.
 
 ---
 
