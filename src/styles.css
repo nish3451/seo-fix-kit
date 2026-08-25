@@ -224,7 +224,14 @@ h1 {
   align-items: center;
   display: grid;
   gap: clamp(18px, 3vw, 28px);
-  grid-template-columns: minmax(0, 1fr) auto;
+  /* Right column was previously `auto`, which resolves to the max-content of
+     .check-entry (~440px at desktop because the inner "Live rendered proof..."
+     note refuses to break). That starved the 1fr form column to ~109px and made
+     the "Email access link" submit button (white-space: nowrap, ~193px) sit on
+     top of the email input. Cap the right column at 280px so prose wraps and
+     the email form gets usable width. The 760px mobile breakpoint below
+     overrides this to a single column. */
+  grid-template-columns: minmax(0, 1fr) fit-content(280px);
   margin-top: 34px;
   max-width: 760px;
 }
@@ -239,7 +246,7 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  min-width: 240px;
+  min-width: 0;
 }
 
 .check-entry-note {
