@@ -1,0 +1,23 @@
+# gitleaks findings that are proven false positives.
+#
+# Each entry is a FINGERPRINT: commit:path:rule:line. A fingerprint pins one
+# exact line of one exact commit, so ignoring it can never hide a future or
+# different secret - not even the same rule in the same file on another line.
+#
+# Add an entry only after confirming by hand that the value is not a real
+# credential, and say why on the comment line above it.
+
+# IndexNow API key in shared/index-now.js. The key is intentionally a
+# committed, world-readable value: the IndexNow spec requires the key file
+# to be fetchable by anyone (the Worker serves it at /{key}.txt and
+# /.well-known/{key}.txt), and the key itself is not a security credential
+# (https://www.indexnow.org/documentation). It only has to be stable and
+# unique to this host. The same string appears in 5 commits because the
+# file was authored once and re-landed via PR; each fingerprint pins one
+# exact line of one exact commit, so future or different secrets in the
+# same file would still fail the required Gitleaks check.
+a6bed6d190d6203eeb1a41bab5d6ca1010f939b5:shared/index-now.js:generic-api-key:15
+6c6054b8d0fd905aad553ff8ffc5f77b8dc342c3:shared/index-now.js:generic-api-key:15
+32b3656727872af117ee5bae944927e1faa407d1:shared/index-now.js:generic-api-key:15
+b0aad28788e94874b0454f1402c7d56901ae2844:shared/index-now.js:generic-api-key:15
+96683eab8e2e881761898ee4e83833b9f2c21c73:shared/index-now.js:generic-api-key:15
