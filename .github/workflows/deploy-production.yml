@@ -1,0 +1,45 @@
+name: Deploy production
+
+# Mechanical fleet deploy-on-green: every push to main that is already green
+# (PR check / "check" job) deploys to the seo-fix-kit Worker on seofixkit.com.
+# The deploy body (Node setup, build, `npx wrangler deploy`, health probe,
+# failure handling) lives in nish3451/shared-workflows@v1 — this file is the
+# thin caller only. Updates to the deploy standard propagate from the shared
+# workflow; do NOT copy the body here.
+#
+# Secrets: CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are set as repo
+# secrets and passed via `secrets: inherit`. Never print or echo them.
+#
+# Green gate: .github/workflows/pr-check.yml runs `npm run check` on push to
+# main (its `push: branches: [main]` trigger), so the merge commit itself
+# produces a required "check" run before this deploy fires.
+#
+# Auto-revert coverage: deploy failures are NOT yet watched by auto-revert —
+# failures are not commit-attributable until the failure-class upgrade lands.
+# Do not arm auto-merge on this PR until the reusable workflow exists on
+# shared-workflows@v1.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  checks: read
+  actions: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false # deploys queue, never cancel mid-flight
+
+jobs:
+  deploy:
+    uses: nish3451/shared-workflows/.github/workflows/deploy-production.yml@v1
+    with:
+      node-version: "24"
+      # wrangler.jsonc is at the repo root (name: seo-fix-kit, main: worker/index.js,
+      # assets.directory: ./dist) so the shared workflow's auto-detect will run
+      # `npx wrangler deploy` with no path override.
+      build-command: "npm run build" # vite build -> ./dist (wrangler does not build)
+      health-url: "https://seofixkit.com"
+    secrets: inherit
